@@ -37,7 +37,7 @@ Reverb.WetLevel = -6
 Reverb.Enabled = false
 Reverb.Parent = Sound
 
--- Executor file APIs
+-- Executor file & clipboard APIs
 local canWrite = typeof(writefile) == "function"
 local canRead = typeof(readfile) == "function"
 local canGetAsset = typeof(getcustomasset) == "function"
@@ -46,13 +46,23 @@ local canListFiles = typeof(listfiles) == "function"
 local canMakeFolder = typeof(makefolder) == "function"
 local canIsFolder = typeof(isfolder) == "function"
 local canDelFile = typeof(delfile) == "function"
+local canClipboard = typeof(setclipboard) == "function" or typeof(toclipboard) == "function"
+
+local function copyText(text)
+	if typeof(setclipboard) == "function" then
+		return pcall(setclipboard, tostring(text))
+	elseif typeof(toclipboard) == "function" then
+		return pcall(toclipboard, tostring(text))
+	end
+	return false
+end
 
 local FOLDER = "DarkMoonMusic"
 if canMakeFolder and not (canIsFolder and isfolder(FOLDER)) then
 	pcall(makefolder, FOLDER)
 end
 
--- Built-in Roblox Audio Tracks
+-- Built-in Roblox Audio Tracks (15 Total: 1 Custom Slot + 14 Preset IDs)
 local Tracks = {
 	{ label = "★ People x Nainowale Ne (Set ID)", id = "0" },
 	{ label = "1. Relaxing Lofi Chill", id = "1848354536" },
@@ -60,6 +70,15 @@ local Tracks = {
 	{ label = "3. Dark Phonk / Bass", id = "1836776572" },
 	{ label = "4. Upbeat Electronic", id = "1841647093" },
 	{ label = "5. Ambient Night", id = "1845554017" },
+	{ label = "6. Midnight Lo-Fi Beats", id = "1843404009" },
+	{ label = "7. Neon Pulse Synth", id = "1838614424" },
+	{ label = "8. Shadow Drift Bass", id = "1836009840" },
+	{ label = "9. Hyper Club Electro", id = "1845497712" },
+	{ label = "10. Deep Space Ambient", id = "1839246711" },
+	{ label = "11. Sunset Chillhop", id = "1842241432" },
+	{ label = "12. Retrowave Drive", id = "1843497734" },
+	{ label = "13. Subzero Phonk", id = "1846458016" },
+	{ label = "14. Starlight Lounge", id = "1847463628" },
 }
 
 local TrackLabels = table.create(#Tracks)
@@ -69,98 +88,230 @@ for i, item in ipairs(Tracks) do
 	TrackByLabel[item.label] = item.id
 end
 
--- 75 Verified Roblox Catalog R15 Emotes & Popular Animations:
--- [1 - 20] Classic Dances | [21 - 40] Trending Emotes | [41 - 55] Funny Emotes | [56 - 75] Popular Animations
-local AllEmotes = {
-	-- Classic & Viral Dances (1 - 20)
-	{ name = "1. Shuffle Dance", id = "4349242221", category = "Classic" },
-	{ name = "2. Floss Dance", id = "5917459365", category = "Classic" },
-	{ name = "3. Hype Dance", id = "3695333486", category = "Classic" },
-	{ name = "4. Robot Dance", id = "3338025566", category = "Classic" },
-	{ name = "5. Twist Dance", id = "3338097973", category = "Classic" },
-	{ name = "6. Stylish Dance", id = "4555808220", category = "Classic" },
-	{ name = "7. Disco Dance", id = "3333499508", category = "Classic" },
-	{ name = "8. Samba Dance", id = "6862001787", category = "Classic" },
-	{ name = "9. Breakdance", id = "5915648917", category = "Classic" },
-	{ name = "10. Fast Hands", id = "4265701731", category = "Classic" },
-	{ name = "11. Cha-Cha", id = "3695322025", category = "Classic" },
-	{ name = "12. Top Rock", id = "3361276673", category = "Classic" },
-	{ name = "13. Air Dance", id = "4555782893", category = "Classic" },
-	{ name = "14. Sway Dance", id = "3934984583", category = "Classic" },
-	{ name = "15. Fancy Feet", id = "3333432454", category = "Classic" },
-	{ name = "16. Dorky Dance", id = "4212455378", category = "Classic" },
-	{ name = "17. Bunny Hop", id = "4641985101", category = "Classic" },
-	{ name = "18. Side to Side", id = "3333136415", category = "Classic" },
-	{ name = "19. Happy Groove", id = "4841405708", category = "Classic" },
-	{ name = "20. Idyllic Step", id = "4841407203", category = "Classic" },
+-- Emotes List (Featured 3 + 20 More Emotes = 23 Total)
+local EmoteList = {
+	{ name = "Jumpy Spider Emote", id = "0" },
+	{ name = "Nervy Emote Dance", id = "107071154699616" },
+	{ name = "Good Boy Dog Emote", id = "100737291015384" },
 
-	-- Trending & Popular Emotes (21 - 40)
-	{ name = "21. Applause", id = "5915693819", category = "Trending" },
-	{ name = "22. Hero Landing", id = "5104344710", category = "Trending" },
-	{ name = "23. Sleepy", id = "4686925579", category = "Trending" },
-	{ name = "24. Louder", id = "3338083565", category = "Trending" },
-	{ name = "25. Rodeo Dance", id = "5918726674", category = "Trending" },
-	{ name = "26. Baby Dance", id = "4265725525", category = "Trending" },
-	{ name = "27. Rock On", id = "5915714366", category = "Trending" },
-	{ name = "28. Panicked", id = "5915713518", category = "Trending" },
-	{ name = "29. Cower", id = "4940563117", category = "Trending" },
-	{ name = "30. Confused", id = "4940561610", category = "Trending" },
-	{ name = "31. Air Guitar", id = "3695300085", category = "Trending" },
-	{ name = "32. Fashionable", id = "3333331310", category = "Trending" },
-	{ name = "33. Get Out", id = "3333272779", category = "Trending" },
-	{ name = "34. Godlike", id = "3337994105", category = "Trending" },
-	{ name = "35. Line Dance", id = "4049037604", category = "Trending" },
-	{ name = "36. Monkey Groove", id = "3333499508", category = "Trending" },
-	{ name = "37. Shrug", id = "3334392772", category = "Trending" },
-	{ name = "38. Salute", id = "3360689775", category = "Trending" },
-	{ name = "39. Stadium", id = "3360686498", category = "Trending" },
-	{ name = "40. Tilt", id = "3360692915", category = "Trending" },
-
-	-- Funny Emotes (41 - 55)
-	{ name = "41. Chicken Dance", id = "3333136415", category = "Funny" },
-	{ name = "42. Crab Scuttle", id = "3338025566", category = "Funny" },
-	{ name = "43. T-Rex Stomp", id = "5104344710", category = "Funny" },
-	{ name = "44. Panic Mode", id = "5915713518", category = "Funny" },
-	{ name = "45. Sneaky Tip-Toe", id = "4212455378", category = "Funny" },
-	{ name = "46. Dizzy Spin", id = "3338097973", category = "Funny" },
-	{ name = "47. Bouncy Frog", id = "4641985101", category = "Funny" },
-	{ name = "48. Dramatic Faint", id = "4686925579", category = "Funny" },
-	{ name = "49. Wild Clap", id = "5915693819", category = "Funny" },
-	{ name = "50. Silly Wiggle", id = "4265725525", category = "Funny" },
-	{ name = "51. Zombie Groove", id = "4841405708", category = "Funny" },
-	{ name = "52. Pumped Flex", id = "3337994105", category = "Funny" },
-	{ name = "53. Cheer Jump", id = "3360686498", category = "Funny" },
-	{ name = "54. Boogie Spin", id = "4555808220", category = "Funny" },
-	{ name = "55. Clumsy Tilt", id = "3360692915", category = "Funny" },
-
-	-- Popular Animations (56 - 75)
-	{ name = "56. Ninja Idle Stance", id = "616111295", category = "Popular" },
-	{ name = "57. Ninja Run Cycle", id = "616117460", category = "Popular" },
-	{ name = "58. Ninja Jump Pose", id = "616115533", category = "Popular" },
-	{ name = "59. Vampire Idle Pose", id = "1083445855", category = "Popular" },
-	{ name = "60. Vampire Walk Cycle", id = "1083473986", category = "Popular" },
-	{ name = "61. Levitation Float", id = "616008936", category = "Popular" },
-	{ name = "62. Levitation Walk", id = "616013216", category = "Popular" },
-	{ name = "63. Cartwheel Pose", id = "742637544", category = "Popular" },
-	{ name = "64. Astronaut Float", id = "891621366", category = "Popular" },
-	{ name = "65. Astronaut Walk", id = "891667138", category = "Popular" },
-	{ name = "66. Superhero Hover", id = "616136790", category = "Popular" },
-	{ name = "67. Superhero Run", id = "616143577", category = "Popular" },
-	{ name = "68. Zombie Walk Pose", id = "616166554", category = "Popular" },
-	{ name = "69. Zombie Idle Pose", id = "616158929", category = "Popular" },
-	{ name = "70. Mage Spell Idle", id = "707742142", category = "Popular" },
-	{ name = "71. Mage Walk Pose", id = "707897309", category = "Popular" },
-	{ name = "72. Pirate Swagger Idle", id = "750779899", category = "Popular" },
-	{ name = "73. Pirate Walk Cycle", id = "750785693", category = "Popular" },
-	{ name = "74. Toy Bounce Idle", id = "782841498", category = "Popular" },
-	{ name = "75. Toy Bounce Walk", id = "782843345", category = "Popular" },
+	{ name = "4. Shuffle Dance", id = "4349242221" },
+	{ name = "5. Floss Dance", id = "5917459365" },
+	{ name = "6. Hype Dance", id = "3695333486" },
+	{ name = "7. Robot Dance", id = "3338025566" },
+	{ name = "8. Twist Dance", id = "3338097973" },
+	{ name = "9. Stylish Dance", id = "4555808220" },
+	{ name = "10. Disco Dance", id = "3333499508" },
+	{ name = "11. Samba Dance", id = "6862001787" },
+	{ name = "12. Breakdance", id = "5915648917" },
+	{ name = "13. Fast Hands", id = "4265701731" },
+	{ name = "14. Cha-Cha", id = "3695322025" },
+	{ name = "15. Top Rock", id = "3361276673" },
+	{ name = "16. Rodeo Dance", id = "5918726674" },
+	{ name = "17. Baby Dance", id = "4265725525" },
+	{ name = "18. Rock On", id = "5915714366" },
+	{ name = "19. Air Guitar", id = "3695300085" },
+	{ name = "20. Line Dance", id = "4049037604" },
+	{ name = "21. Applause", id = "5915693819" },
+	{ name = "22. Hero Landing", id = "5104344710" },
+	{ name = "23. Sleepy", id = "4686925579" },
 }
 
-local EmoteNames = table.create(#AllEmotes)
+local EmoteNames = table.create(#EmoteList)
 local EmoteByName = {}
-for i, item in ipairs(AllEmotes) do
+for i, item in ipairs(EmoteList) do
 	EmoteNames[i] = item.name
 	EmoteByName[item.name] = item.id
+end
+
+-- 20 R15 Animation Bundles (Idle, Walk, Run, Jump, Fall, Climb)
+local AnimationBundles = {
+	{
+		name = "1. Cartoony",
+		idle = { "782841498", "782845736" },
+		walk = "782843345",
+		run = "782842708",
+		jump = "782847020",
+		fall = "782846423",
+		climb = "782843869",
+	},
+	{
+		name = "2. Ninja",
+		idle = { "656117400", "656118341" },
+		walk = "656121766",
+		run = "656118852",
+		jump = "656117878",
+		fall = "656115606",
+		climb = "656114359",
+	},
+	{
+		name = "3. Zombie",
+		idle = { "616158929", "616160636" },
+		walk = "616168032",
+		run = "616163682",
+		jump = "616161997",
+		fall = "616157476",
+		climb = "616156119",
+	},
+	{
+		name = "4. Knight",
+		idle = { "657595757", "657568135" },
+		walk = "657552124",
+		run = "657564596",
+		jump = "658409194",
+		fall = "657600338",
+		climb = "658360781",
+	},
+	{
+		name = "5. Elder",
+		idle = { "845397899", "845400520" },
+		walk = "845403856",
+		run = "845386501",
+		jump = "845398858",
+		fall = "845396048",
+		climb = "845392038",
+	},
+	{
+		name = "6. Levitation",
+		idle = { "616006778", "616008087" },
+		walk = "616013216",
+		run = "616010382",
+		jump = "616008936",
+		fall = "616005863",
+		climb = "616003713",
+	},
+	{
+		name = "7. Mage",
+		idle = { "707742142", "707855907" },
+		walk = "707897309",
+		run = "707861613",
+		jump = "707853694",
+		fall = "707829716",
+		climb = "707826056",
+	},
+	{
+		name = "8. Pirate",
+		idle = { "750781874", "750782770" },
+		walk = "750785693",
+		run = "750783738",
+		jump = "750782230",
+		fall = "750780242",
+		climb = "750779899",
+	},
+	{
+		name = "9. Popstar",
+		idle = { "1212900995", "1212900995" },
+		walk = "1212980338",
+		run = "1212980348",
+		jump = "1212954642",
+		fall = "1212900985",
+		climb = "1213044953",
+	},
+	{
+		name = "10. Princess",
+		idle = { "941003647", "936282295" },
+		walk = "941028902",
+		run = "941015281",
+		jump = "941008832",
+		fall = "941000007",
+		climb = "940996062",
+	},
+	{
+		name = "11. Sneaky",
+		idle = { "1132473842", "1132477671" },
+		walk = "1132510133",
+		run = "1132494274",
+		jump = "1132489853",
+		fall = "1132469004",
+		climb = "1132461372",
+	},
+	{
+		name = "12. Toy",
+		idle = { "782841498", "782845736" },
+		walk = "782843345",
+		run = "782842708",
+		jump = "782847020",
+		fall = "782846423",
+		climb = "782843869",
+	},
+	{
+		name = "13. Vampire",
+		idle = { "1083445855", "1083450166" },
+		walk = "1083473930",
+		run = "1083462077",
+		jump = "1083455352",
+		fall = "1083443587",
+		climb = "1083439238",
+	},
+	{
+		name = "14. Werewolf",
+		idle = { "1083195517", "1083214717" },
+		walk = "1083178339",
+		run = "1083216690",
+		jump = "1083218792",
+		fall = "1083189019",
+		climb = "1083182000",
+	},
+	{
+		name = "15. Astronaut",
+		idle = { "891621366", "891633237" },
+		walk = "891667138",
+		run = "891636393",
+		jump = "891627522",
+		fall = "891617961",
+		climb = "891609353",
+	},
+	{
+		name = "16. Bubbly",
+		idle = { "910004836", "910007277" },
+		walk = "910034835",
+		run = "910025107",
+		jump = "910016857",
+		fall = "910001910",
+		climb = "909997997",
+	},
+	{
+		name = "17. Stylish",
+		idle = { "4513844687", "4555495904" },
+		walk = "4513874245",
+		run = "4513866530",
+		jump = "4513852531",
+		fall = "4513840687",
+		climb = "4513835016",
+	},
+	{
+		name = "18. Oldschool",
+		idle = { "5319828216", "5319831086" },
+		walk = "5319847293",
+		run = "5319844329",
+		jump = "5319841935",
+		fall = "5319839762",
+		climb = "5319816635",
+	},
+	{
+		name = "19. Superhero",
+		idle = { "616111295", "616113536" },
+		walk = "616122287",
+		run = "616117076",
+		jump = "616115533",
+		fall = "616108001",
+		climb = "616104706",
+	},
+	{
+		name = "20. Bold",
+		idle = { "16738332169", "16738334710" },
+		walk = "16738340646",
+		run = "16738337225",
+		jump = "16738336650",
+		fall = "16738333171",
+		climb = "16738328195",
+	},
+}
+
+local BundleNames = table.create(#AnimationBundles)
+local BundleByName = {}
+for i, b in ipairs(AnimationBundles) do
+	BundleNames[i] = b.name
+	BundleByName[b.name] = b
 end
 
 local state = {
@@ -178,14 +329,22 @@ local state = {
 	selectedFavLabel = nil,
 	volume = 0.5,
 	speed = 1.0,
-	-- Emote & Animation state
-	selectedEmoteName = AllEmotes[56].name,
+	selectedEmoteName = EmoteList[2].name,
 	customEmoteId = "",
 	emoteSpeed = 1.0,
 	emoteAutoRespawn = false,
 	activeEmoteId = nil,
+	selectedBundleName = AnimationBundles[1].name,
+	activeBundle = nil,
+	bundleAutoRespawn = true,
+	-- Small Head Tag state (Moon Logo + Meow front style)
+	headTagEnabled = true,
+	headTagLogo = "🌙",
+	headTagText = "Meow",
+	headTagAccent = Color3.fromHex("E9D5FF"),
 }
 
+local originalAnimateIds = nil
 local currentAnimTrack = nil
 local currentAnimInstance = nil
 local EmoteDropdown = nil
@@ -223,7 +382,224 @@ local function updateStatus(statusText)
 	end
 end
 
--- === EMOTE & ANIMATION HELPERS ===
+-- === SMALL HEAD TAG (MOON LOGO + MEOW FRONT STYLE) ===
+local HEAD_TAG_NAME = "DarkMoonMeowHeadTag"
+
+local function removeHeadTag(character)
+	local head = character and character:FindFirstChild("Head")
+	local existing = head and head:FindFirstChild(HEAD_TAG_NAME)
+	if existing then
+		existing:Destroy()
+	end
+end
+
+local function applyHeadTag(character)
+	character = character or (LocalPlayer and LocalPlayer.Character)
+	if not character then
+		return
+	end
+
+	removeHeadTag(character)
+
+	if not state.headTagEnabled then
+		return
+	end
+
+	local head = character:FindFirstChild("Head")
+	if not head or not head:IsA("BasePart") then
+		return
+	end
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = HEAD_TAG_NAME
+	billboard.Adornee = head
+	billboard.Size = UDim2.fromOffset(108, 26)
+	billboard.StudsOffset = Vector3.new(0, 1.55, 0)
+	billboard.AlwaysOnTop = true
+	billboard.MaxDistance = 85
+	billboard.ResetOnSpawn = false
+	billboard.Parent = head
+
+	local pill = Instance.new("Frame")
+	pill.Name = "TagPill"
+	pill.Size = UDim2.fromScale(1, 1)
+	pill.BackgroundColor3 = Color3.fromHex("120E24")
+	pill.BackgroundTransparency = 0.14
+	pill.BorderSizePixel = 0
+	pill.Parent = billboard
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(1, 0)
+	corner.Parent = pill
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Thickness = 1.2
+	stroke.Color = state.headTagAccent
+	stroke.Transparency = 0.25
+	stroke.Parent = pill
+
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	layout.VerticalAlignment = Enum.VerticalAlignment.Center
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Padding = UDim.new(0, 4)
+	layout.Parent = pill
+
+	local moonLabel = Instance.new("TextLabel")
+	moonLabel.Name = "MoonLogo"
+	moonLabel.LayoutOrder = 1
+	moonLabel.Size = UDim2.fromOffset(16, 18)
+	moonLabel.BackgroundTransparency = 1
+	moonLabel.Font = Enum.Font.FredokaOne
+	moonLabel.Text = state.headTagLogo
+	moonLabel.TextColor3 = state.headTagAccent
+	moonLabel.TextSize = 14
+	moonLabel.Parent = pill
+
+	local meowLabel = Instance.new("TextLabel")
+	meowLabel.Name = "MeowText"
+	meowLabel.LayoutOrder = 2
+	meowLabel.AutomaticSize = Enum.AutomaticSize.X
+	meowLabel.Size = UDim2.fromOffset(0, 18)
+	meowLabel.BackgroundTransparency = 1
+	meowLabel.Font = Enum.Font.FredokaOne
+	meowLabel.Text = state.headTagText
+	meowLabel.TextColor3 = Color3.fromHex("FFFFFF")
+	meowLabel.TextSize = 13
+	meowLabel.Parent = pill
+
+	local textStroke = Instance.new("UIStroke")
+	textStroke.Thickness = 1
+	textStroke.Color = Color3.fromHex("3B0764")
+	textStroke.Transparency = 0.2
+	textStroke.Parent = meowLabel
+end
+
+-- === ANIMATION BUNDLE HELPERS ===
+local function snapshotDefaultAnimate(animateScript)
+	local snap = {}
+	for _, child in ipairs(animateScript:GetChildren()) do
+		if child:IsA("StringValue") then
+			local anims = {}
+			for _, animChild in ipairs(child:GetChildren()) do
+				if animChild:IsA("Animation") then
+					anims[animChild.Name] = animChild.AnimationId
+				end
+			end
+			snap[child.Name] = anims
+		end
+	end
+	return snap
+end
+
+local function setAnimValue(animateScript, valueName, assetIds)
+	local valObj = animateScript:FindFirstChild(valueName)
+	if not valObj or not valObj:IsA("StringValue") then
+		return
+	end
+	if type(assetIds) == "table" then
+		local idx = 1
+		for _, child in ipairs(valObj:GetChildren()) do
+			if child:IsA("Animation") then
+				local id = assetIds[idx] or assetIds[1]
+				if id then
+					child.AnimationId = "rbxassetid://" .. tostring(id)
+				end
+				idx += 1
+			end
+		end
+	else
+		for _, child in ipairs(valObj:GetChildren()) do
+			if child:IsA("Animation") then
+				child.AnimationId = "rbxassetid://" .. tostring(assetIds)
+			end
+		end
+	end
+end
+
+local function refreshAnimateState(character)
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local animate = character and character:FindFirstChild("Animate")
+	if not humanoid or not animate then
+		return
+	end
+	animate.Disabled = true
+	task.wait(0.05)
+	animate.Disabled = false
+	pcall(function()
+		humanoid:ChangeState(Enum.HumanoidStateType.Landed)
+	end)
+end
+
+local function applyAnimationBundle(bundle, silent)
+	if not bundle then
+		return
+	end
+	local character = LocalPlayer and LocalPlayer.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local animate = character and character:FindFirstChild("Animate")
+
+	if not humanoid or not animate then
+		if not silent then
+			notify("Character Missing", "Wait for your character and Animate script to load.", "alert-circle")
+		end
+		return
+	end
+
+	if humanoid.RigType == Enum.HumanoidRigType.R6 then
+		if not silent then
+			notify("R15 Required", "These 20 animation bundles are designed for R15 avatars.", "alert-triangle")
+		end
+		return
+	end
+
+	if not originalAnimateIds then
+		originalAnimateIds = snapshotDefaultAnimate(animate)
+	end
+
+	setAnimValue(animate, "idle", bundle.idle)
+	setAnimValue(animate, "walk", { bundle.walk })
+	setAnimValue(animate, "run", { bundle.run })
+	setAnimValue(animate, "jump", { bundle.jump })
+	setAnimValue(animate, "fall", { bundle.fall })
+	setAnimValue(animate, "climb", { bundle.climb })
+
+	state.activeBundle = bundle
+	state.selectedBundleName = bundle.name
+	refreshAnimateState(character)
+
+	if not silent then
+		notify("Bundle Applied", bundle.name .. " animation pack active.", "user-check")
+	end
+end
+
+local function resetAnimationBundle()
+	local character = LocalPlayer and LocalPlayer.Character
+	local animate = character and character:FindFirstChild("Animate")
+	if not animate or not originalAnimateIds then
+		state.activeBundle = nil
+		notify("Reset Complete", "Default movement animations restored.", "rotate-ccw")
+		return
+	end
+
+	for valueName, animMap in pairs(originalAnimateIds) do
+		local valObj = animate:FindFirstChild(valueName)
+		if valObj and valObj:IsA("StringValue") then
+			for _, animChild in ipairs(valObj:GetChildren()) do
+				if animChild:IsA("Animation") and animMap[animChild.Name] then
+					animChild.AnimationId = animMap[animChild.Name]
+				end
+			end
+		end
+	end
+
+	state.activeBundle = nil
+	refreshAnimateState(character)
+	notify("Bundle Reset", "Reverted to default animations.", "rotate-ccw")
+end
+
+-- === EMOTE HELPERS ===
 local function stopCurrentEmote(silent)
 	if currentAnimTrack then
 		pcall(function()
@@ -240,14 +616,14 @@ local function stopCurrentEmote(silent)
 	end
 	state.activeEmoteId = nil
 	if not silent then
-		notify("Emote Stopped", "Stopped active animation/emote.", "square")
+		notify("Emote Stopped", "Stopped active emote.", "square")
 	end
 end
 
-local function playDanceEmote(rawId, label)
+local function playEmote(rawId, label)
 	local digits = tostring(rawId or ""):match("%d+")
 	if not digits or digits == "0" then
-		notify("Invalid ID", "Enter a valid numeric Animation ID.", "alert-circle")
+		notify("Set Emote ID", "Enter a valid numeric Animation ID for this emote.", "alert-circle")
 		return
 	end
 
@@ -259,7 +635,7 @@ local function playDanceEmote(rawId, label)
 	end
 
 	if humanoid.RigType == Enum.HumanoidRigType.R6 then
-		notify("R15 Required", "Catalog emotes & animations require an R15 avatar rig.", "alert-triangle")
+		notify("R15 Required", "Emotes require an R15 avatar rig.", "alert-triangle")
 		return
 	end
 
@@ -272,7 +648,7 @@ local function playDanceEmote(rawId, label)
 	stopCurrentEmote(true)
 
 	local anim = Instance.new("Animation")
-	anim.Name = "DarkMoonDanceEmote"
+	anim.Name = "DarkMoonCustomEmote"
 	anim.AnimationId = "rbxassetid://" .. digits
 
 	local ok, track = pcall(function()
@@ -289,22 +665,31 @@ local function playDanceEmote(rawId, label)
 		track:Play(0.15)
 		track:AdjustSpeed(state.emoteSpeed)
 
-		notify("Playing Animation", label or ("ID: " .. digits), "sparkles")
+		notify("Playing Emote", label or ("Emote ID: " .. digits), "sparkles")
 	else
 		anim:Destroy()
-		notify("Animation Error", "Could not load animation ID: " .. digits, "x-circle")
+		notify("Emote Error", "Could not load animation ID: " .. digits, "x-circle")
 	end
 end
 
 LocalPlayer.CharacterAdded:Connect(function(char)
 	currentAnimTrack = nil
 	currentAnimInstance = nil
+	originalAnimateIds = nil
+
+	char:WaitForChild("Head", 5)
+	char:WaitForChild("Humanoid", 5)
+	char:WaitForChild("Animate", 5)
+	task.wait(0.35)
+
+	applyHeadTag(char)
+
+	if state.bundleAutoRespawn and state.activeBundle then
+		applyAnimationBundle(state.activeBundle, true)
+	end
+
 	if state.emoteAutoRespawn and state.activeEmoteId then
-		local savedId = state.activeEmoteId
-		local savedName = state.selectedEmoteName
-		char:WaitForChild("Humanoid", 5)
-		task.wait(0.4)
-		playDanceEmote(savedId, savedName)
+		playEmote(state.activeEmoteId, state.selectedEmoteName)
 	else
 		state.activeEmoteId = nil
 	end
@@ -645,7 +1030,9 @@ Window:EditOpenButton({
 })
 
 local PlayerTab = Window:Tab({ Title = "Player", Icon = "headphones" })
-local EmotesTab = Window:Tab({ Title = "Emotes (75)", Icon = "sparkles" })
+local EmotesTab = Window:Tab({ Title = "Emotes (23)", Icon = "sparkles" })
+local BundlesTab = Window:Tab({ Title = "Anim Bundles (20)", Icon = "user-check" })
+local TagTab = Window:Tab({ Title = "Head Tag", Icon = "moon" })
 local LibraryTab = Window:Tab({ Title = "My Songs", Icon = "download" })
 local FavTab = Window:Tab({ Title = "Favorites", Icon = "star" })
 local FxTab = Window:Tab({ Title = "Audio FX", Icon = "sliders" })
@@ -672,10 +1059,27 @@ PlayerTab:Button({
 	end,
 })
 
+PlayerTab:Button({
+	Title = "Copy Current Roblox ID",
+	Desc = "For pasting into MM2 Radio or ID boxes",
+	Icon = "copy",
+	Callback = function()
+		if state.sourceMode ~= "roblox" or not state.currentId or state.currentId == "0" then
+			notify("No Roblox ID", "Play a Roblox Audio ID track first.", "alert-circle")
+			return
+		end
+		if canClipboard and copyText(state.currentId) then
+			notify("Copied ID", "Copied " .. state.currentId .. " to clipboard.", "check")
+		else
+			notify("Active ID", "Current ID: " .. state.currentId, "info")
+		end
+	end,
+})
+
 PlayerTab:Section({ Title = "Tracks & Roblox ID" })
 
 PlayerTab:Dropdown({
-	Title = "Playlist",
+	Title = "Playlist (15 Tracks)",
 	Values = TrackLabels,
 	Value = TrackLabels[2],
 	Callback = function(v)
@@ -791,23 +1195,23 @@ PlayerTab:Toggle({
 	end,
 })
 
--- === TAB 2: EMOTES & POPULAR ANIMATIONS (75 TOTAL) ===
-EmotesTab:Section({ Title = "Emote & Animation Selector (75)" })
+-- === TAB 2: EMOTES (23 TOTAL) ===
+EmotesTab:Section({ Title = "Emote Search & Dropdown" })
 
 EmotesTab:Input({
-	Title = "Search Emote / Animation",
-	Desc = "Filter all 75 items by name (e.g. Ninja, Levitation, Chicken, Rodeo)",
-	Placeholder = "Type name to filter...",
+	Title = "Search Emote",
+	Desc = "Filter emotes by name",
+	Placeholder = "Type emote name...",
 	Callback = function(query)
 		local q = tostring(query or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
 		local filtered = {}
-		for _, item in ipairs(AllEmotes) do
+		for _, item in ipairs(EmoteList) do
 			if q == "" or item.name:lower():find(q, 1, true) then
 				table.insert(filtered, item.name)
 			end
 		end
 		if #filtered == 0 then
-			table.insert(filtered, "No matching animation")
+			table.insert(filtered, "No matching emote")
 		end
 		if EmoteDropdown and typeof(EmoteDropdown.Refresh) == "function" then
 			pcall(EmoteDropdown.Refresh, EmoteDropdown, filtered, true)
@@ -816,74 +1220,82 @@ EmotesTab:Input({
 })
 
 EmoteDropdown = EmotesTab:Dropdown({
-	Title = "Select Emote / Animation",
+	Title = "Select Emote",
 	Values = EmoteNames,
-	Value = EmoteNames[56],
+	Value = EmoteNames[2],
 	Callback = function(selectedEmote)
-		if selectedEmote == "No matching animation" then
+		if selectedEmote == "No matching emote" then
 			return
 		end
 		state.selectedEmoteName = selectedEmote
 		local animId = EmoteByName[selectedEmote]
 		if animId then
-			playDanceEmote(animId, selectedEmote)
+			playEmote(animId, selectedEmote)
 		end
 	end,
 })
 
 EmotesTab:Button({
-	Title = "Play Selected",
+	Title = "Play Selected Emote",
 	Icon = "play",
 	Callback = function()
 		local animId = EmoteByName[state.selectedEmoteName]
 		if animId then
-			playDanceEmote(animId, state.selectedEmoteName)
+			playEmote(animId, state.selectedEmoteName)
 		end
 	end,
 })
 
 EmotesTab:Button({
-	Title = "Random Popular Animation",
-	Icon = "zap",
-	Callback = function()
-		local pick = AllEmotes[math.random(56, #AllEmotes)]
-		state.selectedEmoteName = pick.name
-		playDanceEmote(pick.id, pick.name)
-	end,
-})
-
-EmotesTab:Button({
-	Title = "Random Funny Emote",
-	Icon = "smile",
-	Callback = function()
-		local pick = AllEmotes[math.random(41, 55)]
-		state.selectedEmoteName = pick.name
-		playDanceEmote(pick.id, pick.name)
-	end,
-})
-
-EmotesTab:Button({
-	Title = "Random Trending Emote",
+	Title = "Random Emote",
 	Icon = "shuffle",
 	Callback = function()
-		local pick = AllEmotes[math.random(21, 40)]
+		local pick = EmoteList[math.random(1, #EmoteList)]
 		state.selectedEmoteName = pick.name
-		playDanceEmote(pick.id, pick.name)
+		playEmote(pick.id, pick.name)
 	end,
 })
 
 EmotesTab:Button({
-	Title = "Stop Animation / Emote",
+	Title = "Stop Emote",
 	Icon = "square",
 	Callback = function()
 		stopCurrentEmote(false)
 	end,
 })
 
-EmotesTab:Section({ Title = "Animation Settings & Custom ID" })
+EmotesTab:Section({ Title = "Featured Emotes" })
+
+for i = 1, 3 do
+	local emote = EmoteList[i]
+	EmotesTab:Button({
+		Title = emote.name,
+		Icon = "sparkles",
+		Callback = function()
+			state.selectedEmoteName = emote.name
+			playEmote(emote.id, emote.name)
+		end,
+	})
+end
+
+EmotesTab:Section({ Title = "More Emotes (4 - 23)" })
+
+for i = 4, #EmoteList do
+	local emote = EmoteList[i]
+	EmotesTab:Button({
+		Title = emote.name,
+		Icon = "music",
+		Callback = function()
+			state.selectedEmoteName = emote.name
+			playEmote(emote.id, emote.name)
+		end,
+	})
+end
+
+EmotesTab:Section({ Title = "Emote Controls & Custom ID" })
 
 EmotesTab:Slider({
-	Title = "Animation Speed",
+	Title = "Emote Speed",
 	Step = 0.05,
 	Value = { Min = 0.25, Max = 2.5, Default = 1.0 },
 	Callback = function(v)
@@ -906,78 +1318,139 @@ EmotesTab:Toggle({
 
 EmotesTab:Input({
 	Title = "Custom Animation ID",
-	Desc = "Play any R15 animation ID",
-	Placeholder = "616111295",
+	Desc = "Enter any numeric Animation ID",
+	Placeholder = "Enter Animation ID...",
 	Callback = function(v)
 		state.customEmoteId = v
 	end,
 })
 
 EmotesTab:Button({
-	Title = "Play Custom ID",
+	Title = "Play Custom Emote ID",
 	Icon = "play-circle",
 	Callback = function()
-		playDanceEmote(state.customEmoteId, "Custom Animation (" .. tostring(state.customEmoteId) .. ")")
+		playEmote(state.customEmoteId, "Custom Emote (" .. tostring(state.customEmoteId) .. ")")
 	end,
 })
 
-EmotesTab:Section({ Title = "Popular Animations (56 - 75)" })
+-- === TAB 3: ANIMATION BUNDLES (20) ===
+BundlesTab:Section({ Title = "Bundle Controls (R15)" })
 
-for i = 56, #AllEmotes do
-	local item = AllEmotes[i]
-	EmotesTab:Button({
-		Title = item.name,
-		Icon = "zap",
+BundlesTab:Dropdown({
+	Title = "Select Animation Bundle",
+	Values = BundleNames,
+	Value = BundleNames[1],
+	Callback = function(selectedBundle)
+		local b = BundleByName[selectedBundle]
+		if b then
+			applyAnimationBundle(b, false)
+		end
+	end,
+})
+
+BundlesTab:Button({
+	Title = "Apply Selected Bundle",
+	Icon = "check-circle",
+	Callback = function()
+		local b = BundleByName[state.selectedBundleName]
+		if b then
+			applyAnimationBundle(b, false)
+		end
+	end,
+})
+
+BundlesTab:Button({
+	Title = "Reset to Default Animations",
+	Icon = "rotate-ccw",
+	Callback = function()
+		resetAnimationBundle()
+	end,
+})
+
+BundlesTab:Toggle({
+	Title = "Keep Bundle After Respawn",
+	Value = true,
+	Callback = function(v)
+		state.bundleAutoRespawn = v
+	end,
+})
+
+BundlesTab:Section({ Title = "All 20 Animation Bundles" })
+
+for _, bundle in ipairs(AnimationBundles) do
+	BundlesTab:Button({
+		Title = bundle.name,
+		Icon = "user-check",
 		Callback = function()
-			state.selectedEmoteName = item.name
-			playDanceEmote(item.id, item.name)
+			applyAnimationBundle(bundle, false)
 		end,
 	})
 end
 
-EmotesTab:Section({ Title = "Funny Emotes (41 - 55)" })
+-- === TAB 4: SMALL HEAD TAG (MOON + MEOW) ===
+TagTab:Section({ Title = "Small Head Tag (Moon + Meow)" })
 
-for i = 41, 55 do
-	local emote = AllEmotes[i]
-	EmotesTab:Button({
-		Title = emote.name,
-		Icon = "smile",
-		Callback = function()
-			state.selectedEmoteName = emote.name
-			playDanceEmote(emote.id, emote.name)
-		end,
-	})
-end
+TagTab:Toggle({
+	Title = "Show Small Head Tag",
+	Desc = "Compact moon badge with Meow front styling",
+	Value = true,
+	Callback = function(v)
+		state.headTagEnabled = v
+		applyHeadTag()
+		notify("Head Tag", v and "Small Moon Meow tag enabled." or "Head tag hidden.", "moon")
+	end,
+})
 
-EmotesTab:Section({ Title = "Trending Emotes (21 - 40)" })
+TagTab:Input({
+	Title = "Moon Logo",
+	Desc = "Default: 🌙",
+	Placeholder = "🌙",
+	Callback = function(v)
+		local trimmed = tostring(v or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		state.headTagLogo = (#trimmed > 0 and trimmed) or "🌙"
+		applyHeadTag()
+	end,
+})
 
-for i = 21, 40 do
-	local emote = AllEmotes[i]
-	EmotesTab:Button({
-		Title = emote.name,
-		Icon = "flame",
-		Callback = function()
-			state.selectedEmoteName = emote.name
-			playDanceEmote(emote.id, emote.name)
-		end,
-	})
-end
+TagTab:Input({
+	Title = "Front Label",
+	Desc = "Default: Meow",
+	Placeholder = "Meow",
+	Callback = function(v)
+		local trimmed = tostring(v or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		state.headTagText = (#trimmed > 0 and trimmed) or "Meow"
+		applyHeadTag()
+	end,
+})
 
-EmotesTab:Section({ Title = "Classic Dance Emotes (1 - 20)" })
+TagTab:Dropdown({
+	Title = "Moon Accent Style",
+	Values = { "Moon Lavender", "Moon Gold", "Sky Meow", "Rose Meow" },
+	Value = "Moon Lavender",
+	Callback = function(style)
+		if style == "Moon Gold" then
+			state.headTagAccent = Color3.fromHex("FDE68A")
+		elseif style == "Sky Meow" then
+			state.headTagAccent = Color3.fromHex("BAE6FD")
+		elseif style == "Rose Meow" then
+			state.headTagAccent = Color3.fromHex("FBCFE8")
+		else
+			state.headTagAccent = Color3.fromHex("E9D5FF")
+		end
+		applyHeadTag()
+	end,
+})
 
-for i = 1, 20 do
-	local emote = AllEmotes[i]
-	EmotesTab:Button({
-		Title = emote.name,
-		Icon = "music",
-		Callback = function()
-			state.selectedEmoteName = emote.name
-			playDanceEmote(emote.id, emote.name)
-		end,
-	})
-end
+TagTab:Button({
+	Title = "Refresh Head Tag",
+	Icon = "refresh-cw",
+	Callback = function()
+		applyHeadTag()
+		notify("Head Tag", "Refreshed 🌙 Meow tag above head.", "check")
+	end,
+})
 
--- === TAB 3: MY SONGS (DOWNLOAD & LOCAL) ===
+-- === TAB 5: MY SONGS (DOWNLOAD & LOCAL) ===
 LibraryTab:Section({ Title = "Add Downloaded Song" })
 
 LibraryTab:Input({
@@ -1076,7 +1549,7 @@ LibraryTab:Button({
 	end,
 })
 
--- === TAB 4: FAVORITES ===
+-- === TAB 6: FAVORITES ===
 FavTab:Section({ Title = "Quick Favorites" })
 
 FavTab:Button({
@@ -1157,7 +1630,7 @@ FavTab:Button({
 	end,
 })
 
--- === TAB 5: AUDIO FX ===
+-- === TAB 7: AUDIO FX ===
 FxTab:Section({ Title = "One-Tap Sound Presets" })
 
 FxTab:Dropdown({
@@ -1198,5 +1671,12 @@ FxTab:Toggle({
 		Reverb.Enabled = v
 	end,
 })
+
+-- Apply initial head tag if character is already loaded
+if LocalPlayer and LocalPlayer.Character then
+	task.spawn(function()
+		applyHeadTag(LocalPlayer.Character)
+	end)
+end
 
 Window:SelectTab(1)
