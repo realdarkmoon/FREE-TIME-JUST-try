@@ -88,32 +88,28 @@ for i, item in ipairs(Tracks) do
 	TrackByLabel[item.label] = item.id
 end
 
--- Emotes List (Featured 3 + 20 More Emotes = 23 Total)
+-- Emotes List (20 Emotes, no Featured Emotes section)
 local EmoteList = {
-	{ name = "Jumpy Spider Emote", id = "0" },
-	{ name = "Nervy Emote Dance", id = "107071154699616" },
-	{ name = "Good Boy Dog Emote", id = "100737291015384" },
-
-	{ name = "4. Shuffle Dance", id = "4349242221" },
-	{ name = "5. Floss Dance", id = "5917459365" },
-	{ name = "6. Hype Dance", id = "3695333486" },
-	{ name = "7. Robot Dance", id = "3338025566" },
-	{ name = "8. Twist Dance", id = "3338097973" },
-	{ name = "9. Stylish Dance", id = "4555808220" },
-	{ name = "10. Disco Dance", id = "3333499508" },
-	{ name = "11. Samba Dance", id = "6862001787" },
-	{ name = "12. Breakdance", id = "5915648917" },
-	{ name = "13. Fast Hands", id = "4265701731" },
-	{ name = "14. Cha-Cha", id = "3695322025" },
-	{ name = "15. Top Rock", id = "3361276673" },
-	{ name = "16. Rodeo Dance", id = "5918726674" },
-	{ name = "17. Baby Dance", id = "4265725525" },
-	{ name = "18. Rock On", id = "5915714366" },
-	{ name = "19. Air Guitar", id = "3695300085" },
-	{ name = "20. Line Dance", id = "4049037604" },
-	{ name = "21. Applause", id = "5915693819" },
-	{ name = "22. Hero Landing", id = "5104344710" },
-	{ name = "23. Sleepy", id = "4686925579" },
+	{ name = "1. Nervy Emote Dance", id = "107071154699616" },
+	{ name = "2. Good Boy Dog Emote", id = "100737291015384" },
+	{ name = "3. Shuffle Dance", id = "4349242221" },
+	{ name = "4. Floss Dance", id = "5917459365" },
+	{ name = "5. Hype Dance", id = "3695333486" },
+	{ name = "6. Robot Dance", id = "3338025566" },
+	{ name = "7. Twist Dance", id = "3338097973" },
+	{ name = "8. Stylish Dance", id = "4555808220" },
+	{ name = "9. Disco Dance", id = "3333499508" },
+	{ name = "10. Samba Dance", id = "6862001787" },
+	{ name = "11. Breakdance", id = "5915648917" },
+	{ name = "12. Fast Hands", id = "4265701731" },
+	{ name = "13. Cha-Cha", id = "3695322025" },
+	{ name = "14. Top Rock", id = "3361276673" },
+	{ name = "15. Rodeo Dance", id = "5918726674" },
+	{ name = "16. Baby Dance", id = "4265725525" },
+	{ name = "17. Rock On", id = "5915714366" },
+	{ name = "18. Air Guitar", id = "3695300085" },
+	{ name = "19. Line Dance", id = "4049037604" },
+	{ name = "20. Hero Landing", id = "5104344710" },
 }
 
 local EmoteNames = table.create(#EmoteList)
@@ -329,7 +325,7 @@ local state = {
 	selectedFavLabel = nil,
 	volume = 0.5,
 	speed = 1.0,
-	selectedEmoteName = EmoteList[2].name,
+	selectedEmoteName = EmoteList[1].name,
 	customEmoteId = "",
 	emoteSpeed = 1.0,
 	emoteAutoRespawn = false,
@@ -337,7 +333,6 @@ local state = {
 	selectedBundleName = AnimationBundles[1].name,
 	activeBundle = nil,
 	bundleAutoRespawn = true,
-	-- Small Head Tag state (Moon Logo + Meow front style)
 	headTagEnabled = true,
 	headTagLogo = "🌙",
 	headTagText = "Meow",
@@ -345,6 +340,7 @@ local state = {
 }
 
 local originalAnimateIds = nil
+local isApplyingBundle = false
 local currentAnimTrack = nil
 local currentAnimInstance = nil
 local EmoteDropdown = nil
@@ -476,7 +472,17 @@ local function applyHeadTag(character)
 	textStroke.Parent = meowLabel
 end
 
--- === ANIMATION BUNDLE HELPERS ===
+-- === ANIMATION BUNDLE HELPERS (FIXED & CASE-SAFE) ===
+local function findAnimFolderCaseInsensitive(animateScript, targetKey)
+	local lowerTarget = tostring(targetKey):lower()
+	for _, child in ipairs(animateScript:GetChildren()) do
+		if child:IsA("StringValue") and child.Name:lower() == lowerTarget then
+			return child
+		end
+	end
+	return nil
+end
+
 local function snapshotDefaultAnimate(animateScript)
 	local snap = {}
 	for _, child in ipairs(animateScript:GetChildren()) do
@@ -493,27 +499,38 @@ local function snapshotDefaultAnimate(animateScript)
 	return snap
 end
 
-local function setAnimValue(animateScript, valueName, assetIds)
-	local valObj = animateScript:FindFirstChild(valueName)
-	if not valObj or not valObj:IsA("StringValue") then
+local function writeBundleAnimValue(animateScript, valueName, assetIds)
+	local valObj = findAnimFolderCaseInsensitive(animateScript, valueName)
+	if not valObj then
 		return
 	end
-	if type(assetIds) == "table" then
-		local idx = 1
-		for _, child in ipairs(valObj:GetChildren()) do
-			if child:IsA("Animation") then
-				local id = assetIds[idx] or assetIds[1]
-				if id then
-					child.AnimationId = "rbxassetid://" .. tostring(id)
-				end
-				idx += 1
-			end
+
+	local animations = {}
+	for _, child in ipairs(valObj:GetChildren()) do
+		if child:IsA("Animation") then
+			table.insert(animations, child)
 		end
-	else
-		for _, child in ipairs(valObj:GetChildren()) do
-			if child:IsA("Animation") then
-				child.AnimationId = "rbxassetid://" .. tostring(assetIds)
+	end
+
+	if #animations == 0 then
+		return
+	end
+
+	local list = (type(assetIds) == "table") and assetIds or { assetIds }
+	local weightIdx = 1
+	for i, animObj in ipairs(animations) do
+		local chosenId = list[i] or list[((i - 1) % #list) + 1]
+		if chosenId and tostring(chosenId) ~= "" then
+			animObj.AnimationId = "rbxassetid://" .. tostring(chosenId)
+		end
+		local weightObj = animObj:FindFirstChild("Weight")
+		if weightObj and weightObj:IsA("NumberValue") then
+			if #list > 1 then
+				weightObj.Value = (weightIdx == 1) and 9 or 1
+			else
+				weightObj.Value = 10
 			end
+			weightIdx += 1
 		end
 	end
 end
@@ -524,18 +541,25 @@ local function refreshAnimateState(character)
 	if not humanoid or not animate then
 		return
 	end
-	animate.Disabled = true
-	task.wait(0.05)
-	animate.Disabled = false
+
+	local wasEnabled = animate.Enabled
+	animate.Enabled = false
+	task.wait(0.03)
+	animate.Enabled = wasEnabled or true
+
 	pcall(function()
-		humanoid:ChangeState(Enum.HumanoidStateType.Landed)
+		local floorMat = humanoid.FloorMaterial
+		if floorMat and floorMat ~= Enum.Material.Air then
+			humanoid:ChangeState(Enum.HumanoidStateType.Running)
+		end
 	end)
 end
 
 local function applyAnimationBundle(bundle, silent)
-	if not bundle then
+	if not bundle or isApplyingBundle then
 		return
 	end
+
 	local character = LocalPlayer and LocalPlayer.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local animate = character and character:FindFirstChild("Animate")
@@ -549,25 +573,29 @@ local function applyAnimationBundle(bundle, silent)
 
 	if humanoid.RigType == Enum.HumanoidRigType.R6 then
 		if not silent then
-			notify("R15 Required", "These 20 animation bundles are designed for R15 avatars.", "alert-triangle")
+			notify("R15 Required", "Animation bundles require an R15 avatar rig.", "alert-triangle")
 		end
 		return
 	end
+
+	isApplyingBundle = true
 
 	if not originalAnimateIds then
 		originalAnimateIds = snapshotDefaultAnimate(animate)
 	end
 
-	setAnimValue(animate, "idle", bundle.idle)
-	setAnimValue(animate, "walk", { bundle.walk })
-	setAnimValue(animate, "run", { bundle.run })
-	setAnimValue(animate, "jump", { bundle.jump })
-	setAnimValue(animate, "fall", { bundle.fall })
-	setAnimValue(animate, "climb", { bundle.climb })
+	writeBundleAnimValue(animate, "idle", bundle.idle)
+	writeBundleAnimValue(animate, "walk", bundle.walk)
+	writeBundleAnimValue(animate, "run", bundle.run)
+	writeBundleAnimValue(animate, "jump", bundle.jump)
+	writeBundleAnimValue(animate, "fall", bundle.fall)
+	writeBundleAnimValue(animate, "climb", bundle.climb)
 
 	state.activeBundle = bundle
 	state.selectedBundleName = bundle.name
 	refreshAnimateState(character)
+
+	isApplyingBundle = false
 
 	if not silent then
 		notify("Bundle Applied", bundle.name .. " animation pack active.", "user-check")
@@ -577,11 +605,15 @@ end
 local function resetAnimationBundle()
 	local character = LocalPlayer and LocalPlayer.Character
 	local animate = character and character:FindFirstChild("Animate")
+
+	state.activeBundle = nil
+
 	if not animate or not originalAnimateIds then
-		state.activeBundle = nil
 		notify("Reset Complete", "Default movement animations restored.", "rotate-ccw")
 		return
 	end
+
+	isApplyingBundle = true
 
 	for valueName, animMap in pairs(originalAnimateIds) do
 		local valObj = animate:FindFirstChild(valueName)
@@ -594,8 +626,8 @@ local function resetAnimationBundle()
 		end
 	end
 
-	state.activeBundle = nil
 	refreshAnimateState(character)
+	isApplyingBundle = false
 	notify("Bundle Reset", "Reverted to default animations.", "rotate-ccw")
 end
 
@@ -676,6 +708,7 @@ LocalPlayer.CharacterAdded:Connect(function(char)
 	currentAnimTrack = nil
 	currentAnimInstance = nil
 	originalAnimateIds = nil
+	isApplyingBundle = false
 
 	char:WaitForChild("Head", 5)
 	char:WaitForChild("Humanoid", 5)
@@ -1030,7 +1063,7 @@ Window:EditOpenButton({
 })
 
 local PlayerTab = Window:Tab({ Title = "Player", Icon = "headphones" })
-local EmotesTab = Window:Tab({ Title = "Emotes (23)", Icon = "sparkles" })
+local EmotesTab = Window:Tab({ Title = "Emotes (20)", Icon = "sparkles" })
 local BundlesTab = Window:Tab({ Title = "Anim Bundles (20)", Icon = "user-check" })
 local TagTab = Window:Tab({ Title = "Head Tag", Icon = "moon" })
 local LibraryTab = Window:Tab({ Title = "My Songs", Icon = "download" })
@@ -1195,7 +1228,7 @@ PlayerTab:Toggle({
 	end,
 })
 
--- === TAB 2: EMOTES (23 TOTAL) ===
+-- === TAB 2: EMOTES (20 TOTAL, NO FEATURED SECTION) ===
 EmotesTab:Section({ Title = "Emote Search & Dropdown" })
 
 EmotesTab:Input({
@@ -1222,9 +1255,9 @@ EmotesTab:Input({
 EmoteDropdown = EmotesTab:Dropdown({
 	Title = "Select Emote",
 	Values = EmoteNames,
-	Value = EmoteNames[2],
+	Value = EmoteNames[1],
 	Callback = function(selectedEmote)
-		if selectedEmote == "No matching emote" then
+		if not selectedEmote or selectedEmote == "No matching emote" then
 			return
 		end
 		state.selectedEmoteName = selectedEmote
@@ -1264,27 +1297,12 @@ EmotesTab:Button({
 	end,
 })
 
-EmotesTab:Section({ Title = "Featured Emotes" })
+EmotesTab:Section({ Title = "All 20 Emotes" })
 
-for i = 1, 3 do
-	local emote = EmoteList[i]
+for _, emote in ipairs(EmoteList) do
 	EmotesTab:Button({
 		Title = emote.name,
 		Icon = "sparkles",
-		Callback = function()
-			state.selectedEmoteName = emote.name
-			playEmote(emote.id, emote.name)
-		end,
-	})
-end
-
-EmotesTab:Section({ Title = "More Emotes (4 - 23)" })
-
-for i = 4, #EmoteList do
-	local emote = EmoteList[i]
-	EmotesTab:Button({
-		Title = emote.name,
-		Icon = "music",
 		Callback = function()
 			state.selectedEmoteName = emote.name
 			playEmote(emote.id, emote.name)
@@ -1341,8 +1359,9 @@ BundlesTab:Dropdown({
 	Values = BundleNames,
 	Value = BundleNames[1],
 	Callback = function(selectedBundle)
-		local b = BundleByName[selectedBundle]
+		local b = selectedBundle and BundleByName[selectedBundle]
 		if b then
+			state.selectedBundleName = b.name
 			applyAnimationBundle(b, false)
 		end
 	end,
@@ -1382,6 +1401,7 @@ for _, bundle in ipairs(AnimationBundles) do
 		Title = bundle.name,
 		Icon = "user-check",
 		Callback = function()
+			state.selectedBundleName = bundle.name
 			applyAnimationBundle(bundle, false)
 		end,
 	})
