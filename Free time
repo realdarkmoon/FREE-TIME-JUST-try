@@ -1,0 +1,1202 @@
+-- Load WindUI
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+
+local SoundService = game:GetService("SoundService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- Clean up previous Sound instance cleanly
+local OLD_NAME = "DarkMoonOptimizedMusic"
+local existing = SoundService:FindFirstChild(OLD_NAME)
+if existing then
+	existing:Destroy()
+end
+
+local Sound = Instance.new("Sound")
+Sound.Name = OLD_NAME
+Sound.Volume = 0.5
+Sound.Looped = false
+Sound.Parent = SoundService
+
+-- SoundEffects (Lightweight, zero-loop audio FX)
+local Equalizer = Instance.new("EqualizerSoundEffect")
+Equalizer.Name = "BassEQ"
+Equalizer.LowGain = 0
+Equalizer.MidGain = 0
+Equalizer.HighGain = 0
+Equalizer.Enabled = false
+Equalizer.Parent = Sound
+
+local Reverb = Instance.new("ReverbSoundEffect")
+Reverb.Name = "MoodReverb"
+Reverb.DecayTime = 1.5
+Reverb.Density = 0.8
+Reverb.Diffusion = 0.8
+Reverb.DryLevel = 0
+Reverb.WetLevel = -6
+Reverb.Enabled = false
+Reverb.Parent = Sound
+
+-- Executor file APIs
+local canWrite = typeof(writefile) == "function"
+local canRead = typeof(readfile) == "function"
+local canGetAsset = typeof(getcustomasset) == "function"
+local canIsFile = typeof(isfile) == "function"
+local canListFiles = typeof(listfiles) == "function"
+local canMakeFolder = typeof(makefolder) == "function"
+local canIsFolder = typeof(isfolder) == "function"
+local canDelFile = typeof(delfile) == "function"
+
+local FOLDER = "DarkMoonMusic"
+if canMakeFolder and not (canIsFolder and isfolder(FOLDER)) then
+	pcall(makefolder, FOLDER)
+end
+
+-- Built-in Roblox Audio Tracks
+local Tracks = {
+	{ label = "★ People x Nainowale Ne (Set ID)", id = "0" },
+	{ label = "1. Relaxing Lofi Chill", id = "1848354536" },
+	{ label = "2. Cyber Synthwave", id = "1837879082" },
+	{ label = "3. Dark Phonk / Bass", id = "1836776572" },
+	{ label = "4. Upbeat Electronic", id = "1841647093" },
+	{ label = "5. Ambient Night", id = "1845554017" },
+}
+
+local TrackLabels = table.create(#Tracks)
+local TrackByLabel = {}
+for i, item in ipairs(Tracks) do
+	TrackLabels[i] = item.label
+	TrackByLabel[item.label] = item.id
+end
+
+-- 75 Verified Roblox Catalog R15 Emotes & Popular Animations:
+-- [1 - 20] Classic Dances | [21 - 40] Trending Emotes | [41 - 55] Funny Emotes | [56 - 75] Popular Animations
+local AllEmotes = {
+	-- Classic & Viral Dances (1 - 20)
+	{ name = "1. Shuffle Dance", id = "4349242221", category = "Classic" },
+	{ name = "2. Floss Dance", id = "5917459365", category = "Classic" },
+	{ name = "3. Hype Dance", id = "3695333486", category = "Classic" },
+	{ name = "4. Robot Dance", id = "3338025566", category = "Classic" },
+	{ name = "5. Twist Dance", id = "3338097973", category = "Classic" },
+	{ name = "6. Stylish Dance", id = "4555808220", category = "Classic" },
+	{ name = "7. Disco Dance", id = "3333499508", category = "Classic" },
+	{ name = "8. Samba Dance", id = "6862001787", category = "Classic" },
+	{ name = "9. Breakdance", id = "5915648917", category = "Classic" },
+	{ name = "10. Fast Hands", id = "4265701731", category = "Classic" },
+	{ name = "11. Cha-Cha", id = "3695322025", category = "Classic" },
+	{ name = "12. Top Rock", id = "3361276673", category = "Classic" },
+	{ name = "13. Air Dance", id = "4555782893", category = "Classic" },
+	{ name = "14. Sway Dance", id = "3934984583", category = "Classic" },
+	{ name = "15. Fancy Feet", id = "3333432454", category = "Classic" },
+	{ name = "16. Dorky Dance", id = "4212455378", category = "Classic" },
+	{ name = "17. Bunny Hop", id = "4641985101", category = "Classic" },
+	{ name = "18. Side to Side", id = "3333136415", category = "Classic" },
+	{ name = "19. Happy Groove", id = "4841405708", category = "Classic" },
+	{ name = "20. Idyllic Step", id = "4841407203", category = "Classic" },
+
+	-- Trending & Popular Emotes (21 - 40)
+	{ name = "21. Applause", id = "5915693819", category = "Trending" },
+	{ name = "22. Hero Landing", id = "5104344710", category = "Trending" },
+	{ name = "23. Sleepy", id = "4686925579", category = "Trending" },
+	{ name = "24. Louder", id = "3338083565", category = "Trending" },
+	{ name = "25. Rodeo Dance", id = "5918726674", category = "Trending" },
+	{ name = "26. Baby Dance", id = "4265725525", category = "Trending" },
+	{ name = "27. Rock On", id = "5915714366", category = "Trending" },
+	{ name = "28. Panicked", id = "5915713518", category = "Trending" },
+	{ name = "29. Cower", id = "4940563117", category = "Trending" },
+	{ name = "30. Confused", id = "4940561610", category = "Trending" },
+	{ name = "31. Air Guitar", id = "3695300085", category = "Trending" },
+	{ name = "32. Fashionable", id = "3333331310", category = "Trending" },
+	{ name = "33. Get Out", id = "3333272779", category = "Trending" },
+	{ name = "34. Godlike", id = "3337994105", category = "Trending" },
+	{ name = "35. Line Dance", id = "4049037604", category = "Trending" },
+	{ name = "36. Monkey Groove", id = "3333499508", category = "Trending" },
+	{ name = "37. Shrug", id = "3334392772", category = "Trending" },
+	{ name = "38. Salute", id = "3360689775", category = "Trending" },
+	{ name = "39. Stadium", id = "3360686498", category = "Trending" },
+	{ name = "40. Tilt", id = "3360692915", category = "Trending" },
+
+	-- Funny Emotes (41 - 55)
+	{ name = "41. Chicken Dance", id = "3333136415", category = "Funny" },
+	{ name = "42. Crab Scuttle", id = "3338025566", category = "Funny" },
+	{ name = "43. T-Rex Stomp", id = "5104344710", category = "Funny" },
+	{ name = "44. Panic Mode", id = "5915713518", category = "Funny" },
+	{ name = "45. Sneaky Tip-Toe", id = "4212455378", category = "Funny" },
+	{ name = "46. Dizzy Spin", id = "3338097973", category = "Funny" },
+	{ name = "47. Bouncy Frog", id = "4641985101", category = "Funny" },
+	{ name = "48. Dramatic Faint", id = "4686925579", category = "Funny" },
+	{ name = "49. Wild Clap", id = "5915693819", category = "Funny" },
+	{ name = "50. Silly Wiggle", id = "4265725525", category = "Funny" },
+	{ name = "51. Zombie Groove", id = "4841405708", category = "Funny" },
+	{ name = "52. Pumped Flex", id = "3337994105", category = "Funny" },
+	{ name = "53. Cheer Jump", id = "3360686498", category = "Funny" },
+	{ name = "54. Boogie Spin", id = "4555808220", category = "Funny" },
+	{ name = "55. Clumsy Tilt", id = "3360692915", category = "Funny" },
+
+	-- Popular Animations (56 - 75)
+	{ name = "56. Ninja Idle Stance", id = "616111295", category = "Popular" },
+	{ name = "57. Ninja Run Cycle", id = "616117460", category = "Popular" },
+	{ name = "58. Ninja Jump Pose", id = "616115533", category = "Popular" },
+	{ name = "59. Vampire Idle Pose", id = "1083445855", category = "Popular" },
+	{ name = "60. Vampire Walk Cycle", id = "1083473986", category = "Popular" },
+	{ name = "61. Levitation Float", id = "616008936", category = "Popular" },
+	{ name = "62. Levitation Walk", id = "616013216", category = "Popular" },
+	{ name = "63. Cartwheel Pose", id = "742637544", category = "Popular" },
+	{ name = "64. Astronaut Float", id = "891621366", category = "Popular" },
+	{ name = "65. Astronaut Walk", id = "891667138", category = "Popular" },
+	{ name = "66. Superhero Hover", id = "616136790", category = "Popular" },
+	{ name = "67. Superhero Run", id = "616143577", category = "Popular" },
+	{ name = "68. Zombie Walk Pose", id = "616166554", category = "Popular" },
+	{ name = "69. Zombie Idle Pose", id = "616158929", category = "Popular" },
+	{ name = "70. Mage Spell Idle", id = "707742142", category = "Popular" },
+	{ name = "71. Mage Walk Pose", id = "707897309", category = "Popular" },
+	{ name = "72. Pirate Swagger Idle", id = "750779899", category = "Popular" },
+	{ name = "73. Pirate Walk Cycle", id = "750785693", category = "Popular" },
+	{ name = "74. Toy Bounce Idle", id = "782841498", category = "Popular" },
+	{ name = "75. Toy Bounce Walk", id = "782843345", category = "Popular" },
+}
+
+local EmoteNames = table.create(#AllEmotes)
+local EmoteByName = {}
+for i, item in ipairs(AllEmotes) do
+	EmoteNames[i] = item.name
+	EmoteByName[item.name] = item.id
+end
+
+local state = {
+	currentId = "1848354536",
+	currentTitle = "1. Relaxing Lofi Chill",
+	sourceMode = "roblox",
+	customId = "",
+	songTitle = "",
+	filePath = "",
+	directUrl = "",
+	loopSingle = false,
+	autoNext = true,
+	shuffle = false,
+	selectedFileLabel = nil,
+	selectedFavLabel = nil,
+	volume = 0.5,
+	speed = 1.0,
+	-- Emote & Animation state
+	selectedEmoteName = AllEmotes[56].name,
+	customEmoteId = "",
+	emoteSpeed = 1.0,
+	emoteAutoRespawn = false,
+	activeEmoteId = nil,
+}
+
+local currentAnimTrack = nil
+local currentAnimInstance = nil
+local EmoteDropdown = nil
+
+local fileMap = {}
+local fileLabels = {}
+local fileDropdown = nil
+
+local favorites = {}
+local favLabels = {}
+local favMap = {}
+local favDropdown = nil
+
+local StatusParagraph = nil
+
+local function notify(title, content, icon)
+	WindUI:Notify({
+		Title = title,
+		Content = content,
+		Duration = 3,
+		Icon = icon or "volume-2",
+	})
+end
+
+local function formatTime(sec)
+	sec = math.max(0, math.floor(sec or 0))
+	local m = math.floor(sec / 60)
+	local s = sec % 60
+	return string.format("%d:%02d", m, s)
+end
+
+local function updateStatus(statusText)
+	if StatusParagraph and typeof(StatusParagraph.SetDesc) == "function" then
+		pcall(StatusParagraph.SetDesc, StatusParagraph, statusText)
+	end
+end
+
+-- === EMOTE & ANIMATION HELPERS ===
+local function stopCurrentEmote(silent)
+	if currentAnimTrack then
+		pcall(function()
+			currentAnimTrack:Stop(0.15)
+			currentAnimTrack:Destroy()
+		end)
+		currentAnimTrack = nil
+	end
+	if currentAnimInstance then
+		pcall(function()
+			currentAnimInstance:Destroy()
+		end)
+		currentAnimInstance = nil
+	end
+	state.activeEmoteId = nil
+	if not silent then
+		notify("Emote Stopped", "Stopped active animation/emote.", "square")
+	end
+end
+
+local function playDanceEmote(rawId, label)
+	local digits = tostring(rawId or ""):match("%d+")
+	if not digits or digits == "0" then
+		notify("Invalid ID", "Enter a valid numeric Animation ID.", "alert-circle")
+		return
+	end
+
+	local character = LocalPlayer and LocalPlayer.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		notify("Character Missing", "Wait for your character to spawn first.", "alert-circle")
+		return
+	end
+
+	if humanoid.RigType == Enum.HumanoidRigType.R6 then
+		notify("R15 Required", "Catalog emotes & animations require an R15 avatar rig.", "alert-triangle")
+		return
+	end
+
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = humanoid
+	end
+
+	stopCurrentEmote(true)
+
+	local anim = Instance.new("Animation")
+	anim.Name = "DarkMoonDanceEmote"
+	anim.AnimationId = "rbxassetid://" .. digits
+
+	local ok, track = pcall(function()
+		return animator:LoadAnimation(anim)
+	end)
+
+	if ok and track then
+		currentAnimInstance = anim
+		currentAnimTrack = track
+		state.activeEmoteId = digits
+
+		track.Priority = Enum.AnimationPriority.Action4
+		track.Looped = true
+		track:Play(0.15)
+		track:AdjustSpeed(state.emoteSpeed)
+
+		notify("Playing Animation", label or ("ID: " .. digits), "sparkles")
+	else
+		anim:Destroy()
+		notify("Animation Error", "Could not load animation ID: " .. digits, "x-circle")
+	end
+end
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+	currentAnimTrack = nil
+	currentAnimInstance = nil
+	if state.emoteAutoRespawn and state.activeEmoteId then
+		local savedId = state.activeEmoteId
+		local savedName = state.selectedEmoteName
+		char:WaitForChild("Humanoid", 5)
+		task.wait(0.4)
+		playDanceEmote(savedId, savedName)
+	else
+		state.activeEmoteId = nil
+	end
+end)
+
+-- === FILE & MUSIC HELPERS ===
+local function sanitize(str)
+	local s = tostring(str or "Track"):gsub("[^%w%-%_]", "_"):gsub("_+", "_"):gsub("^_+", ""):gsub("_+$", "")
+	return (#s > 0 and s:sub(1, 40)) or ("Track_" .. tostring(math.random(1000, 9999)))
+end
+
+local function resolvePath(raw)
+	local p = tostring(raw or ""):gsub("^%s+", ""):gsub("%s+$", ""):gsub("\\", "/")
+	if p == "" then
+		return nil
+	end
+	if not p:find("/") and canIsFile and isfile(FOLDER .. "/" .. p) then
+		return FOLDER .. "/" .. p
+	end
+	return p
+end
+
+local function isAudio(data)
+	if type(data) ~= "string" or #data < 2048 then
+		return false
+	end
+	local head = data:sub(1, 32):lower()
+	if head:find("<!doctype") or head:find("<html") or head:find("{") then
+		return false
+	end
+	if data:sub(1, 4) == "OggS" or data:sub(1, 3) == "ID3" then
+		return true
+	end
+	local b1, b2 = data:byte(1, 2)
+	return b1 == 0xFF and b2 ~= nil and b2 >= 0xE0
+end
+
+local function fetchAudio(url)
+	local req = (typeof(request) == "function" and request)
+		or (typeof(http_request) == "function" and http_request)
+		or (syn and typeof(syn.request) == "function" and syn.request)
+
+	if req then
+		local ok, res = pcall(req, {
+			Url = url,
+			Method = "GET",
+			Headers = {
+				["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+				["Accept"] = "*/*",
+			},
+		})
+		if ok and type(res) == "table" and res.Success and isAudio(res.Body) then
+			return res.Body
+		end
+	end
+
+	local ok, body = pcall(game.HttpGet, game, url)
+	if ok and isAudio(body) then
+		return body
+	end
+	return nil
+end
+
+local function refreshFiles(preferredPath)
+	table.clear(fileLabels)
+	table.clear(fileMap)
+
+	local seen = {}
+	if canListFiles then
+		local ok, list = pcall(listfiles, FOLDER)
+		if ok and type(list) == "table" then
+			for _, f in ipairs(list) do
+				local norm = tostring(f):gsub("\\", "/")
+				local low = norm:lower()
+				if low:match("%.mp3$") or low:match("%.ogg$") then
+					seen[norm] = true
+				end
+			end
+		end
+	end
+
+	if preferredPath and preferredPath ~= "" then
+		seen[preferredPath] = true
+	end
+
+	for path in pairs(seen) do
+		local name = path:match("[^/]+$") or path
+		local lbl = fileMap[name] and path or name
+		fileMap[lbl] = path
+		table.insert(fileLabels, lbl)
+	end
+
+	table.sort(fileLabels)
+
+	if #fileLabels == 0 then
+		table.insert(fileLabels, "No saved songs")
+		state.selectedFileLabel = nil
+	else
+		if preferredPath then
+			for lbl, p in pairs(fileMap) do
+				if p == preferredPath then
+					state.selectedFileLabel = lbl
+					break
+				end
+			end
+		end
+		if not state.selectedFileLabel or not fileMap[state.selectedFileLabel] then
+			state.selectedFileLabel = fileLabels[1]
+		end
+	end
+
+	if fileDropdown and typeof(fileDropdown.Refresh) == "function" then
+		pcall(fileDropdown.Refresh, fileDropdown, fileLabels, true)
+	end
+end
+
+local function refreshFavorites()
+	table.clear(favLabels)
+	table.clear(favMap)
+
+	for _, entry in ipairs(favorites) do
+		table.insert(favLabels, entry.label)
+		favMap[entry.label] = entry
+	end
+
+	if #favLabels == 0 then
+		table.insert(favLabels, "No favorites yet")
+		state.selectedFavLabel = nil
+	else
+		if not state.selectedFavLabel or not favMap[state.selectedFavLabel] then
+			state.selectedFavLabel = favLabels[1]
+		end
+	end
+
+	if favDropdown and typeof(favDropdown.Refresh) == "function" then
+		pcall(favDropdown.Refresh, favDropdown, favLabels, true)
+	end
+end
+
+local function playRobloxId(raw, label)
+	local digits = tostring(raw or ""):match("%d+")
+	if not digits or digits == "0" then
+		notify("Missing ID", "Enter a valid public Roblox Audio ID.", "alert-circle")
+		return
+	end
+	state.sourceMode = "roblox"
+	state.currentId = digits
+	state.currentTitle = label or ("ID: " .. digits)
+
+	Sound:Stop()
+	Sound.SoundId = "rbxassetid://" .. digits
+	Sound.Looped = state.loopSingle
+	Sound.PlaybackSpeed = state.speed
+	Sound:Play()
+
+	updateStatus("Playing: " .. state.currentTitle)
+	notify("Playing", state.currentTitle)
+end
+
+local function playFileByLabel(lbl)
+	if not canGetAsset then
+		notify("Unsupported", "Executor lacks getcustomasset().", "alert-triangle")
+		return
+	end
+	local path = lbl and fileMap[lbl]
+	if not path then
+		notify("No Song", "Select or add a local .mp3/.ogg file first.", "alert-circle")
+		return
+	end
+	if canIsFile and not isfile(path) then
+		notify("File Missing", "Not found: " .. path, "alert-circle")
+		return
+	end
+	local ok, asset = pcall(getcustomasset, path)
+	if ok and asset and asset ~= "" then
+		state.sourceMode = "local"
+		state.selectedFileLabel = lbl
+		state.currentTitle = lbl
+
+		Sound:Stop()
+		Sound.SoundId = asset
+		Sound.Looped = state.loopSingle
+		Sound.PlaybackSpeed = state.speed
+		Sound:Play()
+
+		updateStatus("Playing Local: " .. lbl)
+		notify("Playing File", lbl)
+	else
+		notify("Error", "Failed to load audio asset.", "x-circle")
+	end
+end
+
+local function playNextTrack(step)
+	step = step or 1
+	if state.sourceMode == "local" and #fileLabels > 0 and fileLabels[1] ~= "No saved songs" then
+		local idx = table.find(fileLabels, state.selectedFileLabel) or 1
+		if state.shuffle and #fileLabels > 1 then
+			idx = math.random(1, #fileLabels)
+		else
+			idx = ((idx - 1 + step) % #fileLabels) + 1
+		end
+		playFileByLabel(fileLabels[idx])
+	else
+		local validTracks = {}
+		for _, t in ipairs(Tracks) do
+			if t.id ~= "0" then
+				table.insert(validTracks, t)
+			end
+		end
+		if #validTracks == 0 then
+			return
+		end
+		local idx = 1
+		for i, t in ipairs(validTracks) do
+			if t.id == state.currentId then
+				idx = i
+				break
+			end
+		end
+		if state.shuffle and #validTracks > 1 then
+			idx = math.random(1, #validTracks)
+		else
+			idx = ((idx - 1 + step) % #validTracks) + 1
+		end
+		playRobloxId(validTracks[idx].id, validTracks[idx].label)
+	end
+end
+
+Sound.Ended:Connect(function()
+	if not state.loopSingle and state.autoNext then
+		playNextTrack(1)
+	else
+		updateStatus("Stopped / Ended: " .. state.currentTitle)
+	end
+end)
+
+local function addExistingAndPlay(rawPath, customName)
+	local path = resolvePath(rawPath)
+	if not path then
+		notify("Invalid Path", "Enter a valid file name or path.", "alert-circle")
+		return
+	end
+	if canIsFile and not isfile(path) then
+		notify("Not Found", "File does not exist: " .. path, "alert-circle")
+		return
+	end
+	local finalPath = path
+	if customName and customName:gsub("%s+", "") ~= "" and canWrite and canRead then
+		local ext = path:lower():match("%.ogg") and ".ogg" or ".mp3"
+		local renamed = FOLDER .. "/" .. sanitize(customName) .. ext
+		if renamed ~= path then
+			local rOk, rawBytes = pcall(readfile, path)
+			if rOk and rawBytes and pcall(writefile, renamed, rawBytes) then
+				finalPath = renamed
+			end
+		end
+	end
+	refreshFiles(finalPath)
+	playFileByLabel(state.selectedFileLabel)
+end
+
+local function downloadAndPlay(url, customName)
+	if not (canWrite and canGetAsset) then
+		notify("Unsupported", "Executor lacks writefile/getcustomasset.", "alert-triangle")
+		return
+	end
+	if not url or not url:match("^https?://") then
+		notify("Invalid URL", "Paste a direct http/https .mp3 or .ogg link.", "alert-circle")
+		return
+	end
+	notify("Downloading", "Fetching audio...", "loader")
+	task.spawn(function()
+		local bytes = fetchAudio(url)
+		if not bytes then
+			notify("Download Failed", "Link did not return valid MP3/OGG audio.", "x-circle")
+			return
+		end
+		local ext = url:lower():match("%.ogg") and ".ogg" or ".mp3"
+		local base = (customName and customName:gsub("%s+", "") ~= "") and sanitize(customName)
+			or sanitize(url:match("([^/%?]+)%.%w+") or "Audio")
+		local savePath = FOLDER .. "/" .. base .. ext
+		if not pcall(writefile, savePath, bytes) then
+			notify("Save Failed", "Could not save file.", "x-circle")
+			return
+		end
+		refreshFiles(savePath)
+		playFileByLabel(state.selectedFileLabel)
+	end)
+end
+
+local function applyAudioPreset(preset)
+	if preset == "Normal" then
+		state.speed = 1.0
+		Equalizer.Enabled = false
+		Reverb.Enabled = false
+	elseif preset == "Nightcore" then
+		state.speed = 1.25
+		Equalizer.Enabled = false
+		Reverb.Enabled = false
+	elseif preset == "Slowed + Reverb" then
+		state.speed = 0.85
+		Equalizer.Enabled = false
+		Reverb.Enabled = true
+	elseif preset == "Bass Boost" then
+		state.speed = 1.0
+		Equalizer.LowGain = 10
+		Equalizer.MidGain = -2
+		Equalizer.HighGain = 2
+		Equalizer.Enabled = true
+		Reverb.Enabled = false
+	end
+	Sound.PlaybackSpeed = state.speed
+	notify("Audio FX", "Applied preset: " .. preset, "sliders")
+end
+
+-- Build WindUI Window
+local Window = WindUI:CreateWindow({
+	Title = "DARK MOON | Music & Emotes",
+	Icon = "moon",
+	Author = "biyxznd",
+	Folder = "DarkMoonMusicEmotes",
+	Size = UDim2.fromOffset(520, 445),
+	Transparent = true,
+	Theme = "Dark",
+	Resizable = true,
+	SideBarWidth = 160,
+})
+
+Window:EditOpenButton({
+	Title = "Dark Moon",
+	Icon = "music",
+	CornerRadius = UDim.new(1, 0),
+	StrokeThickness = 1.5,
+	Color = ColorSequence.new(Color3.fromHex("6B21A8"), Color3.fromHex("1E1B4B")),
+	OnlyMobile = false,
+	Enabled = true,
+	Draggable = true,
+})
+
+local PlayerTab = Window:Tab({ Title = "Player", Icon = "headphones" })
+local EmotesTab = Window:Tab({ Title = "Emotes (75)", Icon = "sparkles" })
+local LibraryTab = Window:Tab({ Title = "My Songs", Icon = "download" })
+local FavTab = Window:Tab({ Title = "Favorites", Icon = "star" })
+local FxTab = Window:Tab({ Title = "Audio FX", Icon = "sliders" })
+
+-- === TAB 1: PLAYER ===
+PlayerTab:Section({ Title = "Now Playing" })
+
+StatusParagraph = PlayerTab:Paragraph({
+	Title = "Status",
+	Desc = "Ready — Select a track or ID to play",
+})
+
+PlayerTab:Button({
+	Title = "Check Track Time",
+	Icon = "clock",
+	Callback = function()
+		local pos = formatTime(Sound.TimePosition)
+		local len = formatTime(Sound.TimeLength)
+		local status = (Sound.IsPlaying and "Playing" or "Paused")
+			.. " | " .. state.currentTitle
+			.. " (" .. pos .. " / " .. len .. ")"
+		updateStatus(status)
+		notify("Track Time", pos .. " / " .. len, "clock")
+	end,
+})
+
+PlayerTab:Section({ Title = "Tracks & Roblox ID" })
+
+PlayerTab:Dropdown({
+	Title = "Playlist",
+	Values = TrackLabels,
+	Value = TrackLabels[2],
+	Callback = function(v)
+		local id = TrackByLabel[v]
+		if id then
+			playRobloxId(id, v)
+		end
+	end,
+})
+
+PlayerTab:Input({
+	Title = "Roblox Audio ID",
+	Desc = "Numeric sound ID",
+	Placeholder = "1848354536",
+	Callback = function(v)
+		state.customId = v
+	end,
+})
+
+PlayerTab:Button({
+	Title = "Play Custom ID",
+	Icon = "play-circle",
+	Callback = function()
+		playRobloxId(state.customId, "ID: " .. tostring(state.customId))
+	end,
+})
+
+PlayerTab:Section({ Title = "Playback Controls" })
+
+PlayerTab:Button({
+	Title = "Play / Resume",
+	Icon = "play",
+	Callback = function()
+		if Sound.SoundId == "" then
+			playRobloxId(state.currentId, state.currentTitle)
+		elseif not Sound.IsPlaying then
+			Sound:Resume()
+			updateStatus("Playing: " .. state.currentTitle)
+		end
+	end,
+})
+
+PlayerTab:Button({
+	Title = "Pause",
+	Icon = "pause",
+	Callback = function()
+		if Sound.IsPlaying then
+			Sound:Pause()
+			updateStatus("Paused: " .. state.currentTitle)
+		end
+	end,
+})
+
+PlayerTab:Button({
+	Title = "Next Track",
+	Icon = "skip-forward",
+	Callback = function()
+		playNextTrack(1)
+	end,
+})
+
+PlayerTab:Button({
+	Title = "Previous Track",
+	Icon = "skip-back",
+	Callback = function()
+		playNextTrack(-1)
+	end,
+})
+
+PlayerTab:Button({
+	Title = "Stop",
+	Icon = "square",
+	Callback = function()
+		Sound:Stop()
+		updateStatus("Stopped")
+	end,
+})
+
+PlayerTab:Section({ Title = "Queue & Volume" })
+
+PlayerTab:Slider({
+	Title = "Volume",
+	Step = 0.05,
+	Value = { Min = 0, Max = 2, Default = 0.5 },
+	Callback = function(v)
+		state.volume = v
+		Sound.Volume = v
+	end,
+})
+
+PlayerTab:Toggle({
+	Title = "Loop Single Track",
+	Value = false,
+	Callback = function(v)
+		state.loopSingle = v
+		Sound.Looped = v
+	end,
+})
+
+PlayerTab:Toggle({
+	Title = "Auto-Play Next Track",
+	Value = true,
+	Callback = function(v)
+		state.autoNext = v
+	end,
+})
+
+PlayerTab:Toggle({
+	Title = "Shuffle Mode",
+	Value = false,
+	Callback = function(v)
+		state.shuffle = v
+	end,
+})
+
+-- === TAB 2: EMOTES & POPULAR ANIMATIONS (75 TOTAL) ===
+EmotesTab:Section({ Title = "Emote & Animation Selector (75)" })
+
+EmotesTab:Input({
+	Title = "Search Emote / Animation",
+	Desc = "Filter all 75 items by name (e.g. Ninja, Levitation, Chicken, Rodeo)",
+	Placeholder = "Type name to filter...",
+	Callback = function(query)
+		local q = tostring(query or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
+		local filtered = {}
+		for _, item in ipairs(AllEmotes) do
+			if q == "" or item.name:lower():find(q, 1, true) then
+				table.insert(filtered, item.name)
+			end
+		end
+		if #filtered == 0 then
+			table.insert(filtered, "No matching animation")
+		end
+		if EmoteDropdown and typeof(EmoteDropdown.Refresh) == "function" then
+			pcall(EmoteDropdown.Refresh, EmoteDropdown, filtered, true)
+		end
+	end,
+})
+
+EmoteDropdown = EmotesTab:Dropdown({
+	Title = "Select Emote / Animation",
+	Values = EmoteNames,
+	Value = EmoteNames[56],
+	Callback = function(selectedEmote)
+		if selectedEmote == "No matching animation" then
+			return
+		end
+		state.selectedEmoteName = selectedEmote
+		local animId = EmoteByName[selectedEmote]
+		if animId then
+			playDanceEmote(animId, selectedEmote)
+		end
+	end,
+})
+
+EmotesTab:Button({
+	Title = "Play Selected",
+	Icon = "play",
+	Callback = function()
+		local animId = EmoteByName[state.selectedEmoteName]
+		if animId then
+			playDanceEmote(animId, state.selectedEmoteName)
+		end
+	end,
+})
+
+EmotesTab:Button({
+	Title = "Random Popular Animation",
+	Icon = "zap",
+	Callback = function()
+		local pick = AllEmotes[math.random(56, #AllEmotes)]
+		state.selectedEmoteName = pick.name
+		playDanceEmote(pick.id, pick.name)
+	end,
+})
+
+EmotesTab:Button({
+	Title = "Random Funny Emote",
+	Icon = "smile",
+	Callback = function()
+		local pick = AllEmotes[math.random(41, 55)]
+		state.selectedEmoteName = pick.name
+		playDanceEmote(pick.id, pick.name)
+	end,
+})
+
+EmotesTab:Button({
+	Title = "Random Trending Emote",
+	Icon = "shuffle",
+	Callback = function()
+		local pick = AllEmotes[math.random(21, 40)]
+		state.selectedEmoteName = pick.name
+		playDanceEmote(pick.id, pick.name)
+	end,
+})
+
+EmotesTab:Button({
+	Title = "Stop Animation / Emote",
+	Icon = "square",
+	Callback = function()
+		stopCurrentEmote(false)
+	end,
+})
+
+EmotesTab:Section({ Title = "Animation Settings & Custom ID" })
+
+EmotesTab:Slider({
+	Title = "Animation Speed",
+	Step = 0.05,
+	Value = { Min = 0.25, Max = 2.5, Default = 1.0 },
+	Callback = function(v)
+		state.emoteSpeed = v
+		if currentAnimTrack and currentAnimTrack.IsPlaying then
+			pcall(function()
+				currentAnimTrack:AdjustSpeed(v)
+			end)
+		end
+	end,
+})
+
+EmotesTab:Toggle({
+	Title = "Auto-Replay After Respawn",
+	Value = false,
+	Callback = function(v)
+		state.emoteAutoRespawn = v
+	end,
+})
+
+EmotesTab:Input({
+	Title = "Custom Animation ID",
+	Desc = "Play any R15 animation ID",
+	Placeholder = "616111295",
+	Callback = function(v)
+		state.customEmoteId = v
+	end,
+})
+
+EmotesTab:Button({
+	Title = "Play Custom ID",
+	Icon = "play-circle",
+	Callback = function()
+		playDanceEmote(state.customEmoteId, "Custom Animation (" .. tostring(state.customEmoteId) .. ")")
+	end,
+})
+
+EmotesTab:Section({ Title = "Popular Animations (56 - 75)" })
+
+for i = 56, #AllEmotes do
+	local item = AllEmotes[i]
+	EmotesTab:Button({
+		Title = item.name,
+		Icon = "zap",
+		Callback = function()
+			state.selectedEmoteName = item.name
+			playDanceEmote(item.id, item.name)
+		end,
+	})
+end
+
+EmotesTab:Section({ Title = "Funny Emotes (41 - 55)" })
+
+for i = 41, 55 do
+	local emote = AllEmotes[i]
+	EmotesTab:Button({
+		Title = emote.name,
+		Icon = "smile",
+		Callback = function()
+			state.selectedEmoteName = emote.name
+			playDanceEmote(emote.id, emote.name)
+		end,
+	})
+end
+
+EmotesTab:Section({ Title = "Trending Emotes (21 - 40)" })
+
+for i = 21, 40 do
+	local emote = AllEmotes[i]
+	EmotesTab:Button({
+		Title = emote.name,
+		Icon = "flame",
+		Callback = function()
+			state.selectedEmoteName = emote.name
+			playDanceEmote(emote.id, emote.name)
+		end,
+	})
+end
+
+EmotesTab:Section({ Title = "Classic Dance Emotes (1 - 20)" })
+
+for i = 1, 20 do
+	local emote = AllEmotes[i]
+	EmotesTab:Button({
+		Title = emote.name,
+		Icon = "music",
+		Callback = function()
+			state.selectedEmoteName = emote.name
+			playDanceEmote(emote.id, emote.name)
+		end,
+	})
+end
+
+-- === TAB 3: MY SONGS (DOWNLOAD & LOCAL) ===
+LibraryTab:Section({ Title = "Add Downloaded Song" })
+
+LibraryTab:Input({
+	Title = "Song Name",
+	Desc = "Optional custom label",
+	Placeholder = "People x Nainowale Ne",
+	Callback = function(v)
+		state.songTitle = v
+	end,
+})
+
+LibraryTab:Input({
+	Title = "File Path / Name",
+	Desc = "In workspace or DarkMoonMusic folder",
+	Placeholder = "DarkMoonMusic/song.mp3",
+	Callback = function(v)
+		state.filePath = v
+	end,
+})
+
+LibraryTab:Button({
+	Title = "Add & Play Song",
+	Icon = "plus-circle",
+	Callback = function()
+		addExistingAndPlay(state.filePath, state.songTitle)
+	end,
+})
+
+LibraryTab:Section({ Title = "Download Direct Audio Link" })
+
+LibraryTab:Input({
+	Title = "Direct .mp3 / .ogg URL",
+	Desc = "Raw audio file URL",
+	Placeholder = "https://example.com/track.mp3",
+	Callback = function(v)
+		state.directUrl = v
+	end,
+})
+
+LibraryTab:Button({
+	Title = "Download & Play",
+	Icon = "download",
+	Callback = function()
+		downloadAndPlay(state.directUrl, state.songTitle)
+	end,
+})
+
+LibraryTab:Section({ Title = "Saved Songs List" })
+
+refreshFiles()
+
+fileDropdown = LibraryTab:Dropdown({
+	Title = "Saved Songs",
+	Values = fileLabels,
+	Value = fileLabels[1],
+	Callback = function(v)
+		if v and v ~= "No saved songs" then
+			state.selectedFileLabel = v
+		end
+	end,
+})
+
+LibraryTab:Button({
+	Title = "Play Selected",
+	Icon = "play",
+	Callback = function()
+		playFileByLabel(state.selectedFileLabel)
+	end,
+})
+
+LibraryTab:Button({
+	Title = "Refresh List",
+	Icon = "refresh-cw",
+	Callback = function()
+		refreshFiles()
+		notify("Refreshed", "Updated saved songs list.", "check")
+	end,
+})
+
+LibraryTab:Button({
+	Title = "Delete Selected",
+	Icon = "trash-2",
+	Callback = function()
+		local path = state.selectedFileLabel and fileMap[state.selectedFileLabel]
+		if not path then
+			return
+		end
+		if canDelFile and canIsFile and isfile(path) and pcall(delfile, path) then
+			if Sound.IsPlaying then
+				Sound:Stop()
+			end
+			state.selectedFileLabel = nil
+			refreshFiles()
+			notify("Deleted", "Removed " .. path, "trash")
+		end
+	end,
+})
+
+-- === TAB 4: FAVORITES ===
+FavTab:Section({ Title = "Quick Favorites" })
+
+FavTab:Button({
+	Title = "Favorite Current Song",
+	Desc = "Saves currently playing Roblox ID or local track",
+	Icon = "star",
+	Callback = function()
+		local entryLabel = state.currentTitle
+		if favMap[entryLabel] then
+			notify("Already Saved", entryLabel .. " is already in Favorites.", "star")
+			return
+		end
+		if state.sourceMode == "local" and state.selectedFileLabel then
+			table.insert(favorites, {
+				label = state.selectedFileLabel,
+				mode = "local",
+				value = state.selectedFileLabel,
+			})
+		else
+			table.insert(favorites, {
+				label = state.currentTitle,
+				mode = "roblox",
+				value = state.currentId,
+			})
+		end
+		refreshFavorites()
+		notify("Favorited", "Added " .. entryLabel, "star")
+	end,
+})
+
+refreshFavorites()
+
+favDropdown = FavTab:Dropdown({
+	Title = "Favorite Tracks",
+	Values = favLabels,
+	Value = favLabels[1],
+	Callback = function(v)
+		if v and v ~= "No favorites yet" then
+			state.selectedFavLabel = v
+		end
+	end,
+})
+
+FavTab:Button({
+	Title = "Play Favorite",
+	Icon = "play",
+	Callback = function()
+		local item = state.selectedFavLabel and favMap[state.selectedFavLabel]
+		if not item then
+			notify("Empty", "No favorite track selected.", "alert-circle")
+			return
+		end
+		if item.mode == "local" then
+			playFileByLabel(item.value)
+		else
+			playRobloxId(item.value, item.label)
+		end
+	end,
+})
+
+FavTab:Button({
+	Title = "Remove Favorite",
+	Icon = "trash",
+	Callback = function()
+		local target = state.selectedFavLabel
+		if not target or not favMap[target] then
+			return
+		end
+		for i, item in ipairs(favorites) do
+			if item.label == target then
+				table.remove(favorites, i)
+				break
+			end
+		end
+		state.selectedFavLabel = nil
+		refreshFavorites()
+		notify("Removed", "Removed from Favorites.", "trash")
+	end,
+})
+
+-- === TAB 5: AUDIO FX ===
+FxTab:Section({ Title = "One-Tap Sound Presets" })
+
+FxTab:Dropdown({
+	Title = "Audio Preset",
+	Values = { "Normal", "Nightcore", "Slowed + Reverb", "Bass Boost" },
+	Value = "Normal",
+	Callback = function(preset)
+		applyAudioPreset(preset)
+	end,
+})
+
+FxTab:Section({ Title = "Fine Controls" })
+
+FxTab:Slider({
+	Title = "Playback Speed (Pitch)",
+	Step = 0.05,
+	Value = { Min = 0.5, Max = 1.75, Default = 1.0 },
+	Callback = function(v)
+		state.speed = v
+		Sound.PlaybackSpeed = v
+	end,
+})
+
+FxTab:Slider({
+	Title = "Bass Gain (dB)",
+	Step = 1,
+	Value = { Min = 0, Max = 15, Default = 0 },
+	Callback = function(v)
+		Equalizer.LowGain = v
+		Equalizer.Enabled = v > 0
+	end,
+})
+
+FxTab:Toggle({
+	Title = "Enable Reverb",
+	Value = false,
+	Callback = function(v)
+		Reverb.Enabled = v
+	end,
+})
+
+Window:SelectTab(1)
