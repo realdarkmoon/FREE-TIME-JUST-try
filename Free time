@@ -1,7 +1,6 @@
 -- Load WindUI
 local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 
-local SoundService = game:GetService("SoundService")
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
 local TextChatService = game:GetService("TextChatService")
@@ -9,98 +8,16 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
 local Workspace = game:GetService("Workspace")
 local CoreGui = game:GetService("CoreGui")
+local MarketplaceService = game:GetService("MarketplaceService")
 local LocalPlayer = Players.LocalPlayer
 
--- Clean up previous Sound instance cleanly
-local OLD_NAME = "DarkMoonOptimizedMusic"
-local existing = SoundService:FindFirstChild(OLD_NAME)
-if existing then
-	existing:Destroy()
-end
-
-local Sound = Instance.new("Sound")
-Sound.Name = OLD_NAME
-Sound.Volume = 0.5
-Sound.Looped = false
-Sound.Parent = SoundService
-
--- SoundEffects (Lightweight, zero-loop audio FX)
-local Equalizer = Instance.new("EqualizerSoundEffect")
-Equalizer.Name = "BassEQ"
-Equalizer.LowGain = 0
-Equalizer.MidGain = 0
-Equalizer.HighGain = 0
-Equalizer.Enabled = false
-Equalizer.Parent = Sound
-
-local Reverb = Instance.new("ReverbSoundEffect")
-Reverb.Name = "MoodReverb"
-Reverb.DecayTime = 1.5
-Reverb.Density = 0.8
-Reverb.Diffusion = 0.8
-Reverb.DryLevel = 0
-Reverb.WetLevel = -6
-Reverb.Enabled = false
-Reverb.Parent = Sound
-
--- Executor file & clipboard APIs
-local canWrite = typeof(writefile) == "function"
-local canRead = typeof(readfile) == "function"
-local canGetAsset = typeof(getcustomasset) == "function"
-local canIsFile = typeof(isfile) == "function"
-local canListFiles = typeof(listfiles) == "function"
-local canMakeFolder = typeof(makefolder) == "function"
-local canIsFolder = typeof(isfolder) == "function"
-local canDelFile = typeof(delfile) == "function"
-local canClipboard = typeof(setclipboard) == "function" or typeof(toclipboard) == "function"
-
-local function copyText(text)
-	if typeof(setclipboard) == "function" then
-		return pcall(setclipboard, tostring(text))
-	elseif typeof(toclipboard) == "function" then
-		return pcall(toclipboard, tostring(text))
-	end
-	return false
-end
-
-local FOLDER = "DarkMoonMusic"
-if canMakeFolder and not (canIsFolder and isfolder(FOLDER)) then
-	pcall(makefolder, FOLDER)
-end
-
--- Built-in Roblox Audio Tracks (15 Total: 1 Custom Slot + 14 Preset IDs)
-local Tracks = {
-	{ label = "★ People x Nainowale Ne (Set ID)", id = "0" },
-	{ label = "1. Relaxing Lofi Chill", id = "1848354536" },
-	{ label = "2. Cyber Synthwave", id = "1837879082" },
-	{ label = "3. Dark Phonk / Bass", id = "1836776572" },
-	{ label = "4. Upbeat Electronic", id = "1841647093" },
-	{ label = "5. Ambient Night", id = "1845554017" },
-	{ label = "6. Midnight Lo-Fi Beats", id = "1843404009" },
-	{ label = "7. Neon Pulse Synth", id = "1838614424" },
-	{ label = "8. Shadow Drift Bass", id = "1836009840" },
-	{ label = "9. Hyper Club Electro", id = "1845497712" },
-	{ label = "10. Deep Space Ambient", id = "1839246711" },
-	{ label = "11. Sunset Chillhop", id = "1842241432" },
-	{ label = "12. Retrowave Drive", id = "1843497734" },
-	{ label = "13. Subzero Phonk", id = "1846458016" },
-	{ label = "14. Starlight Lounge", id = "1847463628" },
-}
-
-local TrackLabels = table.create(#Tracks)
-local TrackByLabel = {}
-for i, item in ipairs(Tracks) do
-	TrackLabels[i] = item.label
-	TrackByLabel[item.label] = item.id
-end
-
--- 20 Popular Roblox Marketplace & UGC Emotes
-local UGCEmoteList = {
-	{ name = "1. Wall Lean (UGC)", id = "114388371896974" },
-	{ name = "2. Goofy Dance (UGC)", id = "120452122477461" },
-	{ name = "3. Prayer Pose (UGC)", id = "93009184159377" },
-	{ name = "4. Nervy Dance (UGC)", id = "107071154699616" },
-	{ name = "5. Good Boy Dog (UGC)", id = "100737291015384" },
+-- 20 Popular Roblox Emotes
+local EmoteList = {
+	{ name = "1. Wall Lean", id = "114388371896974" },
+	{ name = "2. Goofy Dance", id = "120452122477461" },
+	{ name = "3. Prayer Pose", id = "93009184159377" },
+	{ name = "4. Nervy Dance", id = "107071154699616" },
+	{ name = "5. Good Boy Dog", id = "100737291015384" },
 	{ name = "6. Sturdy Dance", id = "10714340543" },
 	{ name = "7. Hwaiting Pose", id = "10714360343" },
 	{ name = "8. Levitate Float", id = "10714389396" },
@@ -118,11 +35,11 @@ local UGCEmoteList = {
 	{ name = "20. Backflip", id = "15693621070" },
 }
 
-local UGCEmoteNames = table.create(#UGCEmoteList)
-local UGCEmoteByName = {}
-for i, item in ipairs(UGCEmoteList) do
-	UGCEmoteNames[i] = item.name
-	UGCEmoteByName[item.name] = item.id
+local EmoteNames = table.create(#EmoteList)
+local EmoteByName = {}
+for i, item in ipairs(EmoteList) do
+	EmoteNames[i] = item.name
+	EmoteByName[item.name] = item.id
 end
 
 -- 20 R15 Animation Bundles (Idle, Walk, Run, Jump, Fall, Climb)
@@ -316,24 +233,162 @@ for i, b in ipairs(AnimationBundles) do
 	BundleByName[b.name] = b
 end
 
+-- Default Sky + 10 Anime Sky Presets
+local AnimeSkyPresets = {
+	{
+		name = "Default Sky",
+		isDefault = true,
+	},
+	{
+		name = "1. Shinkai Sunset",
+		skyboxId = "155054032",
+		sunId = "155054032",
+		moonId = "155054032",
+		atmosColor = Color3.fromHex("F97316"),
+		atmosDecay = Color3.fromHex("311042"),
+		density = 0.34,
+		offset = 0.28,
+		glare = 0.55,
+		haze = 2.2,
+		clockTime = 17.8,
+		brightness = 2.4,
+	},
+	{
+		name = "2. Midnight Sakura",
+		skyboxId = "149397672",
+		sunId = "149397672",
+		moonId = "149397672",
+		atmosColor = Color3.fromHex("F472B6"),
+		atmosDecay = Color3.fromHex("1E1035"),
+		density = 0.38,
+		offset = 0.25,
+		glare = 0.25,
+		haze = 2.0,
+		clockTime = 21.5,
+		brightness = 1.9,
+	},
+	{
+		name = "3. Ghibli Cumulus",
+		skyboxId = "913952385",
+		sunId = "913952385",
+		moonId = "913952385",
+		atmosColor = Color3.fromHex("7DD3FC"),
+		atmosDecay = Color3.fromHex("1E3A8A"),
+		density = 0.22,
+		offset = 0.15,
+		glare = 0.30,
+		haze = 1.1,
+		clockTime = 11.5,
+		brightness = 2.8,
+	},
+	{
+		name = "4. Astral Twilight",
+		skyboxId = "149397692",
+		sunId = "149397692",
+		moonId = "149397692",
+		atmosColor = Color3.fromHex("818CF8"),
+		atmosDecay = Color3.fromHex("17132B"),
+		density = 0.36,
+		offset = 0.26,
+		glare = 0.20,
+		haze = 1.8,
+		clockTime = 19.5,
+		brightness = 2.0,
+	},
+	{
+		name = "5. Cyber Rain",
+		skyboxId = "155054032",
+		sunId = "155054032",
+		moonId = "155054032",
+		atmosColor = Color3.fromHex("22D3EE"),
+		atmosDecay = Color3.fromHex("0F172A"),
+		density = 0.45,
+		offset = 0.32,
+		glare = 0.15,
+		haze = 2.6,
+		clockTime = 23.0,
+		brightness = 1.7,
+	},
+	{
+		name = "6. Golden Horizon",
+		skyboxId = "913952385",
+		sunId = "913952385",
+		moonId = "913952385",
+		atmosColor = Color3.fromHex("FBBF24"),
+		atmosDecay = Color3.fromHex("451A03"),
+		density = 0.28,
+		offset = 0.22,
+		glare = 0.50,
+		haze = 1.6,
+		clockTime = 16.8,
+		brightness = 2.6,
+	},
+	{
+		name = "7. Violet Meteor",
+		skyboxId = "149397672",
+		sunId = "149397672",
+		moonId = "149397672",
+		atmosColor = Color3.fromHex("C084FC"),
+		atmosDecay = Color3.fromHex("2E1065"),
+		density = 0.40,
+		offset = 0.28,
+		glare = 0.35,
+		haze = 2.1,
+		clockTime = 22.5,
+		brightness = 1.8,
+	},
+	{
+		name = "8. Pastel Morning",
+		skyboxId = "913952385",
+		sunId = "913952385",
+		moonId = "913952385",
+		atmosColor = Color3.fromHex("FDE68A"),
+		atmosDecay = Color3.fromHex("312E81"),
+		density = 0.20,
+		offset = 0.12,
+		glare = 0.25,
+		haze = 1.0,
+		clockTime = 7.5,
+		brightness = 2.5,
+	},
+	{
+		name = "9. Crimson Eclipse",
+		skyboxId = "155054032",
+		sunId = "155054032",
+		moonId = "155054032",
+		atmosColor = Color3.fromHex("FB7185"),
+		atmosDecay = Color3.fromHex("3B071E"),
+		density = 0.42,
+		offset = 0.30,
+		glare = 0.40,
+		haze = 2.3,
+		clockTime = 18.2,
+		brightness = 2.1,
+	},
+	{
+		name = "10. Deep Ocean Sky",
+		skyboxId = "149397692",
+		sunId = "149397692",
+		moonId = "149397692",
+		atmosColor = Color3.fromHex("38BDF8"),
+		atmosDecay = Color3.fromHex("082F49"),
+		density = 0.32,
+		offset = 0.20,
+		glare = 0.22,
+		haze = 1.7,
+		clockTime = 20.5,
+		brightness = 2.0,
+	},
+}
+
+local SkyPresetNames = table.create(#AnimeSkyPresets)
+local SkyPresetByName = {}
+for i, preset in ipairs(AnimeSkyPresets) do
+	SkyPresetNames[i] = preset.name
+	SkyPresetByName[preset.name] = preset
+end
+
 local state = {
-	currentId = "1848354536",
-	currentTitle = "1. Relaxing Lofi Chill",
-	sourceMode = "roblox",
-	customId = "",
-	songTitle = "",
-	filePath = "",
-	directUrl = "",
-	loopSingle = false,
-	autoNext = true,
-	shuffle = false,
-	selectedFileLabel = nil,
-	selectedFavLabel = nil,
-	volume = 0.5,
-	speed = 1.0,
-	-- Proximity / Game Audio Share state
-	shareToOthers = false,
-	shareRange = 80,
 	-- Headless & Korblox Limiteds state
 	headlessEnabled = false,
 	hideHeadAccessories = true,
@@ -342,27 +397,27 @@ local state = {
 	korbloxSlimLeg = true,
 	persistLimitedsOnRespawn = true,
 	tryAvatarRemotes = false,
-	-- UGC Emotes state
-	selectedUGCEmoteName = UGCEmoteList[1].name,
-	customUGCEmoteId = "",
-	ugcEmoteSpeed = 1.0,
-	ugcEmoteAutoRespawn = false,
-	activeUGCEmoteId = nil,
+	-- Emotes state
+	selectedEmoteName = EmoteList[1].name,
+	customEmoteId = "",
+	emoteSpeed = 1.0,
+	emoteAutoRespawn = false,
+	activeEmoteId = nil,
 	-- Animations state
 	selectedBundleName = AnimationBundles[1].name,
 	activeBundle = nil,
 	bundleAutoRespawn = true,
-	-- Head Tag state
-	headTagEnabled = true,
+	-- Head Tag state (always shares with same-script users; hidden by default)
+	headTagEnabled = false,
 	headTagLogo = "🌙",
 	headTagText = "Meow",
 	headTagAccent = Color3.fromHex("E9D5FF"),
 	headTagSyncEnabled = true,
-	-- Trolling state
-	selectedTrollTarget = nil,
-	trollOffsetDistance = 1.4,
-	-- Atmosphere customization state
+	-- Atmosphere, Anime Sky & 8K Graphics state
 	atmosEnabled = true,
+	selectedSkyPreset = "Default Sky",
+	eightKGraphicsEnabled = false,
+	mobileSafe8K = true,
 	atmosDensity = 0.35,
 	atmosOffset = 0.25,
 	atmosGlare = 0.2,
@@ -383,57 +438,56 @@ local state = {
 local defaultLightingSnap = {
 	ClockTime = Lighting.ClockTime,
 	Brightness = Lighting.Brightness,
+	GlobalShadows = Lighting.GlobalShadows,
+	EnvironmentDiffuseScale = Lighting.EnvironmentDiffuseScale,
+	EnvironmentSpecularScale = Lighting.EnvironmentSpecularScale,
 }
 
-local spatialSound = nil
+local okTech, initialTech = pcall(function()
+	return Lighting.Technology
+end)
+if okTech then
+	defaultLightingSnap.Technology = initialTech
+end
+
+local existingInitialSky = Lighting:FindFirstChildOfClass("Sky")
+local savedInitialSkyProps = nil
+if existingInitialSky then
+	savedInitialSkyProps = {
+		SkyboxBk = existingInitialSky.SkyboxBk,
+		SkyboxDn = existingInitialSky.SkyboxDn,
+		SkyboxFt = existingInitialSky.SkyboxFt,
+		SkyboxLf = existingInitialSky.SkyboxLf,
+		SkyboxRt = existingInitialSky.SkyboxRt,
+		SkyboxUp = existingInitialSky.SkyboxUp,
+		SunTextureId = existingInitialSky.SunTextureId,
+		MoonTextureId = existingInitialSky.MoonTextureId,
+		CelestialBodiesShown = existingInitialSky.CelestialBodiesShown,
+	}
+end
+
 local savedLimbSnapshots = {}
 local mutedVoiceObjects = {}
 local mutedInputStates = {}
 local savedChatConfigs = {}
 local savedGuiStates = {}
 local hookedChannels = {}
-local currentUGCEmoteTrack = nil
-local currentUGCEmoteAnim = nil
+local currentEmoteTrack = nil
+local currentEmoteAnim = nil
 local resolvedEmoteIdCache = {}
-local UGCEmoteDropdown = nil
+local EmoteDropdown = nil
 
 local peerTagConfigs = {}
 local originalAnimateIds = nil
 local isApplyingBundle = false
-
-local fileMap = {}
-local fileLabels = {}
-local fileDropdown = nil
-
-local favorites = {}
-local favLabels = {}
-local favMap = {}
-local favDropdown = nil
-
-local trollPlayerLabels = {}
-local trollPlayerDropdown = nil
-local StatusParagraph = nil
 
 local function notify(title, content, icon)
 	WindUI:Notify({
 		Title = title,
 		Content = content,
 		Duration = 3,
-		Icon = icon or "volume-2",
+		Icon = icon or "sparkles",
 	})
-end
-
-local function formatTime(sec)
-	sec = math.max(0, math.floor(sec or 0))
-	local m = math.floor(sec / 60)
-	local s = sec % 60
-	return string.format("%d:%02d", m, s)
-end
-
-local function updateStatus(statusText)
-	if StatusParagraph and typeof(StatusParagraph.SetDesc) == "function" then
-		pcall(StatusParagraph.SetDesc, StatusParagraph, statusText)
-	end
 end
 
 -- === HEADLESS & KORBLOX LIMITEDS HELPERS ===
@@ -555,6 +609,35 @@ local function getKorbloxLegParts(character)
 	return parts
 end
 
+local function setRightLegAccessoriesHidden(character, hidden)
+	if not character then
+		return
+	end
+	for _, child in ipairs(character:GetChildren()) do
+		if child:IsA("Accessory") then
+			local handle = child:FindFirstChild("Handle")
+			local isLegAcc = false
+			if handle then
+				for _, att in ipairs(handle:GetDescendants()) do
+					if att:IsA("Attachment") and (
+						att.Name:find("RightHip")
+						or att.Name:find("RightKnee")
+						or att.Name:find("RightAnkle")
+						or att.Name:find("RightFoot")
+						or att.Name:find("RightLeg")
+					) then
+						isLegAcc = true
+						break
+					end
+				end
+			end
+			if isLegAcc and handle and handle:IsA("BasePart") then
+				setPartVisualHidden(handle, hidden)
+			end
+		end
+	end
+end
+
 local function fireAvatarRemotesIfEnabled(modeTag)
 	if not state.tryAvatarRemotes then
 		return
@@ -628,9 +711,9 @@ local function applyKorbloxToCharacter(character, silent)
 					if part.Name == "RightUpperLeg" or part.Name == "Right Leg" then
 						part.Size = Vector3.new(snap.Size.X * 0.72, snap.Size.Y, snap.Size.Z * 0.72)
 					elseif part.Name == "RightLowerLeg" then
-						part.Size = Vector3.new(snap.Size.X * 0.52, snap.Size.Y, snap.Size.Z * 0.52)
+						part.Size = Vector3.new(snap.Size.X * 0.48, snap.Size.Y, snap.Size.Z * 0.48)
 					elseif part.Name == "RightFoot" then
-						part.Size = Vector3.new(snap.Size.X * 0.65, snap.Size.Y * 0.85, snap.Size.Z * 0.8)
+						part.Size = Vector3.new(snap.Size.X * 0.62, snap.Size.Y * 0.85, snap.Size.Z * 0.78)
 					end
 				elseif snap then
 					part.Size = snap.Size
@@ -645,9 +728,14 @@ local function applyKorbloxToCharacter(character, silent)
 							state.korbloxColor.B
 						)
 					end)
+				elseif desc:IsA("SurfaceAppearance") then
+					pcall(function()
+						desc.Color = state.korbloxColor
+					end)
 				end
 			end
 		end
+		setRightLegAccessoriesHidden(character, true)
 		fireAvatarRemotesIfEnabled("korblox")
 		if not silent then
 			notify("Korblox Applied", "Korblox right leg styling applied.", "footprints")
@@ -656,6 +744,7 @@ local function applyKorbloxToCharacter(character, silent)
 		for _, part in ipairs(legParts) do
 			restorePartSnapshot(part)
 		end
+		setRightLegAccessoriesHidden(character, false)
 		if not silent then
 			notify("Korblox Removed", "Restored original right leg.", "user")
 		end
@@ -677,7 +766,7 @@ local function applyLimitedsNow(silent)
 	end
 end
 
--- Keep active Headless / Korblox state enforced against character resets
+-- Keep active Headless / Korblox state enforced against resets
 task.spawn(function()
 	while true do
 		task.wait(1.5)
@@ -692,104 +781,6 @@ task.spawn(function()
 		end
 	end
 end)
-
--- === SPATIAL CHARACTER SOUND & REMOTE AUDIO TRIGGER ===
-local function getCharacterAudioAnchor()
-	local char = LocalPlayer and LocalPlayer.Character
-	if not char then
-		return nil
-	end
-	return char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
-end
-
-local function ensureSpatialSound()
-	local anchor = getCharacterAudioAnchor()
-	if not anchor then
-		return nil
-	end
-	if spatialSound and spatialSound.Parent ~= anchor then
-		pcall(function()
-			spatialSound:Destroy()
-		end)
-		spatialSound = nil
-	end
-	if not spatialSound then
-		spatialSound = Instance.new("Sound")
-		spatialSound.Name = "DarkMoonSpatialEmitter"
-		spatialSound.RollOffMode = Enum.RollOffMode.Linear
-		spatialSound.RollOffMinDistance = 10
-		spatialSound.RollOffMaxDistance = state.shareRange
-		spatialSound.Parent = anchor
-	end
-	spatialSound.RollOffMaxDistance = state.shareRange
-	return spatialSound
-end
-
-local function fireGameAudioRemotes(digits)
-	local assetId = "rbxassetid://" .. tostring(digits)
-	local numericId = tonumber(digits) or digits
-	local candidateNames = {
-		"playsong", "playmusic", "playsound", "setmusic", "setsong",
-		"equipradio", "radioremote", "boombox", "playaudio", "soundevent"
-	}
-
-	local containers = { ReplicatedStorage, Workspace }
-	for _, container in ipairs(containers) do
-		pcall(function()
-			for _, desc in ipairs(container:GetDescendants()) do
-				if desc:IsA("RemoteEvent") then
-					local low = desc.Name:lower()
-					for _, key in ipairs(candidateNames) do
-						if low:find(key, 1, true) then
-							pcall(function()
-								desc:FireServer(assetId)
-							end)
-							pcall(function()
-								desc:FireServer(numericId)
-							end)
-							break
-						end
-					end
-				end
-			end
-		end)
-	end
-end
-
-local function syncSpatialSoundPlayback()
-	if not state.shareToOthers or state.sourceMode ~= "roblox" or not state.currentId or state.currentId == "0" then
-		if spatialSound then
-			pcall(function()
-				spatialSound:Stop()
-			end)
-		end
-		return
-	end
-
-	local s = ensureSpatialSound()
-	if not s then
-		return
-	end
-
-	s.SoundId = "rbxassetid://" .. tostring(state.currentId)
-	s.Volume = math.clamp(state.volume, 0, 2)
-	s.PlaybackSpeed = state.speed
-	s.Looped = state.loopSingle
-	s.RollOffMaxDistance = state.shareRange
-
-	if Sound.IsPlaying then
-		pcall(function()
-			s.TimePosition = Sound.TimePosition
-			s:Play()
-		end)
-	else
-		pcall(function()
-			s:Stop()
-		end)
-	end
-
-	fireGameAudioRemotes(state.currentId)
-end
 
 -- === SHARED HEAD TAG PARSER (DECLARED BEFORE CHAT CONNECTIONS) ===
 local applyPlayerHeadTag
@@ -823,7 +814,7 @@ end
 
 -- === ANTI-VOICE CHAT & ANTI-CHAT BYPASS HELPERS ===
 local function isVoiceAudioObject(inst)
-	if not inst or inst == Sound or inst == spatialSound then
+	if not inst then
 		return false
 	end
 	if inst:IsA("AudioDeviceInput") or inst:IsA("AudioDeviceOutput") or inst:IsA("AudioPlayer") or inst:IsA("AudioEmitter") then
@@ -915,7 +906,6 @@ local function applyAntiVoiceChat(silent)
 		end
 	end)
 
-	scanAndApplyVoiceMute(SoundService, shouldMute)
 	scanAndApplyVoiceMute(Workspace, shouldMute)
 	scanAndApplyVoiceMute(CoreGui, shouldMute)
 
@@ -1073,7 +1063,6 @@ local function hookAudioWatcher(container)
 	end)
 end
 
-hookAudioWatcher(SoundService)
 hookAudioWatcher(Workspace)
 hookAudioWatcher(CoreGui)
 pcall(function()
@@ -1124,24 +1113,24 @@ task.spawn(function()
 	end
 end)
 
--- === UGC EMOTE HELPERS (WITH ASSET/EMOTE ID RESOLUTION) ===
-local function stopCurrentUGCEmote(silent)
-	if currentUGCEmoteTrack then
+-- === EMOTES HELPERS (WITH ASSET/EMOTE ID RESOLUTION) ===
+local function stopCurrentEmote(silent)
+	if currentEmoteTrack then
 		pcall(function()
-			currentUGCEmoteTrack:Stop(0.15)
-			currentUGCEmoteTrack:Destroy()
+			currentEmoteTrack:Stop(0.15)
+			currentEmoteTrack:Destroy()
 		end)
-		currentUGCEmoteTrack = nil
+		currentEmoteTrack = nil
 	end
-	if currentUGCEmoteAnim then
+	if currentEmoteAnim then
 		pcall(function()
-			currentUGCEmoteAnim:Destroy()
+			currentEmoteAnim:Destroy()
 		end)
-		currentUGCEmoteAnim = nil
+		currentEmoteAnim = nil
 	end
-	state.activeUGCEmoteId = nil
+	state.activeEmoteId = nil
 	if not silent then
-		notify("UGC Emote Stopped", "Stopped active UGC emote.", "square")
+		notify("Emote Stopped", "Stopped active emote.", "square")
 	end
 end
 
@@ -1201,6 +1190,32 @@ local function resolveEmoteAnimationId(rawId, humanoid)
 		end
 	end
 
+	pcall(function()
+		local info = MarketplaceService:GetProductInfo(tonumber(digits) or 0)
+		if type(info) == "table" and info.AssetId and tonumber(info.AssetId) then
+			local assetDigits = tostring(info.AssetId):match("%d+")
+			if assetDigits and assetDigits ~= "0" and assetDigits ~= digits then
+				local okObjs, objs = pcall(function()
+					return game:GetObjects("rbxassetid://" .. assetDigits)
+				end)
+				if okObjs and type(objs) == "table" then
+					for _, item in ipairs(objs) do
+						local extracted = extractAnimIdFromInstance(item)
+						pcall(function()
+							item:Destroy()
+						end)
+						if extracted then
+							resolvedEmoteIdCache[digits] = extracted
+						end
+					end
+				end
+			end
+		end
+	end)
+	if resolvedEmoteIdCache[digits] then
+		return resolvedEmoteIdCache[digits]
+	end
+
 	local okObjs, objs = pcall(function()
 		return game:GetObjects("rbxassetid://" .. digits)
 	end)
@@ -1221,10 +1236,10 @@ local function resolveEmoteAnimationId(rawId, humanoid)
 	return digits
 end
 
-local function playUGCEmote(rawId, label)
+local function playEmote(rawId, label)
 	local digits = tostring(rawId or ""):match("%d+")
 	if not digits or digits == "0" then
-		notify("Invalid ID", "Enter a valid numeric UGC Emote / Animation ID.", "alert-circle")
+		notify("Invalid ID", "Enter a valid numeric Emote / Animation ID.", "alert-circle")
 		return
 	end
 
@@ -1236,7 +1251,7 @@ local function playUGCEmote(rawId, label)
 	end
 
 	if humanoid.RigType == Enum.HumanoidRigType.R6 then
-		notify("R15 Required", "UGC emotes require an R15 avatar rig.", "alert-triangle")
+		notify("R15 Required", "Emotes require an R15 avatar rig.", "alert-triangle")
 		return
 	end
 
@@ -1256,7 +1271,7 @@ local function playUGCEmote(rawId, label)
 		local loadedAnim, loadedTrack = nil, nil
 		for _, tryId in ipairs(candidateIds) do
 			local anim = Instance.new("Animation")
-			anim.Name = "DarkMoonUGCEmote"
+			anim.Name = "DarkMoonEmote"
 			anim.AnimationId = "rbxassetid://" .. tryId
 
 			local ok, track = pcall(function()
@@ -1272,25 +1287,159 @@ local function playUGCEmote(rawId, label)
 		end
 
 		if loadedAnim and loadedTrack then
-			stopCurrentUGCEmote(true)
-			currentUGCEmoteAnim = loadedAnim
-			currentUGCEmoteTrack = loadedTrack
-			state.activeUGCEmoteId = digits
+			stopCurrentEmote(true)
+			currentEmoteAnim = loadedAnim
+			currentEmoteTrack = loadedTrack
+			state.activeEmoteId = digits
 
 			loadedTrack.Priority = Enum.AnimationPriority.Action4
 			loadedTrack.Looped = true
 			loadedTrack:Play(0.15)
-			loadedTrack:AdjustSpeed(state.ugcEmoteSpeed)
+			loadedTrack:AdjustSpeed(state.emoteSpeed)
 
-			notify("Playing UGC Emote", label or ("Emote ID: " .. digits), "sparkles")
+			notify("Playing Emote", label or ("Emote ID: " .. digits), "sparkles")
 		else
 			notify("Emote Error", "Could not load emote ID: " .. digits, "x-circle")
 		end
 	end)
 end
 
--- === ATMOSPHERE CUSTOMIZATION HELPERS ===
+-- === ATMOSPHERE, ANIME SKY & 8K GRAPHICS HELPERS ===
 local ATMOS_NAME = "DarkMoonCustomAtmosphere"
+local SKY_NAME = "DarkMoonCustomSky"
+local EIGHT_K_PREFIX = "DarkMoon8K_"
+
+local function clearEightKEffects()
+	for _, child in ipairs(Lighting:GetChildren()) do
+		if tostring(child.Name):sub(1, #EIGHT_K_PREFIX) == EIGHT_K_PREFIX then
+			pcall(function()
+				child:Destroy()
+			end)
+		end
+	end
+end
+
+local function applyEightKGraphics(enabled)
+	clearEightKEffects()
+
+	if enabled then
+		local mobileSafe = state.mobileSafe8K
+
+		pcall(function()
+			if not mobileSafe then
+				Lighting.Technology = Enum.Technology.Future
+			end
+		end)
+		pcall(function()
+			Lighting.GlobalShadows = true
+			Lighting.EnvironmentDiffuseScale = mobileSafe and 0.75 or 1
+			Lighting.EnvironmentSpecularScale = mobileSafe and 0.75 or 1
+		end)
+
+		local bloom = Instance.new("BloomEffect")
+		bloom.Name = EIGHT_K_PREFIX .. "Bloom"
+		bloom.Intensity = mobileSafe and 0.28 or 0.42
+		bloom.Size = mobileSafe and 16 or 24
+		bloom.Threshold = 1.15
+		bloom.Parent = Lighting
+
+		local cc = Instance.new("ColorCorrectionEffect")
+		cc.Name = EIGHT_K_PREFIX .. "ColorCorrection"
+		cc.Brightness = 0.03
+		cc.Contrast = mobileSafe and 0.10 or 0.14
+		cc.Saturation = mobileSafe and 0.14 or 0.18
+		cc.TintColor = Color3.fromHex("FFFDF9")
+		cc.Parent = Lighting
+
+		if not mobileSafe then
+			local sunRays = Instance.new("SunRaysEffect")
+			sunRays.Name = EIGHT_K_PREFIX .. "SunRays"
+			sunRays.Intensity = 0.12
+			sunRays.Spread = 0.65
+			sunRays.Parent = Lighting
+
+			local dof = Instance.new("DepthOfFieldEffect")
+			dof.Name = EIGHT_K_PREFIX .. "DepthOfField"
+			dof.FarIntensity = 0.18
+			dof.FocusDistance = 42
+			dof.InFocusRadius = 28
+			dof.NearIntensity = 0.05
+			dof.Parent = Lighting
+		end
+	else
+		pcall(function()
+			Lighting.GlobalShadows = defaultLightingSnap.GlobalShadows
+			Lighting.EnvironmentDiffuseScale = defaultLightingSnap.EnvironmentDiffuseScale
+			Lighting.EnvironmentSpecularScale = defaultLightingSnap.EnvironmentSpecularScale
+			if defaultLightingSnap.Technology then
+				Lighting.Technology = defaultLightingSnap.Technology
+			end
+		end)
+	end
+end
+
+local function removeCustomSky()
+	for _, child in ipairs(Lighting:GetChildren()) do
+		if child:IsA("Sky") and child.Name == SKY_NAME then
+			pcall(function()
+				child:Destroy()
+			end)
+		end
+	end
+end
+
+local function restoreDefaultSky()
+	removeCustomSky()
+	local targetSky = Lighting:FindFirstChildOfClass("Sky")
+	if targetSky and savedInitialSkyProps then
+		pcall(function()
+			targetSky.SkyboxBk = savedInitialSkyProps.SkyboxBk
+			targetSky.SkyboxDn = savedInitialSkyProps.SkyboxDn
+			targetSky.SkyboxFt = savedInitialSkyProps.SkyboxFt
+			targetSky.SkyboxLf = savedInitialSkyProps.SkyboxLf
+			targetSky.SkyboxRt = savedInitialSkyProps.SkyboxRt
+			targetSky.SkyboxUp = savedInitialSkyProps.SkyboxUp
+			targetSky.SunTextureId = savedInitialSkyProps.SunTextureId
+			targetSky.MoonTextureId = savedInitialSkyProps.MoonTextureId
+			targetSky.CelestialBodiesShown = savedInitialSkyProps.CelestialBodiesShown
+		end)
+	end
+end
+
+local function getOrCreateAnimeSky()
+	local existingSky = Lighting:FindFirstChild(SKY_NAME)
+	if existingSky and existingSky:IsA("Sky") then
+		return existingSky
+	end
+	local created = Instance.new("Sky")
+	created.Name = SKY_NAME
+	created.Parent = Lighting
+	return created
+end
+
+local function applyAnimeSkyTexture(preset)
+	if not preset or preset.isDefault then
+		restoreDefaultSky()
+		return
+	end
+
+	local sky = getOrCreateAnimeSky()
+	local boxUrl = preset.skyboxId and ("rbxassetid://" .. tostring(preset.skyboxId)) or ""
+	local sunUrl = preset.sunId and ("rbxassetid://" .. tostring(preset.sunId)) or ""
+	local moonUrl = preset.moonId and ("rbxassetid://" .. tostring(preset.moonId)) or ""
+
+	pcall(function()
+		sky.SkyboxBk = boxUrl
+		sky.SkyboxDn = boxUrl
+		sky.SkyboxFt = boxUrl
+		sky.SkyboxLf = boxUrl
+		sky.SkyboxRt = boxUrl
+		sky.SkyboxUp = boxUrl
+		sky.SunTextureId = sunUrl
+		sky.MoonTextureId = moonUrl
+		sky.CelestialBodiesShown = true
+	end)
+end
 
 local function getOrCreateAtmosphere()
 	local existingAtmos = Lighting:FindFirstChild(ATMOS_NAME)
@@ -1304,69 +1453,79 @@ local function getOrCreateAtmosphere()
 end
 
 local function applyAtmosphereSettings(silent)
-	if not state.atmosEnabled then
+	local preset = SkyPresetByName[state.selectedSkyPreset]
+	local useDefaultSky = (not state.atmosEnabled) or (preset and preset.isDefault)
+
+	if useDefaultSky then
 		local existingAtmos = Lighting:FindFirstChild(ATMOS_NAME)
 		if existingAtmos then
-			existingAtmos:Destroy()
+			pcall(function()
+				existingAtmos:Destroy()
+			end)
 		end
-		Lighting.ClockTime = defaultLightingSnap.ClockTime
-		Lighting.Brightness = defaultLightingSnap.Brightness
-		if not silent then
-			notify("Atmosphere", "Custom atmosphere disabled.", "sun")
+		restoreDefaultSky()
+		pcall(function()
+			Lighting.ClockTime = defaultLightingSnap.ClockTime
+			Lighting.Brightness = defaultLightingSnap.Brightness
+		end)
+	else
+		if preset then
+			applyAnimeSkyTexture(preset)
 		end
-		return
+
+		local atmo = getOrCreateAtmosphere()
+		pcall(function()
+			atmo.Density = math.clamp(tonumber(state.atmosDensity) or 0.35, 0, 1)
+			atmo.Offset = math.clamp(tonumber(state.atmosOffset) or 0.25, 0, 1)
+			atmo.Glare = math.clamp(tonumber(state.atmosGlare) or 0.2, 0, 10)
+			atmo.Haze = math.clamp(tonumber(state.atmosHaze) or 1.5, 0, 10)
+			atmo.Color = state.atmosColor
+			atmo.Decay = state.atmosDecay
+		end)
+
+		pcall(function()
+			Lighting.ClockTime = math.clamp(tonumber(state.clockTime) or 21.5, 0, 24)
+			Lighting.Brightness = math.clamp(tonumber(state.brightness) or 2.0, 0, 10)
+		end)
 	end
 
-	local atmo = getOrCreateAtmosphere()
-	atmo.Density = math.clamp(tonumber(state.atmosDensity) or 0.35, 0, 1)
-	atmo.Offset = math.clamp(tonumber(state.atmosOffset) or 0.25, 0, 1)
-	atmo.Glare = math.clamp(tonumber(state.atmosGlare) or 0.2, 0, 10)
-	atmo.Haze = math.clamp(tonumber(state.atmosHaze) or 1.5, 0, 10)
-	atmo.Color = state.atmosColor
-	atmo.Decay = state.atmosDecay
-
-	Lighting.ClockTime = math.clamp(tonumber(state.clockTime) or 21.5, 0, 24)
-	Lighting.Brightness = math.clamp(tonumber(state.brightness) or 2.0, 0, 10)
+	applyEightKGraphics(state.eightKGraphicsEnabled)
 
 	if not silent then
-		notify("Atmosphere", "Updated sky & atmosphere settings.", "cloud")
+		if state.eightKGraphicsEnabled then
+			notify(
+				"8K Graphics",
+				state.mobileSafe8K and "Mobile-safe 8K graphics enabled." or "Full 8K graphics enabled.",
+				"sparkles"
+			)
+		elseif useDefaultSky then
+			notify("Default Graphics", "Restored default sky & graphics.", "sun")
+		else
+			notify("Anime Sky", "Applied " .. tostring(state.selectedSkyPreset) .. ".", "cloud")
+		end
 	end
 end
 
-local function applyAtmospherePreset(presetName)
-	if presetName == "Midnight Moon" then
-		state.atmosEnabled = true
-		state.atmosDensity = 0.38
-		state.atmosOffset = 0.25
-		state.atmosGlare = 0.25
-		state.atmosHaze = 2.0
-		state.atmosColor = Color3.fromHex("3B2F63")
-		state.atmosDecay = Color3.fromHex("17132B")
-		state.clockTime = 22.0
-		state.brightness = 1.6
-	elseif presetName == "Neon Dusk" then
-		state.atmosEnabled = true
-		state.atmosDensity = 0.42
-		state.atmosOffset = 0.30
-		state.atmosGlare = 0.45
-		state.atmosHaze = 2.4
-		state.atmosColor = Color3.fromHex("701A75")
-		state.atmosDecay = Color3.fromHex("1E1B4B")
-		state.clockTime = 18.5
-		state.brightness = 2.2
-	elseif presetName == "Clear Sky" then
-		state.atmosEnabled = true
-		state.atmosDensity = 0.12
-		state.atmosOffset = 0.05
-		state.atmosGlare = 0.10
-		state.atmosHaze = 0.5
-		state.atmosColor = Color3.fromHex("93C5FD")
-		state.atmosDecay = Color3.fromHex("1D4ED8")
-		state.clockTime = 13.0
-		state.brightness = 3.0
-	elseif presetName == "Default Lighting" then
-		state.atmosEnabled = false
+local function applySkyOrAtmospherePreset(presetName)
+	local preset = SkyPresetByName[presetName]
+	state.selectedSkyPreset = presetName
+
+	if not preset or preset.isDefault then
+		state.selectedSkyPreset = "Default Sky"
+		applyAtmosphereSettings(false)
+		return
 	end
+
+	state.atmosEnabled = true
+	state.atmosDensity = preset.density
+	state.atmosOffset = preset.offset
+	state.atmosGlare = preset.glare
+	state.atmosHaze = preset.haze
+	state.atmosColor = preset.atmosColor
+	state.atmosDecay = preset.atmosDecay
+	state.clockTime = preset.clockTime
+	state.brightness = preset.brightness
+
 	applyAtmosphereSettings(false)
 end
 
@@ -1491,10 +1650,8 @@ applyPlayerHeadTag = function(plr, character)
 end
 
 local function broadcastHeadTagState()
+	state.headTagSyncEnabled = true
 	applyPlayerHeadTag(LocalPlayer, LocalPlayer and LocalPlayer.Character)
-	if not state.headTagSyncEnabled then
-		return
-	end
 
 	local hexAccent = state.headTagAccent:ToHex()
 	local payload = string.format(
@@ -1520,103 +1677,6 @@ local function broadcastHeadTagState()
 			sayMsg:FireServer(payload, "All")
 		end
 	end)
-end
-
--- === TROLLING HELPERS (KISS & HUG) ===
-local function getPlayerListLabels()
-	local labels = {}
-	for _, plr in ipairs(Players:GetPlayers()) do
-		if plr ~= LocalPlayer then
-			local display = (plr.DisplayName and plr.DisplayName ~= "" and plr.DisplayName ~= plr.Name)
-				and (plr.DisplayName .. " (@" .. plr.Name .. ")")
-				or plr.Name
-			table.insert(labels, display)
-		end
-	end
-	table.sort(labels)
-	if #labels == 0 then
-		table.insert(labels, "No other players")
-	end
-	return labels
-end
-
-local function findTargetPlayerByLabel(label)
-	if not label or label == "No other players" then
-		return nil
-	end
-	local handleMatch = label:match("@([%w_]+)")
-	local searchName = handleMatch or label
-	for _, plr in ipairs(Players:GetPlayers()) do
-		if plr ~= LocalPlayer and (plr.Name == searchName or plr.DisplayName == searchName or label:find(plr.Name, 1, true)) then
-			return plr
-		end
-	end
-	return nil
-end
-
-local function refreshTrollTargets(preferredLabel)
-	table.clear(trollPlayerLabels)
-	local fresh = getPlayerListLabels()
-	for _, lbl in ipairs(fresh) do
-		table.insert(trollPlayerLabels, lbl)
-	end
-
-	if trollPlayerLabels[1] == "No other players" then
-		state.selectedTrollTarget = nil
-	else
-		if preferredLabel and table.find(trollPlayerLabels, preferredLabel) then
-			state.selectedTrollTarget = preferredLabel
-		elseif not state.selectedTrollTarget or not table.find(trollPlayerLabels, state.selectedTrollTarget) then
-			state.selectedTrollTarget = trollPlayerLabels[1]
-		end
-	end
-
-	if trollPlayerDropdown and typeof(trollPlayerDropdown.Refresh) == "function" then
-		pcall(trollPlayerDropdown.Refresh, trollPlayerDropdown, trollPlayerLabels, true)
-	end
-end
-
-local function performTrollAction(actionType)
-	local targetPlr = findTargetPlayerByLabel(state.selectedTrollTarget)
-	if not targetPlr then
-		notify("No Target", "Select a player in the Trolling tab first.", "alert-circle")
-		return
-	end
-
-	local myChar = LocalPlayer and LocalPlayer.Character
-	local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-	local targetChar = targetPlr.Character
-	local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
-
-	if not myRoot or not myRoot:IsA("BasePart") then
-		notify("Character Missing", "Wait for your character to spawn.", "alert-circle")
-		return
-	end
-
-	if not targetRoot or not targetRoot:IsA("BasePart") then
-		notify("Target Unavailable", targetPlr.Name .. " does not have an active character right now.", "alert-circle")
-		return
-	end
-
-	local dist = math.clamp(tonumber(state.trollOffsetDistance) or 1.4, 0.8, 4.0)
-	local targetPos = targetRoot.Position
-	local forward = targetRoot.CFrame.LookVector
-	local flatForward = Vector3.new(forward.X, 0, forward.Z)
-	if flatForward.Magnitude < 0.01 then
-		flatForward = Vector3.new(0, 0, -1)
-	else
-		flatForward = flatForward.Unit
-	end
-
-	if actionType == "kiss" then
-		local kissSpot = targetPos + (flatForward * dist)
-		myRoot.CFrame = CFrame.lookAt(kissSpot, Vector3.new(targetPos.X, kissSpot.Y, targetPos.Z))
-		notify("Kiss", "Kissed " .. targetPlr.Name .. " 💋", "heart")
-	elseif actionType == "hug" then
-		local hugSpot = targetPos + (flatForward * math.max(0.95, dist * 0.85))
-		myRoot.CFrame = CFrame.lookAt(hugSpot, Vector3.new(targetPos.X, hugSpot.Y, targetPos.Z))
-		notify("Hug", "Hugged " .. targetPlr.Name .. " 🤗", "sparkles")
-	end
 end
 
 -- === ANIMATION BUNDLE HELPERS ===
@@ -1798,12 +1858,11 @@ local function hookPlayerCharacter(plr)
 	plr.CharacterAdded:Connect(function(char)
 		hookAudioWatcher(char)
 		if plr == LocalPlayer then
-			spatialSound = nil
 			table.clear(savedLimbSnapshots)
 			originalAnimateIds = nil
 			isApplyingBundle = false
-			currentUGCEmoteTrack = nil
-			currentUGCEmoteAnim = nil
+			currentEmoteTrack = nil
+			currentEmoteAnim = nil
 		end
 		char:WaitForChild("Head", 5)
 		if plr == LocalPlayer then
@@ -1827,18 +1886,15 @@ local function hookPlayerCharacter(plr)
 					applyKorbloxToCharacter(char, true)
 				end
 			end
-			if state.shareToOthers then
-				syncSpatialSoundPlayback()
-			end
 			if state.bundleAutoRespawn and state.activeBundle then
 				applyAnimationBundle(state.activeBundle, true)
 			end
-			if state.ugcEmoteAutoRespawn and state.activeUGCEmoteId then
-				playUGCEmote(state.activeUGCEmoteId, state.selectedUGCEmoteName)
+			if state.emoteAutoRespawn and state.activeEmoteId then
+				playEmote(state.activeEmoteId, state.selectedEmoteName)
 			else
-				state.activeUGCEmoteId = nil
+				state.activeEmoteId = nil
 			end
-			if state.atmosEnabled then
+			if state.atmosEnabled or state.eightKGraphicsEnabled then
 				applyAtmosphereSettings(true)
 			end
 			if state.antiChatEnabled then
@@ -1854,336 +1910,18 @@ end
 
 Players.PlayerAdded:Connect(function(plr)
 	hookPlayerCharacter(plr)
-	refreshTrollTargets(state.selectedTrollTarget)
 end)
 
 Players.PlayerRemoving:Connect(function(plr)
 	peerTagConfigs[plr.UserId] = nil
-	refreshTrollTargets(state.selectedTrollTarget)
 end)
-
--- === FILE & MUSIC HELPERS ===
-local function sanitize(str)
-	local s = tostring(str or "Track"):gsub("[^%w%-%_]", "_"):gsub("_+", "_"):gsub("^_+", ""):gsub("_+$", "")
-	return (#s > 0 and s:sub(1, 40)) or ("Track_" .. tostring(math.random(1000, 9999)))
-end
-
-local function resolvePath(raw)
-	local p = tostring(raw or ""):gsub("^%s+", ""):gsub("%s+$", ""):gsub("\\", "/")
-	if p == "" then
-		return nil
-	end
-	if not p:find("/") and canIsFile and isfile(FOLDER .. "/" .. p) then
-		return FOLDER .. "/" .. p
-	end
-	return p
-end
-
-local function isAudio(data)
-	if type(data) ~= "string" or #data < 2048 then
-		return false
-	end
-	local head = data:sub(1, 32):lower()
-	if head:find("<!doctype") or head:find("<html") or head:find("{") then
-		return false
-	end
-	if data:sub(1, 4) == "OggS" or data:sub(1, 3) == "ID3" then
-		return true
-	end
-	local b1, b2 = data:byte(1, 2)
-	return b1 == 0xFF and b2 ~= nil and b2 >= 0xE0
-end
-
-local function fetchAudio(url)
-	local req = (typeof(request) == "function" and request)
-		or (typeof(http_request) == "function" and http_request)
-		or (syn and typeof(syn.request) == "function" and syn.request)
-
-	if req then
-		local ok, res = pcall(req, {
-			Url = url,
-			Method = "GET",
-			Headers = {
-				["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-				["Accept"] = "*/*",
-			},
-		})
-		if ok and type(res) == "table" and res.Success and isAudio(res.Body) then
-			return res.Body
-		end
-	end
-
-	local ok, body = pcall(game.HttpGet, game, url)
-	if ok and isAudio(body) then
-		return body
-	end
-	return nil
-end
-
-local function refreshFiles(preferredPath)
-	table.clear(fileLabels)
-	table.clear(fileMap)
-
-	local seen = {}
-	if canListFiles then
-		local ok, list = pcall(listfiles, FOLDER)
-		if ok and type(list) == "table" then
-			for _, f in ipairs(list) do
-				local norm = tostring(f):gsub("\\", "/")
-				local low = norm:lower()
-				if low:match("%.mp3$") or low:match("%.ogg$") then
-					seen[norm] = true
-				end
-			end
-		end
-	end
-
-	if preferredPath and preferredPath ~= "" then
-		seen[preferredPath] = true
-	end
-
-	for path in pairs(seen) do
-		local name = path:match("[^/]+$") or path
-		local lbl = fileMap[name] and path or name
-		fileMap[lbl] = path
-		table.insert(fileLabels, lbl)
-	end
-
-	table.sort(fileLabels)
-
-	if #fileLabels == 0 then
-		table.insert(fileLabels, "No saved songs")
-		state.selectedFileLabel = nil
-	else
-		if preferredPath then
-			for lbl, p in pairs(fileMap) do
-				if p == preferredPath then
-					state.selectedFileLabel = lbl
-					break
-				end
-			end
-		end
-		if not state.selectedFileLabel or not fileMap[state.selectedFileLabel] then
-			state.selectedFileLabel = fileLabels[1]
-		end
-	end
-
-	if fileDropdown and typeof(fileDropdown.Refresh) == "function" then
-		pcall(fileDropdown.Refresh, fileDropdown, fileLabels, true)
-	end
-end
-
-local function refreshFavorites()
-	table.clear(favLabels)
-	table.clear(favMap)
-
-	for _, entry in ipairs(favorites) do
-		table.insert(favLabels, entry.label)
-		favMap[entry.label] = entry
-	end
-
-	if #favLabels == 0 then
-		table.insert(favLabels, "No favorites yet")
-		state.selectedFavLabel = nil
-	else
-		if not state.selectedFavLabel or not favMap[state.selectedFavLabel] then
-			state.selectedFavLabel = favLabels[1]
-		end
-	end
-
-	if favDropdown and typeof(favDropdown.Refresh) == "function" then
-		pcall(favDropdown.Refresh, favDropdown, favLabels, true)
-	end
-end
-
-local function playRobloxId(raw, label)
-	local digits = tostring(raw or ""):match("%d+")
-	if not digits or digits == "0" then
-		notify("Missing ID", "Enter a valid public Roblox Audio ID.", "alert-circle")
-		return
-	end
-	state.sourceMode = "roblox"
-	state.currentId = digits
-	state.currentTitle = label or ("ID: " .. digits)
-
-	Sound:Stop()
-	Sound.SoundId = "rbxassetid://" .. digits
-	Sound.Looped = state.loopSingle
-	Sound.PlaybackSpeed = state.speed
-	Sound:Play()
-
-	syncSpatialSoundPlayback()
-
-	updateStatus("Playing: " .. state.currentTitle)
-	notify("Playing", state.currentTitle)
-end
-
-local function playFileByLabel(lbl)
-	if not canGetAsset then
-		notify("Unsupported", "Executor lacks getcustomasset().", "alert-triangle")
-		return
-	end
-	local path = lbl and fileMap[lbl]
-	if not path then
-		notify("No Song", "Select or add a local .mp3/.ogg file first.", "alert-circle")
-		return
-	end
-	if canIsFile and not isfile(path) then
-		notify("File Missing", "Not found: " .. path, "alert-circle")
-		return
-	end
-	local ok, asset = pcall(getcustomasset, path)
-	if ok and asset and asset ~= "" then
-		state.sourceMode = "local"
-		state.selectedFileLabel = lbl
-		state.currentTitle = lbl
-
-		Sound:Stop()
-		Sound.SoundId = asset
-		Sound.Looped = state.loopSingle
-		Sound.PlaybackSpeed = state.speed
-		Sound:Play()
-
-		syncSpatialSoundPlayback()
-
-		updateStatus("Playing Local: " .. lbl)
-		notify("Playing File", lbl)
-	else
-		notify("Error", "Failed to load audio asset.", "x-circle")
-	end
-end
-
-local function playNextTrack(step)
-	step = step or 1
-	if state.sourceMode == "local" and #fileLabels > 0 and fileLabels[1] ~= "No saved songs" then
-		local idx = table.find(fileLabels, state.selectedFileLabel) or 1
-		if state.shuffle and #fileLabels > 1 then
-			idx = math.random(1, #fileLabels)
-		else
-			idx = ((idx - 1 + step) % #fileLabels) + 1
-		end
-		playFileByLabel(fileLabels[idx])
-	else
-		local validTracks = {}
-		for _, t in ipairs(Tracks) do
-			if t.id ~= "0" then
-				table.insert(validTracks, t)
-			end
-		end
-		if #validTracks == 0 then
-			return
-		end
-		local idx = 1
-		for i, t in ipairs(validTracks) do
-			if t.id == state.currentId then
-				idx = i
-				break
-			end
-		end
-		if state.shuffle and #validTracks > 1 then
-			idx = math.random(1, #validTracks)
-		else
-			idx = ((idx - 1 + step) % #validTracks) + 1
-		end
-		playRobloxId(validTracks[idx].id, validTracks[idx].label)
-	end
-end
-
-Sound.Ended:Connect(function()
-	if not state.loopSingle and state.autoNext then
-		playNextTrack(1)
-	else
-		syncSpatialSoundPlayback()
-		updateStatus("Stopped / Ended: " .. state.currentTitle)
-	end
-end)
-
-local function addExistingAndPlay(rawPath, customName)
-	local path = resolvePath(rawPath)
-	if not path then
-		notify("Invalid Path", "Enter a valid file name or path.", "alert-circle")
-		return
-	end
-	if canIsFile and not isfile(path) then
-		notify("Not Found", "File does not exist: " .. path, "alert-circle")
-		return
-	end
-	local finalPath = path
-	if customName and customName:gsub("%s+", "") ~= "" and canWrite and canRead then
-		local ext = path:lower():match("%.ogg") and ".ogg" or ".mp3"
-		local renamed = FOLDER .. "/" .. sanitize(customName) .. ext
-		if renamed ~= path then
-			local rOk, rawBytes = pcall(readfile, path)
-			if rOk and rawBytes and pcall(writefile, renamed, rawBytes) then
-				finalPath = renamed
-			end
-		end
-	end
-	refreshFiles(finalPath)
-	playFileByLabel(state.selectedFileLabel)
-end
-
-local function downloadAndPlay(url, customName)
-	if not (canWrite and canGetAsset) then
-		notify("Unsupported", "Executor lacks writefile/getcustomasset.", "alert-triangle")
-		return
-	end
-	if not url or not url:match("^https?://") then
-		notify("Invalid URL", "Paste a direct http/https .mp3 or .ogg link.", "alert-circle")
-		return
-	end
-	notify("Downloading", "Fetching audio...", "loader")
-	task.spawn(function()
-		local bytes = fetchAudio(url)
-		if not bytes then
-			notify("Download Failed", "Link did not return valid MP3/OGG audio.", "x-circle")
-			return
-		end
-		local ext = url:lower():match("%.ogg") and ".ogg" or ".mp3"
-		local base = (customName and customName:gsub("%s+", "") ~= "") and sanitize(customName)
-			or sanitize(url:match("([^/%?]+)%.%w+") or "Audio")
-		local savePath = FOLDER .. "/" .. base .. ext
-		if not pcall(writefile, savePath, bytes) then
-			notify("Save Failed", "Could not save file.", "x-circle")
-			return
-		end
-		refreshFiles(savePath)
-		playFileByLabel(state.selectedFileLabel)
-	end)
-end
-
-local function applyAudioPreset(preset)
-	if preset == "Normal" then
-		state.speed = 1.0
-		Equalizer.Enabled = false
-		Reverb.Enabled = false
-	elseif preset == "Nightcore" then
-		state.speed = 1.25
-		Equalizer.Enabled = false
-		Reverb.Enabled = false
-	elseif preset == "Slowed + Reverb" then
-		state.speed = 0.85
-		Equalizer.Enabled = false
-		Reverb.Enabled = true
-	elseif preset == "Bass Boost" then
-		state.speed = 1.0
-		Equalizer.LowGain = 10
-		Equalizer.MidGain = -2
-		Equalizer.HighGain = 2
-		Equalizer.Enabled = true
-		Reverb.Enabled = false
-	end
-	Sound.PlaybackSpeed = state.speed
-	syncSpatialSoundPlayback()
-	notify("Audio FX", "Applied preset: " .. preset, "sliders")
-end
 
 -- Build WindUI Window
 local Window = WindUI:CreateWindow({
-	Title = "DARK MOON | Music & Animations",
+	Title = "DARK MOON | Hub",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "DarkMoonMusicAnimations",
+	Folder = "DarkMoonHub",
 	Size = UDim2.fromOffset(520, 445),
 	Transparent = true,
 	Theme = "Dark",
@@ -2193,7 +1931,7 @@ local Window = WindUI:CreateWindow({
 
 Window:EditOpenButton({
 	Title = "Dark Moon",
-	Icon = "music",
+	Icon = "moon",
 	CornerRadius = UDim.new(1, 0),
 	StrokeThickness = 1.5,
 	Color = ColorSequence.new(Color3.fromHex("6B21A8"), Color3.fromHex("1E1B4B")),
@@ -2202,209 +1940,14 @@ Window:EditOpenButton({
 	Draggable = true,
 })
 
-local PlayerTab = Window:Tab({ Title = "Player", Icon = "headphones" })
 local LimitedsTab = Window:Tab({ Title = "Headless & Korblox", Icon = "crown" })
-local UGCEmotesTab = Window:Tab({ Title = "UGC Emotes (20)", Icon = "sparkles" })
+local EmotesTab = Window:Tab({ Title = "Emotes", Icon = "sparkles" })
 local AnimationsTab = Window:Tab({ Title = "Animations", Icon = "user-check" })
-local TrollTab = Window:Tab({ Title = "Trolling", Icon = "heart" })
 local TagTab = Window:Tab({ Title = "Head Tag", Icon = "moon" })
 local AtmosTab = Window:Tab({ Title = "Atmosphere", Icon = "cloud" })
 local AntiTab = Window:Tab({ Title = "Anti-Chat & VC", Icon = "shield" })
-local LibraryTab = Window:Tab({ Title = "My Songs", Icon = "download" })
-local FavTab = Window:Tab({ Title = "Favorites", Icon = "star" })
-local FxTab = Window:Tab({ Title = "Audio FX", Icon = "sliders" })
 
--- === TAB 1: PLAYER ===
-PlayerTab:Section({ Title = "Now Playing" })
-
-StatusParagraph = PlayerTab:Paragraph({
-	Title = "Status",
-	Desc = "Ready — Select a track or ID to play",
-})
-
-PlayerTab:Button({
-	Title = "Check Track Time",
-	Icon = "clock",
-	Callback = function()
-		local pos = formatTime(Sound.TimePosition)
-		local len = formatTime(Sound.TimeLength)
-		local status = (Sound.IsPlaying and "Playing" or "Paused")
-			.. " | " .. state.currentTitle
-			.. " (" .. pos .. " / " .. len .. ")"
-		updateStatus(status)
-		notify("Track Time", pos .. " / " .. len, "clock")
-	end,
-})
-
-PlayerTab:Button({
-	Title = "Copy Current Roblox ID",
-	Desc = "For pasting into MM2 Radio or ID boxes",
-	Icon = "copy",
-	Callback = function()
-		if state.sourceMode ~= "roblox" or not state.currentId or state.currentId == "0" then
-			notify("No Roblox ID", "Play a Roblox Audio ID track first.", "alert-circle")
-			return
-		end
-		if canClipboard and copyText(state.currentId) then
-			notify("Copied ID", "Copied " .. state.currentId .. " to clipboard.", "check")
-		else
-			notify("Active ID", "Current ID: " .. state.currentId, "info")
-		end
-	end,
-})
-
-PlayerTab:Section({ Title = "Proximity / Game Audio Share" })
-
-PlayerTab:Toggle({
-	Title = "Share Track to Nearby / Game Audio",
-	Desc = "Anchors Roblox audio to character & triggers audio remotes",
-	Value = false,
-	Callback = function(v)
-		state.shareToOthers = v
-		syncSpatialSoundPlayback()
-		notify(
-			"Audio Share",
-			v and "Enabled spatial character emitter & remote scan." or "Disabled spatial character emitter.",
-			"radio"
-		)
-	end,
-})
-
-PlayerTab:Slider({
-	Title = "Proximity Range (Studs)",
-	Step = 5,
-	Value = { Min = 20, Max = 200, Default = 80 },
-	Callback = function(v)
-		state.shareRange = v
-		syncSpatialSoundPlayback()
-	end,
-})
-
-PlayerTab:Section({ Title = "Tracks & Roblox ID" })
-
-PlayerTab:Dropdown({
-	Title = "Playlist (15 Tracks)",
-	Values = TrackLabels,
-	Value = TrackLabels[2],
-	Callback = function(v)
-		local id = TrackByLabel[v]
-		if id then
-			playRobloxId(id, v)
-		end
-	end,
-})
-
-PlayerTab:Input({
-	Title = "Roblox Audio ID",
-	Desc = "Numeric sound ID",
-	Placeholder = "1848354536",
-	Callback = function(v)
-		state.customId = v
-	end,
-})
-
-PlayerTab:Button({
-	Title = "Play Custom ID",
-	Icon = "play-circle",
-	Callback = function()
-		playRobloxId(state.customId, "ID: " .. tostring(state.customId))
-	end,
-})
-
-PlayerTab:Section({ Title = "Playback Controls" })
-
-PlayerTab:Button({
-	Title = "Play / Resume",
-	Icon = "play",
-	Callback = function()
-		if Sound.SoundId == "" then
-			playRobloxId(state.currentId, state.currentTitle)
-		elseif not Sound.IsPlaying then
-			Sound:Resume()
-			syncSpatialSoundPlayback()
-			updateStatus("Playing: " .. state.currentTitle)
-		end
-	end,
-})
-
-PlayerTab:Button({
-	Title = "Pause",
-	Icon = "pause",
-	Callback = function()
-		if Sound.IsPlaying then
-			Sound:Pause()
-			syncSpatialSoundPlayback()
-			updateStatus("Paused: " .. state.currentTitle)
-		end
-	end,
-})
-
-PlayerTab:Button({
-	Title = "Next Track",
-	Icon = "skip-forward",
-	Callback = function()
-		playNextTrack(1)
-	end,
-})
-
-PlayerTab:Button({
-	Title = "Previous Track",
-	Icon = "skip-back",
-	Callback = function()
-		playNextTrack(-1)
-	end,
-})
-
-PlayerTab:Button({
-	Title = "Stop",
-	Icon = "square",
-	Callback = function()
-		Sound:Stop()
-		syncSpatialSoundPlayback()
-		updateStatus("Stopped")
-	end,
-})
-
-PlayerTab:Section({ Title = "Queue & Volume" })
-
-PlayerTab:Slider({
-	Title = "Volume",
-	Step = 0.05,
-	Value = { Min = 0, Max = 2, Default = 0.5 },
-	Callback = function(v)
-		state.volume = v
-		Sound.Volume = v
-		syncSpatialSoundPlayback()
-	end,
-})
-
-PlayerTab:Toggle({
-	Title = "Loop Single Track",
-	Value = false,
-	Callback = function(v)
-		state.loopSingle = v
-		Sound.Looped = v
-		syncSpatialSoundPlayback()
-	end,
-})
-
-PlayerTab:Toggle({
-	Title = "Auto-Play Next Track",
-	Value = true,
-	Callback = function(v)
-		state.autoNext = v
-	end,
-})
-
-PlayerTab:Toggle({
-	Title = "Shuffle Mode",
-	Value = false,
-	Callback = function(v)
-		state.shuffle = v
-	end,
-})
-
--- === TAB 2: HEADLESS & KORBLOX LIMITEDS ===
+-- === TAB 1: HEADLESS & KORBLOX LIMITEDS ===
 LimitedsTab:Section({ Title = "Headless Horseman" })
 
 LimitedsTab:Toggle({
@@ -2520,17 +2063,17 @@ LimitedsTab:Button({
 	end,
 })
 
--- === TAB 3: ROBLOX MARKETPLACE UGC EMOTES (20) ===
-UGCEmotesTab:Section({ Title = "UGC Emote Search & Quick Controls" })
+-- === TAB 2: EMOTES (20) ===
+EmotesTab:Section({ Title = "Emote Search & Quick Controls" })
 
-UGCEmotesTab:Input({
-	Title = "Search UGC Emote",
-	Desc = "Filter 20 marketplace UGC emotes by name",
+EmotesTab:Input({
+	Title = "Search Emote",
+	Desc = "Filter 20 emotes by name",
 	Placeholder = "Type emote name...",
 	Callback = function(query)
 		local q = tostring(query or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
 		local filtered = {}
-		for _, item in ipairs(UGCEmoteList) do
+		for _, item in ipairs(EmoteList) do
 			if q == "" or item.name:lower():find(q, 1, true) then
 				table.insert(filtered, item.name)
 			end
@@ -2538,112 +2081,112 @@ UGCEmotesTab:Input({
 		if #filtered == 0 then
 			table.insert(filtered, "No matching emote")
 		end
-		if UGCEmoteDropdown and typeof(UGCEmoteDropdown.Refresh) == "function" then
-			pcall(UGCEmoteDropdown.Refresh, UGCEmoteDropdown, filtered, true)
+		if EmoteDropdown and typeof(EmoteDropdown.Refresh) == "function" then
+			pcall(EmoteDropdown.Refresh, EmoteDropdown, filtered, true)
 		end
 	end,
 })
 
-UGCEmoteDropdown = UGCEmotesTab:Dropdown({
-	Title = "Select UGC Emote",
-	Values = UGCEmoteNames,
-	Value = UGCEmoteNames[1],
+EmoteDropdown = EmotesTab:Dropdown({
+	Title = "Select Emote",
+	Values = EmoteNames,
+	Value = EmoteNames[1],
 	Callback = function(selectedEmote)
 		if not selectedEmote or selectedEmote == "No matching emote" then
 			return
 		end
-		state.selectedUGCEmoteName = selectedEmote
-		local animId = UGCEmoteByName[selectedEmote]
+		state.selectedEmoteName = selectedEmote
+		local animId = EmoteByName[selectedEmote]
 		if animId then
-			playUGCEmote(animId, selectedEmote)
+			playEmote(animId, selectedEmote)
 		end
 	end,
 })
 
-UGCEmotesTab:Button({
-	Title = "Play Selected UGC Emote",
+EmotesTab:Button({
+	Title = "Play Selected Emote",
 	Icon = "play",
 	Callback = function()
-		local animId = UGCEmoteByName[state.selectedUGCEmoteName]
+		local animId = EmoteByName[state.selectedEmoteName]
 		if animId then
-			playUGCEmote(animId, state.selectedUGCEmoteName)
+			playEmote(animId, state.selectedEmoteName)
 		end
 	end,
 })
 
-UGCEmotesTab:Button({
-	Title = "Random UGC Emote",
+EmotesTab:Button({
+	Title = "Random Emote",
 	Icon = "shuffle",
 	Callback = function()
-		local pick = UGCEmoteList[math.random(1, #UGCEmoteList)]
-		state.selectedUGCEmoteName = pick.name
-		playUGCEmote(pick.id, pick.name)
+		local pick = EmoteList[math.random(1, #EmoteList)]
+		state.selectedEmoteName = pick.name
+		playEmote(pick.id, pick.name)
 	end,
 })
 
-UGCEmotesTab:Button({
-	Title = "Stop UGC Emote",
+EmotesTab:Button({
+	Title = "Stop Emote",
 	Icon = "square",
 	Callback = function()
-		stopCurrentUGCEmote(false)
+		stopCurrentEmote(false)
 	end,
 })
 
-UGCEmotesTab:Section({ Title = "Popular UGC & Marketplace Emotes (1 - 20)" })
+EmotesTab:Section({ Title = "Popular Emotes (1 - 20)" })
 
-for _, emote in ipairs(UGCEmoteList) do
-	UGCEmotesTab:Button({
+for _, emote in ipairs(EmoteList) do
+	EmotesTab:Button({
 		Title = emote.name,
 		Icon = "sparkles",
 		Callback = function()
-			state.selectedUGCEmoteName = emote.name
-			playUGCEmote(emote.id, emote.name)
+			state.selectedEmoteName = emote.name
+			playEmote(emote.id, emote.name)
 		end,
 	})
 end
 
-UGCEmotesTab:Section({ Title = "Emote Speed & Custom UGC ID" })
+EmotesTab:Section({ Title = "Emote Speed & Custom Emote ID" })
 
-UGCEmotesTab:Slider({
+EmotesTab:Slider({
 	Title = "Emote Speed",
 	Step = 0.05,
 	Value = { Min = 0.25, Max = 2.5, Default = 1.0 },
 	Callback = function(v)
-		state.ugcEmoteSpeed = v
-		if currentUGCEmoteTrack and currentUGCEmoteTrack.IsPlaying then
+		state.emoteSpeed = v
+		if currentEmoteTrack and currentEmoteTrack.IsPlaying then
 			pcall(function()
-				currentUGCEmoteTrack:AdjustSpeed(v)
+				currentEmoteTrack:AdjustSpeed(v)
 			end)
 		end
 	end,
 })
 
-UGCEmotesTab:Toggle({
+EmotesTab:Toggle({
 	Title = "Auto-Replay After Respawn",
 	Value = false,
 	Callback = function(v)
-		state.ugcEmoteAutoRespawn = v
+		state.emoteAutoRespawn = v
 	end,
 })
 
-UGCEmotesTab:Input({
-	Title = "Custom UGC Animation / Emote ID",
-	Desc = "Paste any numeric Marketplace Emote or Animation ID",
+EmotesTab:Input({
+	Title = "Custom Emote / Animation ID",
+	Desc = "Paste any numeric Emote or Animation ID",
 	Placeholder = "114388371896974",
 	Callback = function(v)
-		state.customUGCEmoteId = v
+		state.customEmoteId = v
 	end,
 })
 
-UGCEmotesTab:Button({
-	Title = "Play Custom UGC ID",
+EmotesTab:Button({
+	Title = "Play Custom Emote ID",
 	Icon = "play-circle",
 	Callback = function()
-		playUGCEmote(state.customUGCEmoteId, "Custom UGC (" .. tostring(state.customUGCEmoteId) .. ")")
+		playEmote(state.customEmoteId, "Custom Emote (" .. tostring(state.customEmoteId) .. ")")
 	end,
 })
 
--- === TAB 4: ANIMATIONS ===
+-- === TAB 3: ANIMATIONS ===
 AnimationsTab:Section({ Title = "Animation Controls (R15)" })
 
 AnimationsTab:Dropdown({
@@ -2699,83 +2242,17 @@ for _, bundle in ipairs(AnimationBundles) do
 	})
 end
 
--- === TAB 5: TROLLING (KISS & HUG) ===
-TrollTab:Section({ Title = "Target Player" })
-
-refreshTrollTargets()
-
-trollPlayerDropdown = TrollTab:Dropdown({
-	Title = "Select Player",
-	Values = trollPlayerLabels,
-	Value = trollPlayerLabels[1],
-	Callback = function(selectedPlr)
-		if selectedPlr and selectedPlr ~= "No other players" then
-			state.selectedTrollTarget = selectedPlr
-		end
-	end,
-})
-
-TrollTab:Button({
-	Title = "Refresh Players",
-	Icon = "refresh-cw",
-	Callback = function()
-		refreshTrollTargets(state.selectedTrollTarget)
-		notify("Players", "Updated target player list.", "check")
-	end,
-})
-
-TrollTab:Slider({
-	Title = "Distance Offset",
-	Step = 0.1,
-	Value = { Min = 0.8, Max = 3.5, Default = 1.4 },
-	Callback = function(v)
-		state.trollOffsetDistance = v
-	end,
-})
-
-TrollTab:Section({ Title = "Troll Actions" })
-
-TrollTab:Button({
-	Title = "Kiss",
-	Desc = "Step right in front of selected player facing them",
-	Icon = "heart",
-	Callback = function()
-		performTrollAction("kiss")
-	end,
-})
-
-TrollTab:Button({
-	Title = "Hug",
-	Desc = "Step up close to selected player for a hug",
-	Icon = "sparkles",
-	Callback = function()
-		performTrollAction("hug")
-	end,
-})
-
--- === TAB 6: SMALL HEAD TAG (MOON + MEOW + SHARED SCRIPT SYNC) ===
+-- === TAB 4: SMALL HEAD TAG (MOON + MEOW + SHARED SCRIPT SYNC) ===
 TagTab:Section({ Title = "Small Head Tag (Moon + Meow)" })
 
 TagTab:Toggle({
 	Title = "Show Small Head Tag",
-	Desc = "Compact moon badge with Meow front styling",
-	Value = true,
+	Desc = "Hidden by default; syncs with same-script users automatically",
+	Value = false,
 	Callback = function(v)
 		state.headTagEnabled = v
 		broadcastHeadTagState()
-		notify("Head Tag", v and "Small Moon Meow tag enabled." or "Head tag hidden.", "moon")
-	end,
-})
-
-TagTab:Toggle({
-	Title = "Share Tag With Same-Script Users",
-	Desc = "Syncs tag state to others running this script",
-	Value = true,
-	Callback = function(v)
-		state.headTagSyncEnabled = v
-		if v then
-			broadcastHeadTagState()
-		end
+		notify("Head Tag", v and "Small Moon Meow tag shown." or "Head tag hidden.", "moon")
 	end,
 })
 
@@ -2824,15 +2301,57 @@ TagTab:Button({
 	Icon = "refresh-cw",
 	Callback = function()
 		broadcastHeadTagState()
-		notify("Head Tag", "Refreshed & synced 🌙 Meow tag.", "check")
+		notify("Head Tag", "Synced tag with same-script users.", "check")
 	end,
 })
 
--- === TAB 7: ATMOSPHERE CUSTOMIZATION ===
-AtmosTab:Section({ Title = "Atmosphere Presets" })
+-- === TAB 5: ATMOSPHERE, ANIME SKY & 8K GRAPHICS ===
+AtmosTab:Section({ Title = "8K Graphics & Mobile-Safe Mode" })
 
 AtmosTab:Toggle({
-	Title = "Enable Custom Atmosphere",
+	Title = "Enable 8K Graphics",
+	Desc = "Enhances lighting & post-FX; removes FX when turned off",
+	Value = false,
+	Callback = function(v)
+		state.eightKGraphicsEnabled = v
+		applyAtmosphereSettings(false)
+	end,
+})
+
+AtmosTab:Toggle({
+	Title = "Mobile-Safe 8K Graphics",
+	Desc = "Skips heavy blur & sunray effects on mobile devices",
+	Value = true,
+	Callback = function(v)
+		state.mobileSafe8K = v
+		if state.eightKGraphicsEnabled then
+			applyAtmosphereSettings(true)
+		end
+	end,
+})
+
+AtmosTab:Button({
+	Title = "Apply 8K Graphics",
+	Icon = "sparkles",
+	Callback = function()
+		state.eightKGraphicsEnabled = true
+		applyAtmosphereSettings(false)
+	end,
+})
+
+AtmosTab:Button({
+	Title = "Reset to Default Graphics & Sky",
+	Icon = "sun",
+	Callback = function()
+		state.eightKGraphicsEnabled = false
+		applySkyOrAtmospherePreset("Default Sky")
+	end,
+})
+
+AtmosTab:Section({ Title = "Default Sky & 10 Anime Skies" })
+
+AtmosTab:Toggle({
+	Title = "Enable Custom Atmosphere & Sky",
 	Value = true,
 	Callback = function(v)
 		state.atmosEnabled = v
@@ -2841,13 +2360,25 @@ AtmosTab:Toggle({
 })
 
 AtmosTab:Dropdown({
-	Title = "Atmosphere Preset",
-	Values = { "Midnight Moon", "Neon Dusk", "Clear Sky", "Default Lighting" },
-	Value = "Midnight Moon",
+	Title = "Select Sky (Default + 10 Anime)",
+	Values = SkyPresetNames,
+	Value = "Default Sky",
 	Callback = function(preset)
-		applyAtmospherePreset(preset)
+		applySkyOrAtmospherePreset(preset)
 	end,
 })
+
+for _, preset in ipairs(AnimeSkyPresets) do
+	AtmosTab:Button({
+		Title = preset.name,
+		Icon = preset.isDefault and "sun" or "cloud",
+		Callback = function()
+			applySkyOrAtmospherePreset(preset.name)
+		end,
+	})
+end
+
+AtmosTab:Section({ Title = "Sky Tint & Lighting Sliders" })
 
 AtmosTab:Dropdown({
 	Title = "Sky & Haze Tint",
@@ -2867,11 +2398,12 @@ AtmosTab:Dropdown({
 			state.atmosColor = Color3.fromHex("3B2F63")
 			state.atmosDecay = Color3.fromHex("17132B")
 		end
+		if state.selectedSkyPreset == "Default Sky" then
+			state.selectedSkyPreset = "4. Astral Twilight"
+		end
 		applyAtmosphereSettings(true)
 	end,
 })
-
-AtmosTab:Section({ Title = "Atmosphere & Lighting Sliders" })
 
 AtmosTab:Slider({
 	Title = "Fog Density",
@@ -2933,7 +2465,7 @@ AtmosTab:Slider({
 	end,
 })
 
--- === TAB 8: ANTI-CHAT & ANTI-VOICE CHAT BYPASS ===
+-- === TAB 6: ANTI-CHAT & ANTI-VOICE CHAT BYPASS ===
 AntiTab:Section({ Title = "Anti-Voice Chat Bypass" })
 
 AntiTab:Toggle({
@@ -3019,233 +2551,8 @@ AntiTab:Button({
 	end,
 })
 
--- === TAB 9: MY SONGS (DOWNLOAD & LOCAL) ===
-LibraryTab:Section({ Title = "Add Downloaded Song" })
-
-LibraryTab:Input({
-	Title = "Song Name",
-	Desc = "Optional custom label",
-	Placeholder = "People x Nainowale Ne",
-	Callback = function(v)
-		state.songTitle = v
-	end,
-})
-
-LibraryTab:Input({
-	Title = "File Path / Name",
-	Desc = "In workspace or DarkMoonMusic folder",
-	Placeholder = "DarkMoonMusic/song.mp3",
-	Callback = function(v)
-		state.filePath = v
-	end,
-})
-
-LibraryTab:Button({
-	Title = "Add & Play Song",
-	Icon = "plus-circle",
-	Callback = function()
-		addExistingAndPlay(state.filePath, state.songTitle)
-	end,
-})
-
-LibraryTab:Section({ Title = "Download Direct Audio Link" })
-
-LibraryTab:Input({
-	Title = "Direct .mp3 / .ogg URL",
-	Desc = "Raw audio file URL",
-	Placeholder = "https://example.com/track.mp3",
-	Callback = function(v)
-		state.directUrl = v
-	end,
-})
-
-LibraryTab:Button({
-	Title = "Download & Play",
-	Icon = "download",
-	Callback = function()
-		downloadAndPlay(state.directUrl, state.songTitle)
-	end,
-})
-
-LibraryTab:Section({ Title = "Saved Songs List" })
-
-refreshFiles()
-
-fileDropdown = LibraryTab:Dropdown({
-	Title = "Saved Songs",
-	Values = fileLabels,
-	Value = fileLabels[1],
-	Callback = function(v)
-		if v and v ~= "No saved songs" then
-			state.selectedFileLabel = v
-		end
-	end,
-})
-
-LibraryTab:Button({
-	Title = "Play Selected",
-	Icon = "play",
-	Callback = function()
-		playFileByLabel(state.selectedFileLabel)
-	end,
-})
-
-LibraryTab:Button({
-	Title = "Refresh List",
-	Icon = "refresh-cw",
-	Callback = function()
-		refreshFiles()
-		notify("Refreshed", "Updated saved songs list.", "check")
-	end,
-})
-
-LibraryTab:Button({
-	Title = "Delete Selected",
-	Icon = "trash-2",
-	Callback = function()
-		local path = state.selectedFileLabel and fileMap[state.selectedFileLabel]
-		if not path then
-			return
-		end
-		if canDelFile and canIsFile and isfile(path) and pcall(delfile, path) then
-			if Sound.IsPlaying then
-				Sound:Stop()
-			end
-			state.selectedFileLabel = nil
-			refreshFiles()
-			notify("Deleted", "Removed " .. path, "trash")
-		end
-	end,
-})
-
--- === TAB 10: FAVORITES ===
-FavTab:Section({ Title = "Quick Favorites" })
-
-FavTab:Button({
-	Title = "Favorite Current Song",
-	Desc = "Saves currently playing Roblox ID or local track",
-	Icon = "star",
-	Callback = function()
-		local entryLabel = state.currentTitle
-		if favMap[entryLabel] then
-			notify("Already Saved", entryLabel .. " is already in Favorites.", "star")
-			return
-		end
-		if state.sourceMode == "local" and state.selectedFileLabel then
-			table.insert(favorites, {
-				label = state.selectedFileLabel,
-				mode = "local",
-				value = state.selectedFileLabel,
-			})
-		else
-			table.insert(favorites, {
-				label = state.currentTitle,
-				mode = "roblox",
-				value = state.currentId,
-			})
-		end
-		refreshFavorites()
-		notify("Favorited", "Added " .. entryLabel, "star")
-	end,
-})
-
-refreshFavorites()
-
-favDropdown = FavTab:Dropdown({
-	Title = "Favorite Tracks",
-	Values = favLabels,
-	Value = favLabels[1],
-	Callback = function(v)
-		if v and v ~= "No favorites yet" then
-			state.selectedFavLabel = v
-		end
-	end,
-})
-
-FavTab:Button({
-	Title = "Play Favorite",
-	Icon = "play",
-	Callback = function()
-		local item = state.selectedFavLabel and favMap[state.selectedFavLabel]
-		if not item then
-			notify("Empty", "No favorite track selected.", "alert-circle")
-			return
-		end
-		if item.mode == "local" then
-			playFileByLabel(item.value)
-		else
-			playRobloxId(item.value, item.label)
-		end
-	end,
-})
-
-FavTab:Button({
-	Title = "Remove Favorite",
-	Icon = "trash",
-	Callback = function()
-		local target = state.selectedFavLabel
-		if not target or not favMap[target] then
-			return
-		end
-		for i, item in ipairs(favorites) do
-			if item.label == target then
-				table.remove(favorites, i)
-				break
-			end
-		end
-		state.selectedFavLabel = nil
-		refreshFavorites()
-		notify("Removed", "Removed from Favorites.", "trash")
-	end,
-})
-
--- === TAB 11: AUDIO FX ===
-FxTab:Section({ Title = "One-Tap Sound Presets" })
-
-FxTab:Dropdown({
-	Title = "Audio Preset",
-	Values = { "Normal", "Nightcore", "Slowed + Reverb", "Bass Boost" },
-	Value = "Normal",
-	Callback = function(preset)
-		applyAudioPreset(preset)
-	end,
-})
-
-FxTab:Section({ Title = "Fine Controls" })
-
-FxTab:Slider({
-	Title = "Playback Speed (Pitch)",
-	Step = 0.05,
-	Value = { Min = 0.5, Max = 1.75, Default = 1.0 },
-	Callback = function(v)
-		state.speed = v
-		Sound.PlaybackSpeed = v
-		syncSpatialSoundPlayback()
-	end,
-})
-
-FxTab:Slider({
-	Title = "Bass Gain (dB)",
-	Step = 1,
-	Value = { Min = 0, Max = 15, Default = 0 },
-	Callback = function(v)
-		Equalizer.LowGain = v
-		Equalizer.Enabled = v > 0
-	end,
-})
-
-FxTab:Toggle({
-	Title = "Enable Reverb",
-	Value = false,
-	Callback = function(v)
-		Reverb.Enabled = v
-	end,
-})
-
--- Initialize Atmosphere & Head Tag on load
-if state.atmosEnabled then
-	applyAtmosphereSettings(true)
-end
+-- Initialize Default Sky & Head Tag on load
+applyAtmosphereSettings(true)
 
 if LocalPlayer and LocalPlayer.Character then
 	task.spawn(function()
