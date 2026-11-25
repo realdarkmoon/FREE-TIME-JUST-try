@@ -12,8 +12,8 @@ local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local SCRIPT_VERSION = "v18.0"
-local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v18.json"
+local SCRIPT_VERSION = "v19.0"
+local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v19.json"
 
 -- ==========================================
 -- CHANGELOG DATA (WHAT'S NEW / WHAT'S FIXED)
@@ -21,14 +21,14 @@ local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v18.json"
 local CHANGELOG = {
 	Version = SCRIPT_VERSION,
 	WhatsNew = {
-		"Auto-Save Features: Automatically saves toggles & sliders you use and restores them on launch.",
-		"Reset Saved Features button in Utility tab to restore clean defaults anytime.",
-		"Automatic What's New & What's Fixed screen on script update or first launch."
+		"Server Hop (5 Servers): Fetches & hops across up to 5 different servers automatically.",
+		"Big Automatic What's New & What's Fixed Screen with spacious layout & larger text.",
+		"Auto-Save Features: Automatically saves toggles & sliders you use and restores them on launch."
 	},
 	WhatsFixed = {
+		"Server Hop fallback logic so full or closed instances don't stall teleportation.",
 		"Loot & Vault ESP immediate scan on toggle + duplicate marker filtering within 2 studs.",
-		"Safe BasePart, Model, and TextLabel world position lookup without GetPivot crashes.",
-		"Safe Drawing logo badge rendering with pcall guards across mobile & PC executors."
+		"Safe BasePart, Model, and TextLabel world position lookup + guarded Drawing logo badges."
 	}
 }
 
@@ -37,7 +37,7 @@ local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubV18",
+	Folder = "PremiumYutaHubV19",
 	Size = UDim2.fromOffset(550, 530),
 	MinSize = Vector2.new(440, 320),
 	MaxSize = Vector2.new(740, 640),
@@ -96,6 +96,7 @@ local State = {
 	LootVaultESP = false,
 	LootEspLogo = true,
 	AutoSaveEnabled = true,
+	ServerHopCount = 5,
 	NoclipStepPower = 0.95,
 	BypassScanDistance = 24,
 	UnderMapOffset = 12,
@@ -116,6 +117,8 @@ local State = {
 	LastRagdollSweepTime = 0,
 	LastLootScanTime = 0,
 	LastRejoinAttempt = 0,
+	LastServerHopAttempt = 0,
+	ServerHopBusy = false,
 	LastAutoSaveTime = 0,
 	IgnoreUnusualUntil = 0,
 	LoadingSaved = false,
@@ -133,6 +136,7 @@ local Cached = {
 }
 
 local UIRefs = {}
+local VisitedServers = {}
 
 local sharedRayParams = RaycastParams.new()
 sharedRayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -305,7 +309,7 @@ local function resetSavedFeatures()
 end
 
 -- ==========================================
--- AUTOMATIC WHAT'S NEW / WHAT'S FIXED SCREEN
+-- BIG AUTOMATIC WHAT'S NEW / WHAT'S FIXED SCREEN
 -- ==========================================
 local changelogGui = nil
 
@@ -313,12 +317,12 @@ local function buildChangelogText()
 	local lines = {}
 	table.insert(lines, "WHAT'S NEW (" .. CHANGELOG.Version .. ")")
 	for _, item in ipairs(CHANGELOG.WhatsNew) do
-		table.insert(lines, "• " .. item)
+		table.insert(lines, "  • " .. item)
 	end
 	table.insert(lines, "")
 	table.insert(lines, "WHAT'S FIXED")
 	for _, item in ipairs(CHANGELOG.WhatsFixed) do
-		table.insert(lines, "• " .. item)
+		table.insert(lines, "  • " .. item)
 	end
 	return table.concat(lines, "\n")
 end
@@ -338,7 +342,7 @@ local function showChangelogScreen()
 	gui.Name = "YutaHub_ChangelogScreen"
 	gui.ResetOnSpawn = false
 	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	gui.DisplayOrder = 50
+	gui.DisplayOrder = 60
 	gui.Parent = PlayerGui
 	changelogGui = gui
 
@@ -346,65 +350,65 @@ local function showChangelogScreen()
 	backdrop.Name = "Backdrop"
 	backdrop.Size = UDim2.fromScale(1, 1)
 	backdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-	backdrop.BackgroundTransparency = 0.45
+	backdrop.BackgroundTransparency = 0.5
 	backdrop.BorderSizePixel = 0
 	backdrop.Parent = gui
 
 	local card = Instance.new("Frame")
 	card.Name = "ChangelogCard"
-	card.Size = UDim2.new(0.86, 0, 0.72, 0)
+	card.Size = UDim2.new(0.92, 0, 0.86, 0)
 	card.Position = UDim2.fromScale(0.5, 0.5)
 	card.AnchorPoint = Vector2.new(0.5, 0.5)
-	card.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
+	card.BackgroundColor3 = Color3.fromRGB(16, 18, 28)
 	card.BorderSizePixel = 0
 	card.Parent = gui
 
 	local sizeConstraint = Instance.new("UISizeConstraint")
-	sizeConstraint.MinSize = Vector2.new(300, 260)
-	sizeConstraint.MaxSize = Vector2.new(540, 460)
+	sizeConstraint.MinSize = Vector2.new(340, 320)
+	sizeConstraint.MaxSize = Vector2.new(720, 580)
 	sizeConstraint.Parent = card
 
 	local cardCorner = Instance.new("UICorner")
-	cardCorner.CornerRadius = UDim.new(0, 16)
+	cardCorner.CornerRadius = UDim.new(0, 20)
 	cardCorner.Parent = card
 
 	local cardStroke = Instance.new("UIStroke")
 	cardStroke.Color = Color3.fromRGB(115, 130, 255)
-	cardStroke.Thickness = 1.5
+	cardStroke.Thickness = 2
 	cardStroke.Parent = card
 
 	local header = Instance.new("TextLabel")
 	header.Name = "Header"
-	header.Size = UDim2.new(1, -24, 0, 40)
-	header.Position = UDim2.fromOffset(12, 10)
+	header.Size = UDim2.new(1, -32, 0, 48)
+	header.Position = UDim2.fromOffset(16, 14)
 	header.BackgroundTransparency = 1
 	header.Text = "PREMIUM YUTAHUB  •  " .. CHANGELOG.Version
-	header.TextColor3 = Color3.fromRGB(235, 240, 255)
+	header.TextColor3 = Color3.fromRGB(240, 245, 255)
 	header.Font = Enum.Font.GothamBold
-	header.TextSize = 16
+	header.TextSize = 20
 	header.TextXAlignment = Enum.TextXAlignment.Left
 	header.Parent = card
 
 	local scroll = Instance.new("ScrollingFrame")
 	scroll.Name = "ContentScroll"
-	scroll.Size = UDim2.new(1, -24, 1, -112)
-	scroll.Position = UDim2.fromOffset(12, 54)
-	scroll.BackgroundColor3 = Color3.fromRGB(25, 28, 42)
+	scroll.Size = UDim2.new(1, -32, 1, -138)
+	scroll.Position = UDim2.fromOffset(16, 68)
+	scroll.BackgroundColor3 = Color3.fromRGB(24, 27, 40)
 	scroll.BorderSizePixel = 0
-	scroll.ScrollBarThickness = 5
+	scroll.ScrollBarThickness = 6
 	scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	scroll.Parent = card
 
 	local scrollCorner = Instance.new("UICorner")
-	scrollCorner.CornerRadius = UDim.new(0, 12)
+	scrollCorner.CornerRadius = UDim.new(0, 14)
 	scrollCorner.Parent = scroll
 
 	local pad = Instance.new("UIPadding")
-	pad.PaddingTop = UDim.new(0, 10)
-	pad.PaddingBottom = UDim.new(0, 10)
-	pad.PaddingLeft = UDim.new(0, 12)
-	pad.PaddingRight = UDim.new(0, 12)
+	pad.PaddingTop = UDim.new(0, 14)
+	pad.PaddingBottom = UDim.new(0, 14)
+	pad.PaddingLeft = UDim.new(0, 16)
+	pad.PaddingRight = UDim.new(0, 16)
 	pad.Parent = scroll
 
 	local bodyLabel = Instance.new("TextLabel")
@@ -413,9 +417,9 @@ local function showChangelogScreen()
 	bodyLabel.AutomaticSize = Enum.AutomaticSize.Y
 	bodyLabel.BackgroundTransparency = 1
 	bodyLabel.Text = buildChangelogText()
-	bodyLabel.TextColor3 = Color3.fromRGB(220, 226, 245)
+	bodyLabel.TextColor3 = Color3.fromRGB(225, 232, 250)
 	bodyLabel.Font = Enum.Font.Gotham
-	bodyLabel.TextSize = 13
+	bodyLabel.TextSize = 15
 	bodyLabel.TextWrapped = true
 	bodyLabel.TextXAlignment = Enum.TextXAlignment.Left
 	bodyLabel.TextYAlignment = Enum.TextYAlignment.Top
@@ -423,18 +427,18 @@ local function showChangelogScreen()
 
 	local closeBtn = Instance.new("TextButton")
 	closeBtn.Name = "CloseButton"
-	closeBtn.Size = UDim2.new(1, -24, 0, 40)
-	closeBtn.Position = UDim2.new(0, 12, 1, -50)
+	closeBtn.Size = UDim2.new(1, -32, 0, 48)
+	closeBtn.Position = UDim2.new(0, 16, 1, -60)
 	closeBtn.BackgroundColor3 = Color3.fromRGB(95, 110, 255)
 	closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	closeBtn.Text = "Got It"
 	closeBtn.Font = Enum.Font.GothamBold
-	closeBtn.TextSize = 14
+	closeBtn.TextSize = 16
 	closeBtn.AutoButtonColor = true
 	closeBtn.Parent = card
 
 	local btnCorner = Instance.new("UICorner")
-	btnCorner.CornerRadius = UDim.new(0, 10)
+	btnCorner.CornerRadius = UDim.new(0, 12)
 	btnCorner.Parent = closeBtn
 
 	closeBtn.MouseButton1Click:Connect(function()
@@ -1562,8 +1566,12 @@ local function updateESPFrame()
 end
 
 -- ==========================================
--- REJOIN SERVER SYSTEM
+-- REJOIN & 5-SERVER HOP SYSTEM
 -- ==========================================
+if game.JobId and game.JobId ~= "" then
+	VisitedServers[game.JobId] = true
+end
+
 local function rejoinCurrentServer()
 	local now = os.clock()
 	if (now - State.LastRejoinAttempt) < 2.0 then
@@ -1590,6 +1598,92 @@ local function rejoinCurrentServer()
 			TeleportService:Teleport(placeId, LocalPlayer)
 		end)
 	end
+end
+
+local function fetchCandidateServers(placeId, maxServers)
+	local candidates = {}
+	local cursor = ""
+
+	for _ = 1, 3 do
+		if #candidates >= maxServers then break end
+		local url = string.format(
+			"https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Desc&limit=100%s",
+			placeId,
+			cursor ~= "" and ("&cursor=" .. HttpService:UrlEncode(cursor)) or ""
+		)
+
+		local okGet, raw = pcall(function()
+			return game:HttpGet(url)
+		end)
+		if not okGet or typeof(raw) ~= "string" or raw == "" then
+			break
+		end
+
+		local okDecode, decoded = pcall(function()
+			return HttpService:JSONDecode(raw)
+		end)
+		if not okDecode or typeof(decoded) ~= "table" or typeof(decoded.data) ~= "table" then
+			break
+		end
+
+		for _, srv in ipairs(decoded.data) do
+			if #candidates >= maxServers then break end
+			if typeof(srv) == "table" and typeof(srv.id) == "string" and srv.id ~= "" then
+				local playing = tonumber(srv.playing) or 0
+				local maxPlayers = tonumber(srv.maxPlayers) or 0
+				if srv.id ~= game.JobId and not VisitedServers[srv.id] and (maxPlayers <= 0 or playing < maxPlayers) then
+					table.insert(candidates, srv.id)
+				end
+			end
+		end
+
+		if typeof(decoded.nextPageCursor) == "string" and decoded.nextPageCursor ~= "" then
+			cursor = decoded.nextPageCursor
+		else
+			break
+		end
+	end
+
+	return candidates
+end
+
+local function serverHopFive()
+	if State.Unloaded or State.ServerHopBusy then return end
+	local now = os.clock()
+	if (now - State.LastServerHopAttempt) < 2.5 then return end
+	State.LastServerHopAttempt = now
+
+	local placeId = game.PlaceId
+	if not placeId or placeId <= 0 then return end
+
+	State.ServerHopBusy = true
+	persistSaveNow()
+
+	task.spawn(function()
+		local targetLimit = math.clamp(math.floor(State.ServerHopCount or 5), 1, 5)
+		local candidates = fetchCandidateServers(placeId, targetLimit)
+
+		for _, jobId in ipairs(candidates) do
+			if State.Unloaded then break end
+			VisitedServers[jobId] = true
+			local ok = pcall(function()
+				TeleportService:TeleportToPlaceInstance(placeId, jobId, LocalPlayer)
+			end)
+			if ok then
+				task.wait(2.5)
+			end
+		end
+
+		-- Fallback to general place teleport if none of the 5 instances succeeded
+		if not State.Unloaded then
+			pcall(function()
+				TeleportService:Teleport(placeId, LocalPlayer)
+			end)
+		end
+
+		task.wait(2.0)
+		State.ServerHopBusy = false
+	end)
 end
 
 -- ==========================================
@@ -2081,6 +2175,12 @@ UIRefs.AutoSaveEnabled = UtilityTab:Toggle({
 })
 
 UtilityTab:Button({
+	Title = "Server Hop (Join 5 Servers)",
+	Desc = "Cycle & teleport across up to 5 different servers",
+	Callback = serverHopFive
+})
+
+UtilityTab:Button({
 	Title = "Reset Saved Features",
 	Desc = "Reset saved toggles & sliders back to default values",
 	Callback = resetSavedFeatures
@@ -2088,7 +2188,7 @@ UtilityTab:Button({
 
 UtilityTab:Button({
 	Title = "What's New & Fixed",
-	Desc = "Open the update log screen anytime",
+	Desc = "Open the big update log screen anytime",
 	Callback = showChangelogScreen
 })
 
