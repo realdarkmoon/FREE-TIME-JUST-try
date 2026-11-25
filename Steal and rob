@@ -1,5 +1,5 @@
 -- Load WindUI
-local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))() --
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 
 -- Services
 local Players = game:GetService("Players")
@@ -8,6 +8,8 @@ local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local TeleportService = game:GetService("TeleportService")
 local CollectionService = game:GetService("CollectionService")
+local HttpService = game:GetService("HttpService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -17,10 +19,10 @@ local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubV16",
-	Size = UDim2.fromOffset(540, 550),
+	Folder = "PremiumYutaHubV18",
+	Size = UDim2.fromOffset(540, 560),
 	MinSize = Vector2.new(440, 320),
-	MaxSize = Vector2.new(720, 660),
+	MaxSize = Vector2.new(720, 670),
 	Theme = "Dark",
 	Transparent = true,
 	Resizable = true,
@@ -57,6 +59,7 @@ local State = {
 	WallMicroStep = true,
 	AutoWallBypass = false,
 	AutoInstantGrab = false,
+	InstantHoldZeroAll = true,
 	AntiRagdoll = false,
 	AntiKnockback = false,
 	AntiUnusualMovement = false,
@@ -70,7 +73,7 @@ local State = {
 	LootVaultESP = false,
 	NoclipStepPower = 0.95,
 	BypassScanDistance = 24,
-	InstantGrabRadius = 24,
+	InstantGrabRadius = 40,
 	UnderMapOffset = 12,
 	ExtraSpeed = 16,
 	JumpHeight = 14,
@@ -88,8 +91,9 @@ local State = {
 	LastWallProbeTime = 0,
 	LastRagdollSweepTime = 0,
 	LastLootScanTime = 0,
+	LastPromptZeroTime = 0,
 	LastAutoGrabTime = 0,
-	LastRejoinAttempt = 0,
+	LastServerHopAttempt = 0,
 	IgnoreUnusualUntil = 0,
 	SyncingToggle = false,
 	Unloaded = false
@@ -110,12 +114,13 @@ sharedRayParams.FilterType = Enum.RaycastFilterType.Exclude
 local sharedOverlapParams = OverlapParams.new()
 sharedOverlapParams.FilterType = Enum.RaycastFilterType.Exclude
 
--- Forward declarations so helper functions can reference each other cleanly
+-- Forward declarations
 local underPlatform = nil
 local underMapToggleRef = nil
 local refreshFloatingButtonVisual = nil
 local syncUnderMapToggleUI = nil
 local ensureUnderPlatform = nil
+local returnFromUnderMap = nil
 
 local function markMovementIntent(duration)
 	State.IgnoreUnusualUntil = math.max(State.IgnoreUnusualUntil, os.clock() + (duration or 0.45))
@@ -407,7 +412,7 @@ local function executeHardWallBypass(forceScan)
 end
 
 -- ==========================================
--- INSTANT GRAB SYSTEM (PROXIMITY & LOOT)
+-- INSTANT GRAB SYSTEM (ZERO HOLD + MULTI-TRIGGER)
 -- ==========================================
 local function getPromptWorldPos(prompt)
 	local parent = prompt.Parent
@@ -426,51 +431,60 @@ local function getPromptWorldPos(prompt)
 	return nil
 end
 
-local function triggerSinglePromptInstant(prompt)
-	if not prompt or not prompt.Parent or not prompt.Enabled then return false end
-
-	local origHold = prompt.HoldDuration
-	local origMaxDist = prompt.MaxActivationDistance
-
+local function prepPromptZeroHold(prompt, expandReach)
+	if not prompt or not prompt.Parent then return end
 	pcall(function()
-		prompt.HoldDuration = 0
-		if prompt.MaxActivationDistance < (State.InstantGrabRadius + 8) then
-			prompt.MaxActivationDistance = State.InstantGrabRadius + 8
+		if prompt.HoldDuration > 0 then
+			prompt.HoldDuration = 0
+		end
+		if prompt.RequiresLineOfSight then
+			prompt.RequiresLineOfSight = false
+		end
+		if expandReach then
+			local desiredDist = math.max(prompt.MaxActivationDistance, State.InstantGrabRadius + 12)
+			if prompt.MaxActivationDistance < desiredDist then
+				prompt.MaxActivationDistance = desiredDist
+			end
 		end
 	end)
+end
+
+local function sweepZeroHoldPrompts()
+	if not State.InstantHoldZeroAll or State.Unloaded then return end
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if desc:IsA("ProximityPrompt") then
+			prepPromptZeroHold(desc, false)
+		end
+	end
+end
+
+local function firePromptNow(prompt)
+	if not prompt or not prompt.Parent or not prompt.Enabled then return false end
+	prepPromptZeroHold(prompt, true)
 
 	local fired = false
-	pcall(function()
-		if typeof(fireproximityprompt) == "function" then
+	if typeof(fireproximityprompt) == "function" then
+		local ok = pcall(function()
 			fireproximityprompt(prompt)
+		end)
+		if ok then
 			fired = true
 		end
-	end)
-
-	if not fired then
-		pcall(function()
-			prompt:InputHoldBegin()
-			task.defer(function()
-				if prompt and prompt.Parent then
-					pcall(function()
-						prompt:InputHoldEnd()
-					end)
-				end
-			end)
-			fired = true
-		end)
 	end
 
-	task.delay(0.08, function()
+	pcall(function()
+		prompt:InputHoldBegin()
+	end)
+
+	task.delay(0.04, function()
 		if prompt and prompt.Parent then
 			pcall(function()
-				prompt.HoldDuration = origHold
-				prompt.MaxActivationDistance = origMaxDist
+				prompt:InputHoldEnd()
 			end)
 		end
 	end)
 
-	return fired
+	return true or fired
 end
 
 local function executeInstantGrab()
@@ -482,15 +496,13 @@ local function executeInstantGrab()
 	local maxDist = math.max(5, State.InstantGrabRadius)
 
 	for _, desc in ipairs(Workspace:GetDescendants()) do
-		if desc:IsA("ProximityPrompt") and desc.Enabled then
-			if not desc:IsDescendantOf(char) then
-				local pPos = getPromptWorldPos(desc)
-				if pPos and (pPos - root.Position).Magnitude <= maxDist then
-					if triggerSinglePromptInstant(desc) then
-						grabbedCount += 1
-						if grabbedCount >= 14 then
-							break
-						end
+		if desc:IsA("ProximityPrompt") and desc.Enabled and not desc:IsDescendantOf(char) then
+			local pPos = getPromptWorldPos(desc)
+			if not pPos or (pPos - root.Position).Magnitude <= maxDist then
+				if firePromptNow(desc) then
+					grabbedCount += 1
+					if grabbedCount >= 24 then
+						break
 					end
 				end
 			end
@@ -498,20 +510,17 @@ local function executeInstantGrab()
 	end
 
 	if typeof(firetouchinterest) == "function" then
-		local parts = Workspace:GetPartBoundsInRadius(root.Position, math.min(maxDist, 20), sharedOverlapParams)
+		local parts = Workspace:GetPartBoundsInRadius(root.Position, math.min(maxDist, 24), sharedOverlapParams)
 		local touchCount = 0
 		for _, part in ipairs(parts) do
-			if touchCount >= 12 then break end
+			if touchCount >= 14 then break end
 			if part:IsA("BasePart") and part.CanTouch and not part:IsDescendantOf(char) then
-				local n = part.Name:lower()
-				if n:find("loot") or n:find("diamond") or n:find("vault") or n:find("cash") or n:find("gem") or n:find("pickup") or n:find("item") or n:find("steal") then
-					pcall(function()
-						firetouchinterest(root, part, 0)
-						firetouchinterest(root, part, 1)
-					end)
-					touchCount += 1
-					grabbedCount += 1
-				end
+				pcall(function()
+					firetouchinterest(root, part, 0)
+					firetouchinterest(root, part, 1)
+				end)
+				touchCount += 1
+				grabbedCount += 1
 			end
 		end
 	end
@@ -598,7 +607,6 @@ local function scoreLootCandidate(obj)
 		end
 	end
 
-	-- Parse dollar/rate patterns like "$3k/s", "$500", "3k/s"
 	local rateMatch = clues:match("%$?%s*(%d+%.?%d*)%s*k%s*/%s*s")
 	if rateMatch then
 		local rateNum = tonumber(rateMatch)
@@ -827,7 +835,7 @@ local function updateUnderMapLoop(root)
 	underPlatform.CFrame = CFrame.new(root.Position.X, targetY - 3.5, root.Position.Z)
 end
 
-local function returnFromUnderMap()
+returnFromUnderMap = function()
 	local root = Cached.Root
 	State.UnderMap = false
 	State.UnderAnchorY = nil
@@ -1443,14 +1451,76 @@ local function updateESPFrame()
 end
 
 -- ==========================================
--- REJOIN SERVER SYSTEM
+-- SERVER HOP & REJOIN SYSTEM
 -- ==========================================
+local function hopToDifferentServer()
+	local now = os.clock()
+	if (now - State.LastServerHopAttempt) < 2.5 then
+		return false
+	end
+	State.LastServerHopAttempt = now
+
+	local placeId = game.PlaceId
+	local currentJobId = tostring(game.JobId or "")
+	if not placeId or placeId <= 0 then
+		return false
+	end
+
+	local url = string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Desc&limit=100", placeId)
+	local rawJson = nil
+
+	local okHttp, result = pcall(function()
+		if typeof(game.HttpGet) == "function" then
+			return game:HttpGet(url)
+		end
+		return HttpService:GetAsync(url)
+	end)
+
+	if okHttp and typeof(result) == "string" and #result > 0 then
+		rawJson = result
+	end
+
+	if rawJson then
+		local okDecode, decoded = pcall(function()
+			return HttpService:JSONDecode(rawJson)
+		end)
+
+		if okDecode and typeof(decoded) == "table" and typeof(decoded.data) == "table" then
+			local candidates = {}
+			for _, srv in ipairs(decoded.data) do
+				if typeof(srv) == "table" and typeof(srv.id) == "string" and srv.id ~= "" and srv.id ~= currentJobId then
+					local playing = tonumber(srv.playing) or 0
+					local maxPlayers = tonumber(srv.maxPlayers) or 0
+					if maxPlayers > 0 and playing < maxPlayers then
+						table.insert(candidates, srv.id)
+					end
+				end
+			end
+
+			if #candidates > 0 then
+				local chosenId = candidates[math.random(1, #candidates)]
+				local tpOk = pcall(function()
+					TeleportService:TeleportToPlaceInstance(placeId, chosenId, LocalPlayer)
+				end)
+				if tpOk then
+					return true
+				end
+			end
+		end
+	end
+
+	local fallbackOk = pcall(function()
+		TeleportService:Teleport(placeId, LocalPlayer)
+	end)
+	return fallbackOk
+end
+
 local function rejoinCurrentServer()
 	local now = os.clock()
-	if (now - State.LastRejoinAttempt) < 2.0 then
+	if (now - State.LastServerHopAttempt) < 2.0 then
 		return
 	end
-	State.LastRejoinAttempt = now
+	State.LastServerHopAttempt = now
 
 	local placeId = game.PlaceId
 	local jobId = game.JobId
@@ -1488,6 +1558,7 @@ local function unloadAll()
 
 	State.AutoWallBypass = false
 	State.AutoInstantGrab = false
+	State.InstantHoldZeroAll = false
 	State.AntiUnusualMovement = false
 	State.AntiKnockback = false
 	State.SpeedEnabled = false
@@ -1526,6 +1597,15 @@ local function unloadAll()
 	end)
 end
 
+table.insert(lifecycleConnections, ProximityPromptService.PromptShown:Connect(function(prompt)
+	if not State.Unloaded and State.InstantHoldZeroAll and prompt then
+		prepPromptZeroHold(prompt, State.AutoInstantGrab)
+		if State.AutoInstantGrab then
+			firePromptNow(prompt)
+		end
+	end
+end))
+
 table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 	if State.Unloaded then return end
 	local char = Cached.Char
@@ -1540,7 +1620,12 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 		executeHardWallBypass(false)
 	end
 
-	if State.AutoInstantGrab and (now - State.LastAutoGrabTime) >= 0.25 then
+	if State.InstantHoldZeroAll and (now - State.LastPromptZeroTime) >= 0.75 then
+		State.LastPromptZeroTime = now
+		sweepZeroHoldPrompts()
+	end
+
+	if State.AutoInstantGrab and (now - State.LastAutoGrabTime) >= 0.22 then
 		State.LastAutoGrabTime = now
 		executeInstantGrab()
 	end
@@ -1926,17 +2011,29 @@ UtilityTab:Slider({
 	Step = 1,
 	Value = {
 		Min = 8,
-		Max = 45,
-		Default = 24
+		Max = 65,
+		Default = 40
 	},
 	Callback = function(value)
 		State.InstantGrabRadius = value
 	end
 })
 
+UtilityTab:Toggle({
+	Title = "Zero Hold Time Prompts",
+	Desc = "Sets HoldDuration = 0 & disables line-of-sight block on prompts",
+	Default = true,
+	Callback = function(value)
+		State.InstantHoldZeroAll = value
+		if value then
+			sweepZeroHoldPrompts()
+		end
+	end
+})
+
 UtilityTab:Button({
 	Title = "Instant Grab Now",
-	Desc = "Zero hold time & grab nearby prompts/loot immediately",
+	Desc = "Trigger nearby prompts & loot immediately",
 	Callback = function()
 		executeInstantGrab()
 	end
@@ -1944,11 +2041,17 @@ UtilityTab:Button({
 
 UtilityTab:Toggle({
 	Title = "Auto Instant Grab",
-	Desc = "Automatically triggers nearby prompts/loot every 0.25s",
+	Desc = "Automatically triggers nearby prompts/loot every 0.22s",
 	Default = false,
 	Callback = function(value)
 		State.AutoInstantGrab = value
 	end
+})
+
+UtilityTab:Button({
+	Title = "Hop to Different Server",
+	Desc = "Find an open public server with a different JobId",
+	Callback = hopToDifferentServer
 })
 
 UtilityTab:Button({
