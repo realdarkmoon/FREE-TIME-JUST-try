@@ -68,7 +68,7 @@ local State = {
 	UnderMapLockY = true,
 	ShowFloatingUnderBtn = true,
 	ShowFloatingBaseBtn = true,
-	FloatingBtnSize = 72,
+	FloatingBtnWidth = 156,
 	SpeedEnabled = false,
 	JumpEnabled = false,
 	BoxESP = false,
@@ -115,7 +115,7 @@ local sharedOverlapParams = OverlapParams.new()
 sharedOverlapParams.FilterType = Enum.RaycastFilterType.Exclude
 
 local function markMovementIntent(duration)
-	State.IgnoreUnusualUntil = math.max(State.IgnoreUnusualUntil, os.clock() + (duration or 0.5))
+	State.IgnoreUnusualUntil = math.max(State.IgnoreUnusualUntil, os.clock() + (duration or 0.45))
 end
 
 local function isValidVector3(v)
@@ -223,22 +223,6 @@ underPlatform.Transparency = 0.75
 underPlatform.Material = Enum.Material.SmoothPlastic
 underPlatform.Parent = nil
 
-local underMapToggleRef = nil
-local refreshFloatingButtonVisual = nil
-
-local function syncUnderMapToggleUI(value)
-	if underMapToggleRef and underMapToggleRef.Set then
-		State.SyncingToggle = true
-		pcall(function()
-			underMapToggleRef:Set(value)
-		end)
-		State.SyncingToggle = false
-	end
-	if refreshFloatingButtonVisual then
-		refreshFloatingButtonVisual()
-	end
-end
-
 local function saveCurrentBaseSpot()
 	local root = Cached.Root
 	if not root then return false end
@@ -256,36 +240,21 @@ local function teleportToSavedBase()
 		if underPlatform then
 			underPlatform.Parent = nil
 		end
-		syncUnderMapToggleUI(false)
 	end
 
-	markMovementIntent(1.25)
+	markMovementIntent(0.75)
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 
 	local targetPos = State.SavedBaseCFrame.Position + Vector3.new(0, 2.5, 0)
 	local look = State.SavedBaseCFrame.LookVector
 	local flatLook = Vector3.new(look.X, 0, look.Z)
-	local finalCF = nil
 	if flatLook.Magnitude > 0.001 then
-		finalCF = CFrame.new(targetPos, targetPos + flatLook.Unit)
+		root.CFrame = CFrame.new(targetPos, targetPos + flatLook.Unit)
 	else
-		finalCF = CFrame.new(targetPos)
+		root.CFrame = CFrame.new(targetPos)
 	end
-
-	root.CFrame = finalCF
-	State.LastCleanCFrame = finalCF
-
-	task.defer(function()
-		if root and root.Parent and not State.Unloaded then
-			markMovementIntent(0.9)
-			root.AssemblyLinearVelocity = Vector3.zero
-			root.AssemblyAngularVelocity = Vector3.zero
-			root.CFrame = finalCF
-			State.LastCleanCFrame = finalCF
-		end
-	end)
-
+	State.LastCleanCFrame = root.CFrame
 	return true
 end
 
@@ -443,7 +412,7 @@ local function executeHardWallBypass(forceScan)
 		chosenPos = root.Position + (flatDir * math.min(maxDist, 14))
 	end
 
-	markMovementIntent(0.75)
+	markMovementIntent(0.55)
 	local curY = isValidVector3(root.AssemblyLinearVelocity) and math.max(root.AssemblyLinearVelocity.Y, 0) or 0
 	root.AssemblyLinearVelocity = Vector3.new(0, curY, 0)
 	root.AssemblyAngularVelocity = Vector3.zero
@@ -456,6 +425,22 @@ end
 -- ==========================================
 -- BUG-RESISTANT UNDER MAP & RETURN SYSTEM
 -- ==========================================
+local underMapToggleRef = nil
+local refreshFloatingButtonVisual = nil
+
+local function syncUnderMapToggleUI(value)
+	if underMapToggleRef and underMapToggleRef.Set then
+		State.SyncingToggle = true
+		pcall(function()
+			underMapToggleRef:Set(value)
+		end)
+		State.SyncingToggle = false
+	end
+	if refreshFloatingButtonVisual then
+		refreshFloatingButtonVisual()
+	end
+end
+
 local function ensureUnderPlatform()
 	if not underPlatform or not underPlatform.Parent then
 		underPlatform = Instance.new("Part")
@@ -472,7 +457,7 @@ end
 local function updateUnderMapLoop(root)
 	if not State.UnderMap or not root then return end
 	ensureUnderPlatform()
-	markMovementIntent(0.25)
+	markMovementIntent(0.2)
 
 	local targetY = State.UnderMapLockY and State.UnderAnchorY or root.Position.Y
 	if not targetY then
@@ -503,7 +488,7 @@ local function returnFromUnderMap()
 	if underPlatform then
 		underPlatform.Parent = nil
 	end
-	markMovementIntent(0.85)
+	markMovementIntent(0.75)
 
 	if root then
 		root.AssemblyLinearVelocity = Vector3.zero
@@ -555,7 +540,7 @@ local function setUnderMap(enabled)
 		end
 
 		State.UnderMap = true
-		markMovementIntent(0.85)
+		markMovementIntent(0.75)
 
 		local look = root.CFrame.LookVector
 		local flatLook = Vector3.new(look.X, 0, look.Z)
@@ -583,7 +568,7 @@ local function setUnderMap(enabled)
 end
 
 -- ==========================================
--- ROUND (GOL) FLOATING MOBILE BUTTONS
+-- BIG FLOATING MOBILE BUTTONS (UNDER MAP & TP BASE)
 -- ==========================================
 local floatGui = Instance.new("ScreenGui")
 floatGui.Name = "YutaHub_FloatingUnderGui"
@@ -591,23 +576,23 @@ floatGui.ResetOnSpawn = false
 floatGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 floatGui.Parent = PlayerGui
 
-local function getRoundBtnSize(diamPx)
-	local d = math.clamp(math.floor(diamPx or 72), 54, 110)
-	local textSize = math.clamp(math.floor(d * 0.19), 11, 16)
-	return d, textSize
+local function getFloatingBtnDimensions(widthPx)
+	local w = math.clamp(math.floor(widthPx or 156), 120, 220)
+	local h = math.clamp(math.floor(w * 0.35), 44, 78)
+	local textSize = math.clamp(math.floor(h * 0.28), 14, 20)
+	return w, h, textSize
 end
 
-local initDiam, initTextSize = getRoundBtnSize(State.FloatingBtnSize)
+local initW, initH, initTextSize = getFloatingBtnDimensions(State.FloatingBtnWidth)
 
-local function createRoundFloatingButton(name, text, pos, bgColor, strokeColor)
+local function createFloatingButton(name, text, pos, bgColor, strokeColor)
 	local btn = Instance.new("TextButton")
 	btn.Name = name
-	btn.Size = UDim2.fromOffset(initDiam, initDiam)
+	btn.Size = UDim2.fromOffset(initW, initH)
 	btn.Position = pos
 	btn.BackgroundColor3 = bgColor
 	btn.TextColor3 = Color3.fromRGB(235, 240, 255)
 	btn.Text = text
-	btn.TextWrapped = true
 	btn.Font = Enum.Font.GothamBold
 	btn.TextSize = initTextSize
 	btn.AutoButtonColor = true
@@ -615,60 +600,60 @@ local function createRoundFloatingButton(name, text, pos, bgColor, strokeColor)
 	btn.Parent = floatGui
 
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(1, 0)
+	corner.CornerRadius = UDim.new(0, 14)
 	corner.Parent = btn
 
 	local stroke = Instance.new("UIStroke")
 	stroke.Color = strokeColor
-	stroke.Thickness = 2
+	stroke.Thickness = 1.5
 	stroke.Parent = btn
 
 	return btn, stroke
 end
 
-local floatBtn, floatStroke = createRoundFloatingButton(
+local floatBtn, floatStroke = createFloatingButton(
 	"UnderMapFloatButton",
-	"Under\nMap",
-	UDim2.new(1, -(initDiam + 18), 0.48, 0),
+	"Under Map",
+	UDim2.new(1, -(initW + 18), 0.50, 0),
 	Color3.fromRGB(22, 24, 34),
 	Color3.fromRGB(115, 130, 255)
 )
 floatBtn.Visible = State.ShowFloatingUnderBtn
 
-local baseFloatBtn = createRoundFloatingButton(
+local baseFloatBtn = createFloatingButton(
 	"TpBaseFloatButton",
-	"TP\nBase",
-	UDim2.new(1, -(initDiam + 18), 0.48, initDiam + 12),
-	Color3.fromRGB(22, 36, 38),
-	Color3.fromRGB(70, 225, 200)
+	"TP Base",
+	UDim2.new(1, -(initW + 18), 0.50, initH + 10),
+	Color3.fromRGB(22, 34, 38),
+	Color3.fromRGB(70, 220, 200)
 )
 baseFloatBtn.Visible = State.ShowFloatingBaseBtn
 
-local function applyFloatingButtonSize(diamPx)
-	State.FloatingBtnSize = diamPx
-	local d, textSize = getRoundBtnSize(diamPx)
+local function applyFloatingButtonSize(widthPx)
+	State.FloatingBtnWidth = widthPx
+	local w, h, textSize = getFloatingBtnDimensions(widthPx)
 	if floatBtn and floatBtn.Parent then
-		floatBtn.Size = UDim2.fromOffset(d, d)
+		floatBtn.Size = UDim2.fromOffset(w, h)
 		floatBtn.TextSize = textSize
 	end
 	if baseFloatBtn and baseFloatBtn.Parent then
-		baseFloatBtn.Size = UDim2.fromOffset(d, d)
+		baseFloatBtn.Size = UDim2.fromOffset(w, h)
 		baseFloatBtn.TextSize = textSize
 	end
 end
 
 refreshFloatingButtonVisual = function()
 	if not State.Unloaded then
-		applyFloatingButtonSize(State.FloatingBtnSize)
+		applyFloatingButtonSize(State.FloatingBtnWidth)
 	end
 	if floatBtn and floatBtn.Parent then
 		floatBtn.Visible = State.ShowFloatingUnderBtn and (not State.Unloaded)
 		if State.UnderMap then
-			floatBtn.Text = "Return\nSurface"
+			floatBtn.Text = "Return Surface"
 			floatBtn.BackgroundColor3 = Color3.fromRGB(48, 28, 66)
 			floatStroke.Color = Color3.fromRGB(255, 110, 165)
 		else
-			floatBtn.Text = "Under\nMap"
+			floatBtn.Text = "Under Map"
 			floatBtn.BackgroundColor3 = Color3.fromRGB(22, 24, 34)
 			floatStroke.Color = Color3.fromRGB(115, 130, 255)
 		end
@@ -872,7 +857,7 @@ local function applyAntiUnusualMovement(hum, root, dt)
 		end
 	end
 
-	if not State.UnderMap and (now >= State.IgnoreUnusualUntil) then
+	if not State.UnderMap then
 		State.LastCleanCFrame = root.CFrame
 	end
 end
@@ -942,38 +927,61 @@ end
 -- ==========================================
 local espBoxes = {}
 local lootMarkers = {}
+local drawingAvailable = (typeof(Drawing) == "table" and typeof(Drawing.new) == "function")
+
+local function safeNewDrawing(kind)
+	if not drawingAvailable then return nil end
+	local ok, obj = pcall(function()
+		return Drawing.new(kind)
+	end)
+	if ok and obj then
+		return obj
+	end
+	return nil
+end
 
 local function createBox(color, thickness, filled)
-	local box = Drawing.new("Square")
-	box.Visible = false
-	box.Color = color or Color3.fromRGB(255, 85, 85)
-	box.Thickness = thickness or 1.5
-	box.Filled = filled or false
-	box.Transparency = 1
+	local box = safeNewDrawing("Square")
+	if not box then return nil end
+	pcall(function()
+		box.Visible = false
+		box.Color = color or Color3.fromRGB(255, 85, 85)
+		box.Thickness = thickness or 1.5
+		box.Filled = filled or false
+		box.Transparency = 1
+	end)
 	return box
 end
 
 local function createLabel(color, size)
-	local lbl = Drawing.new("Text")
-	lbl.Visible = false
-	lbl.Color = color or Color3.fromRGB(90, 225, 255)
-	lbl.Size = size or 13
-	lbl.Center = true
-	lbl.Outline = true
-	lbl.Transparency = 1
+	local lbl = safeNewDrawing("Text")
+	if not lbl then return nil end
+	pcall(function()
+		lbl.Visible = false
+		lbl.Color = color or Color3.fromRGB(90, 225, 255)
+		lbl.Size = size or 14
+		lbl.Center = true
+		lbl.Outline = true
+		lbl.Transparency = 1
+	end)
 	return lbl
 end
 
 local function hideAllBoxes()
 	for _, box in pairs(espBoxes) do
-		box.Visible = false
+		if box then
+			pcall(function() box.Visible = false end)
+		end
 	end
 end
 
 local function clearLootMarkers()
 	for _, entry in ipairs(lootMarkers) do
-		if entry.Logo then
-			pcall(function() entry.Logo:Remove() end)
+		if entry.LogoOuter then
+			pcall(function() entry.LogoOuter:Remove() end)
+		end
+		if entry.LogoInner then
+			pcall(function() entry.LogoInner:Remove() end)
 		end
 		if entry.Dot then
 			pcall(function() entry.Dot:Remove() end)
@@ -995,10 +1003,13 @@ local function removePlayerESP(player)
 	end
 end
 
-local lootKeywords = { "vault", "diamond", "loot", "cash", "money", "safe", "gold", "gem" }
+local lootKeywords = { "vault", "diamond", "loot", "cash", "money", "safe", "gold", "gem", "emerald", "ruby" }
 
-local function classifyLootOrVault(nameStr)
-	local lower = nameStr:lower()
+local function classifyLootOrVault(textStr)
+	if typeof(textStr) ~= "string" or textStr == "" then
+		return false, false
+	end
+	local lower = textStr:lower()
 	for _, kw in ipairs(lootKeywords) do
 		if lower:find(kw, 1, true) then
 			local isVault = (kw == "vault" or kw == "safe")
@@ -1008,42 +1019,91 @@ local function classifyLootOrVault(nameStr)
 	return false, false
 end
 
+local function getInstanceWorldPosition(obj)
+	if not obj or not obj.Parent then return nil end
+	if obj:IsA("BasePart") then
+		return obj.Position
+	elseif obj:IsA("Model") then
+		if obj.PrimaryPart and obj.PrimaryPart:IsA("BasePart") then
+			return obj.PrimaryPart.Position
+		end
+		local part = obj:FindFirstChildWhichIsA("BasePart", true)
+		if part then
+			return part.Position
+		end
+		local ok, cf = pcall(function()
+			return obj:GetPivot()
+		end)
+		if ok and typeof(cf) == "CFrame" and isValidVector3(cf.Position) then
+			return cf.Position
+		end
+	elseif obj:IsA("GuiObject") or obj:IsA("TextLabel") then
+		local ancestor = obj:FindFirstAncestorWhichIsA("BasePart") or obj:FindFirstAncestorWhichIsA("Model")
+		if ancestor then
+			return getInstanceWorldPosition(ancestor)
+		end
+	end
+	return nil
+end
+
 local function createLogoBadge(isVault)
-	local accent = isVault and Color3.fromRGB(255, 195, 65) or Color3.fromRGB(80, 225, 255)
-	local logo = createBox(accent, 2, true)
-	pcall(function()
-		logo.Rotation = 45
-	end)
+	local accent = isVault and Color3.fromRGB(255, 200, 65) or Color3.fromRGB(80, 225, 255)
+	local logoOuter = createBox(accent, 2, false)
+	local logoInner = createBox(accent, 1.5, true)
+	if logoOuter then
+		pcall(function() logoOuter.Rotation = 45 end)
+	end
+	if logoInner then
+		pcall(function() logoInner.Rotation = 45 end)
+	end
 	local dot = createBox(accent, 1.5, false)
-	local label = createLabel(accent, 13)
-	return logo, dot, label
+	local label = createLabel(accent, 14)
+	return logoOuter, logoInner, dot, label
 end
 
 local function scanLootAndVaults()
 	clearLootMarkers()
+	local seenPositions = {}
 	local count = 0
+
 	for _, desc in ipairs(Workspace:GetDescendants()) do
 		if count >= 24 then break end
 		if desc and desc.Name then
 			local matched, isVault = classifyLootOrVault(desc.Name)
-			if matched then
-				local worldPos = nil
-				if desc:IsA("BasePart") then
-					worldPos = desc.Position
-				elseif desc:IsA("Model") then
-					worldPos = desc:GetPivot().Position
+			local displayName = desc.Name
+
+			if not matched and desc:IsA("TextLabel") and desc.Text ~= "" then
+				matched, isVault = classifyLootOrVault(desc.Text)
+				if matched then
+					displayName = desc.Text
 				end
-				if worldPos then
-					count += 1
-					local logo, dot, label = createLogoBadge(isVault)
-					table.insert(lootMarkers, {
-						Pos = worldPos,
-						Name = desc.Name,
-						IsVault = isVault,
-						Logo = logo,
-						Dot = dot,
-						Label = label
-					})
+			end
+
+			if matched then
+				local worldPos = getInstanceWorldPosition(desc)
+				if isValidVector3(worldPos) then
+					local duplicate = false
+					for _, prevPos in ipairs(seenPositions) do
+						if (prevPos - worldPos).Magnitude < 2.0 then
+							duplicate = true
+							break
+						end
+					end
+
+					if not duplicate then
+						table.insert(seenPositions, worldPos)
+						count += 1
+						local logoOuter, logoInner, dot, label = createLogoBadge(isVault)
+						table.insert(lootMarkers, {
+							Pos = worldPos,
+							Name = displayName,
+							IsVault = isVault,
+							LogoOuter = logoOuter,
+							LogoInner = logoInner,
+							Dot = dot,
+							Label = label
+						})
+					end
 				end
 			end
 		end
@@ -1051,13 +1111,22 @@ local function scanLootAndVaults()
 end
 
 local function setEntryVisible(entry, visible)
-	if entry.Logo then entry.Logo.Visible = visible end
-	if entry.Dot then entry.Dot.Visible = visible end
-	if entry.Label then entry.Label.Visible = visible end
+	if entry.LogoOuter then
+		pcall(function() entry.LogoOuter.Visible = visible end)
+	end
+	if entry.LogoInner then
+		pcall(function() entry.LogoInner.Visible = visible end)
+	end
+	if entry.Dot then
+		pcall(function() entry.Dot.Visible = visible end)
+	end
+	if entry.Label then
+		pcall(function() entry.Label.Visible = visible end)
+	end
 end
 
 local function updateESPFrame()
-	if State.Unloaded then
+	if State.Unloaded or not drawingAvailable then
 		hideAllBoxes()
 		clearLootMarkers()
 		return
@@ -1069,6 +1138,7 @@ local function updateESPFrame()
 		return
 	end
 
+	-- 1. Player Box ESP
 	if State.BoxESP then
 		for player, box in pairs(espBoxes) do
 			if not player or not player.Parent then
@@ -1093,22 +1163,26 @@ local function updateESPFrame()
 						espBoxes[player] = box
 					end
 
-					local rootPos, onScreen = activeCam:WorldToViewportPoint(root.Position)
-					if onScreen and rootPos.Z > 0 then
-						local topPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, 2.6, 0)).Position)
-						local bottomPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, -3.1, 0)).Position)
+					if box then
+						local rootPos, onScreen = activeCam:WorldToViewportPoint(root.Position)
+						if onScreen and rootPos.Z > 0 then
+							local topPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, 2.6, 0)).Position)
+							local bottomPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, -3.1, 0)).Position)
 
-						local height = math.abs(topPos.Y - bottomPos.Y)
-						local width = math.clamp(height * 0.6, 12, 250)
+							local height = math.abs(topPos.Y - bottomPos.Y)
+							local width = math.clamp(height * 0.6, 12, 250)
 
-						box.Size = Vector2.new(width, math.clamp(height, 18, 400))
-						box.Position = Vector2.new(rootPos.X - box.Size.X / 2, topPos.Y)
-						box.Visible = true
-					else
-						box.Visible = false
+							pcall(function()
+								box.Size = Vector2.new(width, math.clamp(height, 18, 400))
+								box.Position = Vector2.new(rootPos.X - box.Size.X / 2, topPos.Y)
+								box.Visible = true
+							end)
+						else
+							pcall(function() box.Visible = false end)
+						end
 					end
 				elseif espBoxes[player] then
-					espBoxes[player].Visible = false
+					pcall(function() espBoxes[player].Visible = false end)
 				end
 			end
 		end
@@ -1116,6 +1190,7 @@ local function updateESPFrame()
 		hideAllBoxes()
 	end
 
+	-- 2. Loot / Vault ESP with Logo
 	if State.LootVaultESP then
 		local now = os.clock()
 		if (now - State.LastLootScanTime) >= 1.5 or #lootMarkers == 0 then
@@ -1126,25 +1201,48 @@ local function updateESPFrame()
 		for _, entry in ipairs(lootMarkers) do
 			local screenPos, onScreen = activeCam:WorldToViewportPoint(entry.Pos)
 			if onScreen and screenPos.Z > 0 and entry.Dot and entry.Label then
-				entry.Dot.Size = Vector2.new(12, 12)
-				entry.Dot.Position = Vector2.new(screenPos.X - 6, screenPos.Y - 6)
-				entry.Dot.Visible = true
+				pcall(function()
+					entry.Dot.Size = Vector2.new(12, 12)
+					entry.Dot.Position = Vector2.new(screenPos.X - 6, screenPos.Y - 6)
+					entry.Dot.Visible = true
+				end)
 
 				local dist = Cached.Root and math.floor((Cached.Root.Position - entry.Pos).Magnitude) or 0
 				local badgePrefix = entry.IsVault and "[VAULT]" or "[LOOT]"
 
-				if State.LootEspLogo and entry.Logo then
-					entry.Logo.Size = Vector2.new(10, 10)
-					entry.Logo.Position = Vector2.new(screenPos.X - 5, screenPos.Y - 34)
-					entry.Logo.Visible = true
-					entry.Label.Text = string.format("%s %s [%dm]", badgePrefix, entry.Name, dist)
-					entry.Label.Position = Vector2.new(screenPos.X, screenPos.Y - 21)
+				if State.LootEspLogo then
+					if entry.LogoOuter then
+						pcall(function()
+							entry.LogoOuter.Size = Vector2.new(14, 14)
+							entry.LogoOuter.Position = Vector2.new(screenPos.X - 7, screenPos.Y - 40)
+							entry.LogoOuter.Visible = true
+						end)
+					end
+					if entry.LogoInner then
+						pcall(function()
+							entry.LogoInner.Size = Vector2.new(8, 8)
+							entry.LogoInner.Position = Vector2.new(screenPos.X - 4, screenPos.Y - 37)
+							entry.LogoInner.Visible = true
+						end)
+					end
+					pcall(function()
+						entry.Label.Text = string.format("◆ %s %s [%dm]", badgePrefix, entry.Name, dist)
+						entry.Label.Position = Vector2.new(screenPos.X, screenPos.Y - 22)
+						entry.Label.Visible = true
+					end)
 				else
-					if entry.Logo then entry.Logo.Visible = false end
-					entry.Label.Text = string.format("%s [%dm]", entry.Name, dist)
-					entry.Label.Position = Vector2.new(screenPos.X, screenPos.Y - 19)
+					if entry.LogoOuter then
+						pcall(function() entry.LogoOuter.Visible = false end)
+					end
+					if entry.LogoInner then
+						pcall(function() entry.LogoInner.Visible = false end)
+					end
+					pcall(function()
+						entry.Label.Text = string.format("%s [%dm]", entry.Name, dist)
+						entry.Label.Position = Vector2.new(screenPos.X, screenPos.Y - 20)
+						entry.Label.Visible = true
+					end)
 				end
-				entry.Label.Visible = true
 			else
 				setEntryVisible(entry, false)
 			end
@@ -1445,7 +1543,7 @@ MovementTab:Toggle({
 
 MovementTab:Toggle({
 	Title = "Floating Under Map Button",
-	Desc = "Show draggable round Under Map / Return button on screen",
+	Desc = "Show draggable big Under Map / Return button on screen",
 	Default = true,
 	Callback = function(value)
 		State.ShowFloatingUnderBtn = value
@@ -1457,7 +1555,7 @@ MovementTab:Toggle({
 
 MovementTab:Toggle({
 	Title = "Floating TP Base Button",
-	Desc = "Show draggable round TP Base button on screen",
+	Desc = "Show draggable big TP Base button on screen",
 	Default = true,
 	Callback = function(value)
 		State.ShowFloatingBaseBtn = value
@@ -1468,13 +1566,13 @@ MovementTab:Toggle({
 })
 
 MovementTab:Slider({
-	Title = "Round Button Diameter",
-	Desc = "Adjust circle size (px) of the floating buttons",
-	Step = 2,
+	Title = "Floating Button Size",
+	Desc = "Adjust width (px) of the floating buttons",
+	Step = 4,
 	Value = {
-		Min = 54,
-		Max = 110,
-		Default = 72
+		Min = 120,
+		Max = 220,
+		Default = 156
 	},
 	Callback = function(value)
 		applyFloatingButtonSize(value)
@@ -1572,6 +1670,7 @@ HeistTab:Toggle({
 		State.LootVaultESP = value
 		if value then
 			State.LastLootScanTime = 0
+			scanLootAndVaults()
 		else
 			clearLootMarkers()
 		end
@@ -1580,7 +1679,7 @@ HeistTab:Toggle({
 
 HeistTab:Toggle({
 	Title = "Loot ESP Logo Badge",
-	Desc = "Show diamond logo emblem + [VAULT]/[LOOT] tag on markers",
+	Desc = "Show diamond logo emblem + ◆ [VAULT]/[LOOT] tag on markers",
 	Default = true,
 	Callback = function(value)
 		State.LootEspLogo = value
