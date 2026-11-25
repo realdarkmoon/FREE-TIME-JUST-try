@@ -15,10 +15,10 @@ local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubMobileV16",
-	Size = UDim2.fromOffset(520, 490),
-	MinSize = Vector2.new(420, 300),
-	MaxSize = Vector2.new(700, 600),
+	Folder = "PremiumYutaHubV15",
+	Size = UDim2.fromOffset(540, 520),
+	MinSize = Vector2.new(440, 320),
+	MaxSize = Vector2.new(720, 630),
 	Theme = "Dark",
 	Transparent = true,
 	Resizable = true,
@@ -52,7 +52,7 @@ local State = {
 	AntiShieldBypass = false,
 	AutoShieldStep = false,
 	ShieldPushAssist = true,
-	ShieldBypassAnyBarrier = true,
+	AntiShieldBounce = true,
 	AntiRagdoll = false,
 	AntiKnockback = false,
 	AntiUnusualMovement = false,
@@ -60,13 +60,12 @@ local State = {
 	UnderMap = false,
 	UnderMapLockY = true,
 	ShowFloatingUnderBtn = true,
-	MobileEcoMode = true,
 	SpeedEnabled = false,
 	JumpEnabled = false,
 	BoxESP = false,
 	NoclipStepPower = 0.95,
 	BypassScanDistance = 24,
-	ShieldBypassDistance = 20,
+	ShieldBypassDistance = 18,
 	UnderMapOffset = 12,
 	ExtraSpeed = 16,
 	JumpHeight = 14,
@@ -79,12 +78,12 @@ local State = {
 	SavedCFrame = nil,
 	UnderAnchorY = nil,
 	LastCleanCFrame = nil,
+	LastShieldSafeCFrame = nil,
 	LastBypassTime = 0,
 	LastShieldBypassTime = 0,
 	LastShieldScanTime = 0,
 	LastWallProbeTime = 0,
 	LastRagdollSweepTime = 0,
-	LastESPUpdateTime = 0,
 	IgnoreUnusualUntil = 0,
 	SyncingToggle = false,
 	Unloaded = false
@@ -119,17 +118,12 @@ local SHIELD_KEYWORDS = {
 	"hitbox",
 	"guard",
 	"block",
-	"bubble",
-	"field",
-	"gate",
-	"zone",
-	"aura",
-	"ward",
-	"wall"
+	"repel",
+	"field"
 }
 
 local function markMovementIntent(duration)
-	State.IgnoreUnusualUntil = math.max(State.IgnoreUnusualUntil, os.clock() + (duration or 0.5))
+	State.IgnoreUnusualUntil = math.max(State.IgnoreUnusualUntil, os.clock() + (duration or 0.45))
 end
 
 local function isValidVector3(v)
@@ -208,18 +202,12 @@ local function isShieldOrBarrierInstance(inst)
 
 		local ancestor = inst.Parent
 		local depth = 0
-		while ancestor and ancestor ~= Workspace and depth < 4 do
+		while ancestor and ancestor ~= Workspace and depth < 5 do
 			if matchesShieldKeyword(ancestor.Name) or hasShieldTagOrAttribute(ancestor) then
 				return true
 			end
 			ancestor = ancestor.Parent
 			depth += 1
-		end
-
-		if State.ShieldBypassAnyBarrier and inst.CanCollide then
-			if inst.Transparency >= 0.25 or inst.Shape == Enum.PartType.Ball or inst.Shape == Enum.PartType.Cylinder then
-				return true
-			end
 		end
 	end
 
@@ -294,7 +282,7 @@ end
 local function isPositionClear(pos)
 	local parts = Workspace:GetPartBoundsInRadius(pos, 1.65, sharedOverlapParams)
 	for _, part in ipairs(parts) do
-		if part:IsA("BasePart") and part.CanCollide and part.Transparency < 0.98 then
+		if part:IsA("BasePart") and part.CanCollide and part.Transparency < 0.98 and not isShieldOrBarrierInstance(part) then
 			return false
 		end
 	end
@@ -302,7 +290,7 @@ local function isPositionClear(pos)
 end
 
 -- ==========================================
--- REWORKED ANTI-SHIELD / BARRIER BYPASS
+-- PHYSICAL SHIELD & PUSHBACK BYPASS
 -- ==========================================
 local function applyShieldPartDisable(part)
 	if not part or not part.Parent or not part:IsA("BasePart") then return end
@@ -316,9 +304,11 @@ local function applyShieldPartDisable(part)
 		}
 	end
 
-	if part.CanCollide then part.CanCollide = false end
-	if part.CanTouch then part.CanTouch = false end
-	if part.CanQuery then part.CanQuery = false end
+	pcall(function()
+		part.CanCollide = false
+		part.CanTouch = false
+		part.CanQuery = false
+	end)
 end
 
 local function restoreShieldParts()
@@ -345,7 +335,7 @@ local function scanNearbyShields(root)
 		end
 	end
 
-	local radius = math.max(16, State.ShieldBypassDistance + 12)
+	local radius = math.max(18, State.ShieldBypassDistance + 16)
 	local nearbySphere = Workspace:GetPartBoundsInRadius(root.Position, radius, sharedOverlapParams)
 	for _, part in ipairs(nearbySphere) do
 		if part:IsA("BasePart") and isShieldOrBarrierInstance(part) then
@@ -355,7 +345,7 @@ local function scanNearbyShields(root)
 
 	local flatDir = getMoveDirectionFlat()
 	local boxCenter = root.Position + (flatDir * (radius * 0.45))
-	local boxSize = Vector3.new(radius * 1.35, 14, radius * 1.35)
+	local boxSize = Vector3.new(radius * 1.5, 18, radius * 1.5)
 	local boxCFrame = CFrame.new(boxCenter, boxCenter + flatDir)
 	local nearbyBox = Workspace:GetPartBoundsInBox(boxCFrame, boxSize, sharedOverlapParams)
 	for _, part in ipairs(nearbyBox) do
@@ -366,18 +356,23 @@ local function scanNearbyShields(root)
 end
 
 local function hasShieldAhead(origin, dir, distance)
-	local angles = State.MobileEcoMode and { 0, math.rad(20), math.rad(-20) } or { 0, math.rad(20), math.rad(-20), math.rad(40), math.rad(-40) }
-	for _, ang in ipairs(angles) do
-		local probeDir = (CFrame.Angles(0, ang, 0) * dir).Unit
-		local ray = Workspace:Raycast(origin, probeDir * distance, sharedRayParams)
-		if ray and ray.Instance and isShieldOrBarrierInstance(ray.Instance) then
-			return true
+	local heights = { -1.4, 0, 1.6 }
+	local angles = { 0, math.rad(22), math.rad(-22) }
+
+	for _, yOff in ipairs(heights) do
+		local rayOrigin = origin + Vector3.new(0, yOff, 0)
+		for _, ang in ipairs(angles) do
+			local probeDir = (CFrame.Angles(0, ang, 0) * dir).Unit
+			local ray = Workspace:Raycast(rayOrigin, probeDir * distance, sharedRayParams)
+			if ray and ray.Instance and isShieldOrBarrierInstance(ray.Instance) then
+				return true
+			end
 		end
 	end
 
 	local midPos = origin + (dir * (distance * 0.5))
 	local boxCF = CFrame.new(midPos, midPos + dir)
-	local boxSize = Vector3.new(math.max(6, distance * 0.8), 10, math.max(6, distance * 0.9))
+	local boxSize = Vector3.new(math.max(6, distance * 0.8), 11, math.max(6, distance * 0.95))
 	local parts = Workspace:GetPartBoundsInBox(boxCF, boxSize, sharedOverlapParams)
 	for _, part in ipairs(parts) do
 		if isShieldOrBarrierInstance(part) then
@@ -403,13 +398,13 @@ local function executeShieldBypassStep(forceStep)
 
 	local chosenPos = nil
 	local chosenDir = flatDir
-	local searchAngles = State.MobileEcoMode and { 0, math.rad(25), math.rad(-25) } or { 0, math.rad(25), math.rad(-25), math.rad(45), math.rad(-45) }
+	local searchAngles = { 0, math.rad(25), math.rad(-25), math.rad(45), math.rad(-45) }
 
 	for _, ang in ipairs(searchAngles) do
 		local testDir = (CFrame.Angles(0, ang, 0) * flatDir).Unit
-		for dist = maxDist, 3, -1 do
+		for dist = 3, maxDist do
 			local probePos = root.Position + (testDir * dist)
-			if not hasShieldAhead(probePos, testDir, 1.8) and isPositionClear(probePos) then
+			if not hasShieldAhead(probePos, testDir, 2.2) and isPositionClear(probePos) then
 				local floorHit = Workspace:Raycast(probePos + Vector3.new(0, 3, 0), Vector3.new(0, -14, 0), sharedRayParams)
 				if floorHit then
 					local groundedPos = Vector3.new(probePos.X, floorHit.Position.Y + 3.0, probePos.Z)
@@ -434,7 +429,7 @@ local function executeShieldBypassStep(forceStep)
 		chosenPos = root.Position + (flatDir * math.min(maxDist, 14))
 	end
 
-	markMovementIntent(0.75)
+	markMovementIntent(0.65)
 	if hum and hum:GetState() == Enum.HumanoidStateType.Seated then
 		hum.Sit = false
 	end
@@ -442,18 +437,42 @@ local function executeShieldBypassStep(forceStep)
 	root.AssemblyAngularVelocity = Vector3.zero
 	root.CFrame = CFrame.new(chosenPos, chosenPos + chosenDir)
 	State.LastCleanCFrame = root.CFrame
+	State.LastShieldSafeCFrame = root.CFrame
 	State.LastShieldBypassTime = os.clock()
 	return true
 end
 
-local function applyShieldPushAssist(hum, root, dt)
-	if not State.AntiShieldBypass or not State.ShieldPushAssist or State.Unloaded or not hum or not root then return end
-	if hum.MoveDirection.Magnitude <= 0.1 then return end
+local function applyShieldPushAndBounceGuard(hum, root, dt)
+	if not State.AntiShieldBypass or State.Unloaded or not hum or not root then return end
 
-	local flatDir = getMoveDirectionFlat()
-	if hasShieldAhead(root.Position, flatDir, 3.6) then
-		markMovementIntent(0.3)
-		root.CFrame = root.CFrame + (flatDir * math.min(1.25, (hum.WalkSpeed + (State.SpeedEnabled and State.ExtraSpeed or 0)) * dt * 1.4))
+	local nearShield = hasShieldAhead(root.Position, getMoveDirectionFlat(), 5.5)
+	local v = root.AssemblyLinearVelocity
+
+	if State.AntiShieldBounce and isValidVector3(v) then
+		local flatDir = getMoveDirectionFlat()
+		local awayFromMove = v.X * flatDir.X + v.Z * flatDir.Z
+		if (nearShield and awayFromMove < -12) or v.Magnitude > State.MaxSafeVelocity then
+			markMovementIntent(0.4)
+			root.AssemblyLinearVelocity = Vector3.new(flatDir.X * 14, math.max(v.Y, 0), flatDir.Z * 14)
+			root.AssemblyAngularVelocity = Vector3.zero
+			if State.AutoShieldStep and (os.clock() - State.LastShieldBypassTime) > 0.2 then
+				executeShieldBypassStep(true)
+			end
+			return
+		end
+	end
+
+	if State.ShieldPushAssist and hum.MoveDirection.Magnitude > 0.1 then
+		local flatDir = getMoveDirectionFlat()
+		if hasShieldAhead(root.Position, flatDir, 4.2) then
+			markMovementIntent(0.25)
+			local stepAmt = math.min(1.45, ((hum.WalkSpeed + (State.SpeedEnabled and State.ExtraSpeed or 0)) * dt * 1.65) + 0.35)
+			root.CFrame = root.CFrame + (flatDir * stepAmt)
+		end
+	end
+
+	if not nearShield then
+		State.LastShieldSafeCFrame = root.CFrame
 	end
 end
 
@@ -461,6 +480,7 @@ local function setAntiShieldBypass(enabled)
 	State.AntiShieldBypass = enabled
 	if enabled and not State.Unloaded then
 		if Cached.Root then
+			State.LastShieldSafeCFrame = Cached.Root.CFrame
 			scanNearbyShields(Cached.Root)
 		end
 	else
@@ -481,11 +501,9 @@ local function hasWallAhead(origin, dir, distance)
 		return true
 	end
 
-	if not State.MobileEcoMode then
-		local rayHigh = Workspace:Raycast(origin + Vector3.new(0, 1.15, 0), dir * distance, sharedRayParams)
-		if rayHigh and rayHigh.Instance and rayHigh.Instance:IsA("BasePart") and rayHigh.Instance.CanCollide then
-			return true
-		end
+	local rayHigh = Workspace:Raycast(origin + Vector3.new(0, 1.15, 0), dir * distance, sharedRayParams)
+	if rayHigh and rayHigh.Instance and rayHigh.Instance:IsA("BasePart") and rayHigh.Instance.CanCollide then
+		return true
 	end
 
 	return false
@@ -521,8 +539,8 @@ local function applyStrongNoclipFrame()
 	for i = #Cached.Parts, 1, -1 do
 		local part = Cached.Parts[i]
 		if part and part.Parent then
-			if part.CanCollide then part.CanCollide = false end
-			if part.CanTouch then part.CanTouch = false end
+			part.CanCollide = false
+			part.CanTouch = false
 		else
 			table.remove(Cached.Parts, i)
 		end
@@ -531,7 +549,7 @@ local function applyStrongNoclipFrame()
 	for i = #Cached.Seats, 1, -1 do
 		local seat = Cached.Seats[i]
 		if seat and seat.Parent then
-			if not seat.Disabled then seat.Disabled = true end
+			seat.Disabled = true
 		else
 			table.remove(Cached.Seats, i)
 		end
@@ -539,7 +557,7 @@ local function applyStrongNoclipFrame()
 
 	if State.WallMicroStep and hum and root and hum.MoveDirection.Magnitude > 0.08 then
 		local now = os.clock()
-		local probeInterval = State.MobileEcoMode and 0.045 or (State.NoclipBetaUltra and 0.025 or 0.035)
+		local probeInterval = State.NoclipBetaUltra and 0.025 or 0.035
 		if (now - State.LastWallProbeTime) >= probeInterval then
 			State.LastWallProbeTime = now
 			local flatDir = getMoveDirectionFlat()
@@ -582,7 +600,7 @@ local function setNoclip(enabled)
 		end
 		applyStrongNoclipFrame()
 
-		if not State.MobileEcoMode and RunService.PreSimulation then
+		if RunService.PreSimulation then
 			table.insert(noclipConnections, RunService.PreSimulation:Connect(applyStrongNoclipFrame))
 		end
 		table.insert(noclipConnections, RunService.Stepped:Connect(applyStrongNoclipFrame))
@@ -949,7 +967,7 @@ local function sanitizeRagdollAndJoints(char, hum, root, fullSweep)
 	if fullSweep then
 		for _, desc in ipairs(char:GetDescendants()) do
 			if desc:IsA("Motor6D") then
-				if not desc.Enabled then desc.Enabled = true end
+				desc.Enabled = true
 			elseif desc:IsA("BallSocketConstraint") or desc:IsA("HingeConstraint") then
 				if desc.Name:lower():find("ragdoll") or (desc.Parent and desc.Parent.Name:lower():find("ragdoll")) then
 					desc:Destroy()
@@ -1125,13 +1143,6 @@ local function updateESPFrame()
 		return
 	end
 
-	local now = os.clock()
-	local espInterval = State.MobileEcoMode and 0.033 or 0.016
-	if (now - State.LastESPUpdateTime) < espInterval then
-		return
-	end
-	State.LastESPUpdateTime = now
-
 	local activeCam = Workspace.CurrentCamera
 	if not activeCam then
 		hideAllBoxes()
@@ -1196,6 +1207,7 @@ local function unloadAll()
 	State.AutoWallBypass = false
 	State.AutoShieldStep = false
 	State.ShieldPushAssist = false
+	State.AntiShieldBounce = false
 	State.AntiUnusualMovement = false
 	State.AntiKnockback = false
 	State.SpeedEnabled = false
@@ -1244,24 +1256,22 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 	local now = os.clock()
 
 	if State.AntiShieldBypass then
-		applyShieldPushAssist(hum, root, clampedDt)
-		local shieldScanInterval = State.MobileEcoMode and 0.18 or 0.10
-		if (now - State.LastShieldScanTime) >= shieldScanInterval then
+		applyShieldPushAndBounceGuard(hum, root, clampedDt)
+		if (now - State.LastShieldScanTime) >= 0.08 then
 			State.LastShieldScanTime = now
 			scanNearbyShields(root)
-			if State.AutoShieldStep and hum.MoveDirection.Magnitude > 0.1 and (now - State.LastShieldBypassTime) > 0.25 then
+			if State.AutoShieldStep and hum.MoveDirection.Magnitude > 0.1 and (now - State.LastShieldBypassTime) > 0.24 then
 				executeShieldBypassStep(false)
 			end
 		end
 	end
 
-	if State.AutoWallBypass and hum.MoveDirection.Magnitude > 0.1 and (now - State.LastBypassTime) > 0.25 then
+	if State.AutoWallBypass and hum.MoveDirection.Magnitude > 0.1 and (now - State.LastBypassTime) > 0.22 then
 		executeHardWallBypass(false)
 	end
 
 	if State.AntiRagdoll then
-		local sweepInterval = State.MobileEcoMode and 0.25 or 0.12
-		local doFullSweep = (now - State.LastRagdollSweepTime) >= sweepInterval
+		local doFullSweep = (now - State.LastRagdollSweepTime) >= 0.12
 		if doFullSweep then
 			State.LastRagdollSweepTime = now
 		end
@@ -1321,6 +1331,7 @@ table.insert(lifecycleConnections, LocalPlayer.CharacterAdded:Connect(function(c
 	State.UnderAnchorY = nil
 	State.SavedCFrame = nil
 	State.LastCleanCFrame = nil
+	State.LastShieldSafeCFrame = nil
 	if underPlatform then
 		underPlatform.Parent = nil
 	end
@@ -1338,6 +1349,7 @@ table.insert(lifecycleConnections, LocalPlayer.CharacterAdded:Connect(function(c
 
 	if Cached.Root then
 		State.LastCleanCFrame = Cached.Root.CFrame
+		State.LastShieldSafeCFrame = Cached.Root.CFrame
 		if State.AntiShieldBypass then
 			scanNearbyShields(Cached.Root)
 		end
@@ -1536,8 +1548,8 @@ MovementTab:Slider({
 })
 
 ProtectionTab:Toggle({
-	Title = "Anti-Shield Bypass",
-	Desc = "Disables local collision/touch/query on detected shields & barriers",
+	Title = "Anti-Shield Bypass (Fixed)",
+	Desc = "Disables local collision/touch/query on nearby shield & barrier parts",
 	Default = false,
 	Callback = function(value)
 		setAntiShieldBypass(value)
@@ -1545,17 +1557,17 @@ ProtectionTab:Toggle({
 })
 
 ProtectionTab:Toggle({
-	Title = "Include Translucent / Dome Barriers",
-	Desc = "Also matches semi-transparent, ball, or cylinder barrier parts",
+	Title = "Anti-Shield Bounce",
+	Desc = "Cancels backward pushback spikes when touching shields/barriers",
 	Default = true,
 	Callback = function(value)
-		State.ShieldBypassAnyBarrier = value
+		State.AntiShieldBounce = value
 	end
 })
 
 ProtectionTab:Toggle({
 	Title = "Shield Push Assist",
-	Desc = "Helps nudge past shield zones while walking into them",
+	Desc = "Helps nudge past physical shield domes & walls while moving",
 	Default = true,
 	Callback = function(value)
 		State.ShieldPushAssist = value
@@ -1578,7 +1590,7 @@ ProtectionTab:Slider({
 	Value = {
 		Min = 6,
 		Max = 45,
-		Default = 20
+		Default = 18
 	},
 	Callback = function(value)
 		State.ShieldBypassDistance = value
@@ -1629,18 +1641,6 @@ ProtectionTab:Toggle({
 	Default = false,
 	Callback = function(value)
 		State.AntiKnockback = value
-	end
-})
-
-VisualsTab:Toggle({
-	Title = "Mobile Eco Mode",
-	Desc = "Reduces scan & loop frequency to lower mobile lag and heat",
-	Default = true,
-	Callback = function(value)
-		State.MobileEcoMode = value
-		if State.Noclip then
-			setNoclip(true)
-		end
 	end
 })
 
