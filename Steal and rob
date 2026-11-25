@@ -12,8 +12,8 @@ local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local SCRIPT_VERSION = "v20.0"
-local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v20.json"
+local SCRIPT_VERSION = "v21.0"
+local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v21.json"
 local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-cloud/yutahub/main/main.lua"
 
 -- ==========================================
@@ -22,14 +22,14 @@ local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-
 local CHANGELOG = {
 	Version = SCRIPT_VERSION,
 	WhatsNew = {
+		"Exact Base Spot Lock: Saves & restores your exact base CFrame and facing direction accurately.",
 		"Auto Execute: Automatically queues script execution across teleports & 5-server hops.",
-		"Extra-Big Front Changelog Screen: Larger modal card, bigger text, and highest front display order.",
-		"Server Hop (5 Servers): Fetches & teleports across up to 5 different servers automatically."
+		"Extra-Big Front Changelog Screen: Larger modal card, bigger text, and highest front display order."
 	},
 	WhatsFixed = {
-		"Front-most layering for floating buttons & update modal so they aren't hidden behind HUDs.",
-		"Loot & Vault ESP immediate scan on toggle + duplicate marker filtering within 2 studs.",
-		"Safe BasePart, Model, and TextLabel world position lookup + guarded Drawing logo badges."
+		"Fixed Teleport Base not returning to the exact saved spot after vault/roof runs or Under Map.",
+		"Re-resolves active character root automatically if cached references refresh.",
+		"Loot & Vault ESP immediate scan on toggle + duplicate marker filtering within 2 studs."
 	}
 }
 
@@ -38,7 +38,7 @@ local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubV20",
+	Folder = "PremiumYutaHubV21",
 	Size = UDim2.fromOffset(550, 530),
 	MinSize = Vector2.new(440, 320),
 	MaxSize = Vector2.new(740, 640),
@@ -148,11 +148,15 @@ local sharedOverlapParams = OverlapParams.new()
 sharedOverlapParams.FilterType = Enum.RaycastFilterType.Exclude
 
 local function markMovementIntent(duration)
-	State.IgnoreUnusualUntil = math.max(State.IgnoreUnusualUntil, os.clock() + (duration or 0.45))
+	State.IgnoreUnusualUntil = math.max(State.IgnoreUnusualUntil, os.clock() + (duration or 0.85))
 end
 
 local function isValidVector3(v)
 	return typeof(v) == "Vector3" and v.X == v.X and v.Y == v.Y and v.Z == v.Z
+end
+
+local function isValidCFrame(cf)
+	return typeof(cf) == "CFrame" and isValidVector3(cf.Position)
 end
 
 local function isSafeVelocity(vel)
@@ -166,6 +170,96 @@ local function disconnectList(list)
 		end
 	end
 	table.clear(list)
+end
+
+-- ==========================================
+-- CHARACTER CACHE & ACTIVE ROOT HELPERS
+-- ==========================================
+local function rebuildCharacterCache(char)
+	table.clear(Cached.Parts)
+	table.clear(Cached.Seats)
+
+	Cached.Char = char
+	Cached.Hum = char and char:FindFirstChildOfClass("Humanoid") or nil
+	Cached.Root = char and (
+		char:FindFirstChild("HumanoidRootPart")
+		or char:FindFirstChild("Torso")
+		or char:FindFirstChild("UpperTorso")
+	) or nil
+
+	sharedRayParams.FilterDescendantsInstances = char and { char } or {}
+	sharedOverlapParams.FilterDescendantsInstances = char and { char } or {}
+
+	if not char then return end
+
+	for _, desc in ipairs(char:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			table.insert(Cached.Parts, desc)
+			if Cached.OrigCollide[desc] == nil then
+				Cached.OrigCollide[desc] = desc.CanCollide
+			end
+		elseif desc:IsA("Seat") or desc:IsA("VehicleSeat") then
+			table.insert(Cached.Seats, desc)
+		end
+	end
+end
+
+local function getActiveRoot()
+	if Cached.Root and Cached.Root.Parent and Cached.Char and Cached.Char.Parent then
+		return Cached.Root
+	end
+	local char = LocalPlayer.Character
+	if char and char.Parent then
+		rebuildCharacterCache(char)
+		return Cached.Root
+	end
+	return nil
+end
+
+local function registerDescendant(desc)
+	if desc:IsA("BasePart") then
+		table.insert(Cached.Parts, desc)
+		if Cached.OrigCollide[desc] == nil then
+			Cached.OrigCollide[desc] = desc.CanCollide
+		end
+		if State.Noclip and not State.Unloaded then
+			desc.CanCollide = false
+			desc.CanTouch = false
+		end
+	elseif desc:IsA("Seat") or desc:IsA("VehicleSeat") then
+		table.insert(Cached.Seats, desc)
+		if State.Noclip and not State.Unloaded then
+			desc.Disabled = true
+		end
+	end
+end
+
+local function getMoveDirectionFlat()
+	local hum = Cached.Hum
+	local root = getActiveRoot()
+	if hum and hum.MoveDirection.Magnitude > 0.05 then
+		local flatMove = Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z)
+		if flatMove.Magnitude > 0.001 then
+			return flatMove.Unit
+		end
+	end
+	if root then
+		local lookFlat = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+		if lookFlat.Magnitude > 0.001 then
+			return lookFlat.Unit
+		end
+	end
+	return Vector3.new(0, 0, -1)
+end
+
+local function isPositionClear(pos)
+	local parts = Workspace:GetPartBoundsInRadius(pos, 1.65, sharedOverlapParams)
+	for _, part in ipairs(parts) do
+		if part:IsA("BasePart") and part.CanCollide and part.Transparency < 0.98 then
+			return false
+		end
+	end
+	return true
 end
 
 -- ==========================================
@@ -489,84 +583,6 @@ local function showChangelogScreen()
 end
 
 -- ==========================================
--- CHARACTER CACHE HELPERS
--- ==========================================
-local function rebuildCharacterCache(char)
-	table.clear(Cached.Parts)
-	table.clear(Cached.Seats)
-
-	Cached.Char = char
-	Cached.Hum = char and char:FindFirstChildOfClass("Humanoid") or nil
-	Cached.Root = char and (
-		char:FindFirstChild("HumanoidRootPart")
-		or char:FindFirstChild("Torso")
-		or char:FindFirstChild("UpperTorso")
-	) or nil
-
-	sharedRayParams.FilterDescendantsInstances = char and { char } or {}
-	sharedOverlapParams.FilterDescendantsInstances = char and { char } or {}
-
-	if not char then return end
-
-	for _, desc in ipairs(char:GetDescendants()) do
-		if desc:IsA("BasePart") then
-			table.insert(Cached.Parts, desc)
-			if Cached.OrigCollide[desc] == nil then
-				Cached.OrigCollide[desc] = desc.CanCollide
-			end
-		elseif desc:IsA("Seat") or desc:IsA("VehicleSeat") then
-			table.insert(Cached.Seats, desc)
-		end
-	end
-end
-
-local function registerDescendant(desc)
-	if desc:IsA("BasePart") then
-		table.insert(Cached.Parts, desc)
-		if Cached.OrigCollide[desc] == nil then
-			Cached.OrigCollide[desc] = desc.CanCollide
-		end
-		if State.Noclip and not State.Unloaded then
-			desc.CanCollide = false
-			desc.CanTouch = false
-		end
-	elseif desc:IsA("Seat") or desc:IsA("VehicleSeat") then
-		table.insert(Cached.Seats, desc)
-		if State.Noclip and not State.Unloaded then
-			desc.Disabled = true
-		end
-	end
-end
-
-local function getMoveDirectionFlat()
-	local hum = Cached.Hum
-	local root = Cached.Root
-	if hum and hum.MoveDirection.Magnitude > 0.05 then
-		local flatMove = Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z)
-		if flatMove.Magnitude > 0.001 then
-			return flatMove.Unit
-		end
-	end
-	if root then
-		local lookFlat = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
-		if lookFlat.Magnitude > 0.001 then
-			return lookFlat.Unit
-		end
-	end
-	return Vector3.new(0, 0, -1)
-end
-
-local function isPositionClear(pos)
-	local parts = Workspace:GetPartBoundsInRadius(pos, 1.65, sharedOverlapParams)
-	for _, part in ipairs(parts) do
-		if part:IsA("BasePart") and part.CanCollide and part.Transparency < 0.98 then
-			return false
-		end
-	end
-	return true
-end
-
--- ==========================================
 -- BREAK & STEAL BASE TELEPORT HELPERS
 -- ==========================================
 local underPlatform = Instance.new("Part")
@@ -579,16 +595,52 @@ underPlatform.Transparency = 0.75
 underPlatform.Material = Enum.Material.SmoothPlastic
 underPlatform.Parent = nil
 
+local underMapToggleRef = nil
+local refreshFloatingButtonVisual = nil
+
+local function syncUnderMapToggleUI(value)
+	if underMapToggleRef and underMapToggleRef.Set then
+		State.SyncingToggle = true
+		pcall(function()
+			underMapToggleRef:Set(value)
+		end)
+		State.SyncingToggle = false
+	end
+	if refreshFloatingButtonVisual then
+		refreshFloatingButtonVisual()
+	end
+end
+
 local function saveCurrentBaseSpot()
-	local root = Cached.Root
+	local root = getActiveRoot()
 	if not root then return false end
 	State.SavedBaseCFrame = root.CFrame
+	State.LastCleanCFrame = root.CFrame
 	return true
 end
 
+local function resolveExactBaseCFrame(savedCf)
+	local pos = savedCf.Position
+	local look = savedCf.LookVector
+	local flatLook = Vector3.new(look.X, 0, look.Z)
+
+	local finalPos = pos
+	if not isPositionClear(finalPos) then
+		local lifted = pos + Vector3.new(0, 0.75, 0)
+		if isPositionClear(lifted) then
+			finalPos = lifted
+		end
+	end
+
+	if flatLook.Magnitude > 0.001 then
+		return CFrame.new(finalPos, finalPos + flatLook.Unit)
+	end
+	return CFrame.new(finalPos) * savedCf.Rotation
+end
+
 local function teleportToSavedBase()
-	local root = Cached.Root
-	if not root or not State.SavedBaseCFrame then return false end
+	local root = getActiveRoot()
+	if not root or not isValidCFrame(State.SavedBaseCFrame) then return false end
 
 	if State.UnderMap then
 		State.UnderMap = false
@@ -596,21 +648,34 @@ local function teleportToSavedBase()
 		if underPlatform then
 			underPlatform.Parent = nil
 		end
+		syncUnderMapToggleUI(false)
 	end
 
-	markMovementIntent(0.75)
+	local targetCf = resolveExactBaseCFrame(State.SavedBaseCFrame)
+	State.LastCleanCFrame = targetCf
+	markMovementIntent(1.2)
+
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
+	root.CFrame = targetCf
 
-	local targetPos = State.SavedBaseCFrame.Position + Vector3.new(0, 2.5, 0)
-	local look = State.SavedBaseCFrame.LookVector
-	local flatLook = Vector3.new(look.X, 0, look.Z)
-	if flatLook.Magnitude > 0.001 then
-		root.CFrame = CFrame.new(targetPos, targetPos + flatLook.Unit)
-	else
-		root.CFrame = CFrame.new(targetPos)
+	if Cached.Hum and Cached.Hum.Sit then
+		Cached.Hum.Sit = false
 	end
-	State.LastCleanCFrame = root.CFrame
+
+	task.defer(function()
+		local r = getActiveRoot()
+		if r and not State.Unloaded and isValidCFrame(State.SavedBaseCFrame) then
+			local recheckCf = resolveExactBaseCFrame(State.SavedBaseCFrame)
+			if (r.Position - recheckCf.Position).Magnitude > 0.5 then
+				r.AssemblyLinearVelocity = Vector3.zero
+				r.AssemblyAngularVelocity = Vector3.zero
+				r.CFrame = recheckCf
+				State.LastCleanCFrame = recheckCf
+			end
+		end
+	end)
+
 	return true
 end
 
@@ -658,7 +723,7 @@ local function applyStrongNoclipFrame()
 	if not State.Noclip or State.Unloaded then return end
 	local char = Cached.Char
 	local hum = Cached.Hum
-	local root = Cached.Root
+	local root = getActiveRoot()
 	if not char then return end
 
 	for i = #Cached.Parts, 1, -1 do
@@ -736,7 +801,7 @@ end
 
 local function executeHardWallBypass(forceScan)
 	local char = Cached.Char
-	local root = Cached.Root
+	local root = getActiveRoot()
 	if not char or not root then return false end
 
 	local flatDir = getMoveDirectionFlat()
@@ -781,22 +846,6 @@ end
 -- ==========================================
 -- BUG-RESISTANT UNDER MAP & RETURN SYSTEM
 -- ==========================================
-local underMapToggleRef = nil
-local refreshFloatingButtonVisual = nil
-
-local function syncUnderMapToggleUI(value)
-	if underMapToggleRef and underMapToggleRef.Set then
-		State.SyncingToggle = true
-		pcall(function()
-			underMapToggleRef:Set(value)
-		end)
-		State.SyncingToggle = false
-	end
-	if refreshFloatingButtonVisual then
-		refreshFloatingButtonVisual()
-	end
-end
-
 local function ensureUnderPlatform()
 	if not underPlatform or not underPlatform.Parent then
 		underPlatform = Instance.new("Part")
@@ -838,7 +887,7 @@ local function updateUnderMapLoop(root)
 end
 
 local function returnFromUnderMap()
-	local root = Cached.Root
+	local root = getActiveRoot()
 	State.UnderMap = false
 	State.UnderAnchorY = nil
 	if underPlatform then
@@ -883,7 +932,7 @@ end
 
 local function setUnderMap(enabled)
 	if State.SyncingToggle then return end
-	local root = Cached.Root
+	local root = getActiveRoot()
 
 	if enabled and not State.Unloaded then
 		if not root then
@@ -1084,7 +1133,7 @@ bindDraggableButton(floatBtn, function()
 end)
 
 bindDraggableButton(baseFloatBtn, function()
-	if not State.SavedBaseCFrame then
+	if not isValidCFrame(State.SavedBaseCFrame) then
 		saveCurrentBaseSpot()
 	end
 	teleportToSavedBase()
@@ -1215,7 +1264,7 @@ local function applyAntiUnusualMovement(hum, root, dt)
 		end
 	end
 
-	if not State.UnderMap then
+	if not State.UnderMap and (now >= State.IgnoreUnusualUntil) then
 		State.LastCleanCFrame = root.CFrame
 	end
 end
@@ -1563,7 +1612,8 @@ local function updateESPFrame()
 					entry.Dot.Visible = true
 				end)
 
-				local dist = Cached.Root and math.floor((Cached.Root.Position - entry.Pos).Magnitude) or 0
+				local activeRoot = getActiveRoot()
+				local dist = activeRoot and math.floor((activeRoot.Position - entry.Pos).Magnitude) or 0
 				local badgePrefix = entry.IsVault and "[VAULT]" or "[LOOT]"
 
 				if State.LootEspLogo then
@@ -1798,7 +1848,7 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 	if State.Unloaded then return end
 	local char = Cached.Char
 	local hum = Cached.Hum
-	local root = Cached.Root
+	local root = getActiveRoot()
 	if not char or not hum or not root or hum.Health <= 0 then return end
 
 	local clampedDt = math.min(dt, 0.05)
@@ -2001,8 +2051,8 @@ UIRefs.UnderMapLockY = MovementTab:Toggle({
 	Default = true,
 	Callback = function(value)
 		State.UnderMapLockY = value
-		if value and State.UnderMap and Cached.Root then
-			State.UnderAnchorY = Cached.Root.Position.Y
+		if value and State.UnderMap and getActiveRoot() then
+			State.UnderAnchorY = getActiveRoot().Position.Y
 		end
 		markFeatureUsed()
 	end
@@ -2122,7 +2172,7 @@ UIRefs.JumpHeight = MovementTab:Slider({
 
 HeistTab:Button({
 	Title = "Save Base Position",
-	Desc = "Save your current base/display spot for quick return",
+	Desc = "Save your exact current base/display spot for quick return",
 	Callback = function()
 		saveCurrentBaseSpot()
 	end
@@ -2130,7 +2180,7 @@ HeistTab:Button({
 
 HeistTab:Button({
 	Title = "Teleport to Base",
-	Desc = "Return to your saved base spot after a vault/roof run",
+	Desc = "Return to your exact saved base spot after a vault/roof run",
 	Callback = function()
 		teleportToSavedBase()
 	end
@@ -2168,8 +2218,9 @@ UIRefs.AntiUnusualMovement = ProtectionTab:Toggle({
 	Default = false,
 	Callback = function(value)
 		State.AntiUnusualMovement = value
-		if value and Cached.Root and not State.UnderMap then
-			State.LastCleanCFrame = Cached.Root.CFrame
+		local r = getActiveRoot()
+		if value and r and not State.UnderMap then
+			State.LastCleanCFrame = r.CFrame
 		end
 		markFeatureUsed()
 	end
