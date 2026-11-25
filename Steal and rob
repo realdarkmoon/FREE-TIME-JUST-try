@@ -10,13 +10,13 @@ local LocalPlayer = Players.LocalPlayer
 
 -- Create Window
 local Window = WindUI:CreateWindow({
-	Title = "DARK MOON | Anti-Unusual Pro",
+	Title = "DARK MOON | Noclip Beta",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "DarkMoonAntiUnusualProV9",
-	Size = UDim2.fromOffset(540, 510),
+	Folder = "DarkMoonNoclipBetaV8",
+	Size = UDim2.fromOffset(540, 500),
 	MinSize = Vector2.new(440, 320),
-	MaxSize = Vector2.new(720, 620),
+	MaxSize = Vector2.new(720, 610),
 	Theme = "Dark",
 	Transparent = true,
 	Resizable = true,
@@ -50,7 +50,6 @@ local State = {
 	AntiRagdoll = false,
 	AntiKnockback = false,
 	AntiUnusualMovement = false,
-	AntiUnusualStrict = true,
 	SnapBackOnUnusual = true,
 	UnderMap = false,
 	SpeedEnabled = false,
@@ -65,16 +64,14 @@ local State = {
 	DefaultJumpHeight = 7.2,
 	DefaultJumpPower = 50,
 	MaxSafeVelocity = 110,
-	MaxUnusualSpeed = 85,
-	MaxUnusualSnapDist = 28,
+	MaxUnusualSpeed = 95,
+	MaxUnusualSnapDist = 35,
 	SavedCFrame = nil,
 	LastCleanCFrame = nil,
 	LastBypassTime = 0,
 	LastWallProbeTime = 0,
 	LastRagdollSweepTime = 0,
-	LastMoverSweepTime = 0,
 	IgnoreUnusualUntil = 0,
-	AnomalyStreak = 0,
 	Unloaded = false
 }
 
@@ -95,7 +92,6 @@ sharedOverlapParams.FilterType = Enum.RaycastFilterType.Exclude
 
 local function markMovementIntent(duration)
 	State.IgnoreUnusualUntil = os.clock() + (duration or 0.35)
-	State.AnomalyStreak = 0
 end
 
 local function isValidVector3(v)
@@ -355,7 +351,7 @@ local function executeHardWallBypass(forceScan)
 end
 
 -- ==========================================
--- ANTI-UNUSUAL MOVEMENT (PRO), RAGDOLL & KNOCKBACK
+-- ANTI-UNUSUAL MOVEMENT, RAGDOLL & KNOCKBACK
 -- ==========================================
 local ragdollStateConn = nil
 
@@ -384,20 +380,6 @@ local function unlockHumanoidStates(hum)
 		pcall(function()
 			hum:SetStateEnabled(stateType, true)
 		end)
-	end
-end
-
-local function clearStrayMovers(char)
-	if not char then return end
-	for _, desc in ipairs(char:GetDescendants()) do
-		if desc:IsA("BodyVelocity")
-			or desc:IsA("BodyGyro")
-			or desc:IsA("BodyAngularVelocity")
-			or desc:IsA("BodyPosition")
-			or desc:IsA("LinearVelocity")
-			or desc:IsA("AngularVelocity") then
-			desc:Destroy()
-		end
 	end
 end
 
@@ -441,90 +423,57 @@ local function sanitizeRagdollAndJoints(char, hum, root, fullSweep)
 	end
 end
 
-local function applyAntiUnusualMovement(char, hum, root, dt, now)
-	if not State.AntiUnusualMovement or State.Unloaded or not char or not hum or not root then return end
+local function applyAntiUnusualMovement(hum, root, dt)
+	if not State.AntiUnusualMovement or State.Unloaded or not hum or not root then return end
 
+	local now = os.clock()
 	local v = root.AssemblyLinearVelocity
 	local ang = root.AssemblyAngularVelocity
-	local anomalyDetected = false
 
-	-- 1. Catch NaN / non-finite physics vectors immediately
 	if not isValidVector3(v) or not isValidVector3(ang) then
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
-		State.AnomalyStreak = 0
 		if State.LastCleanCFrame then
 			root.CFrame = State.LastCleanCFrame
 		end
 		return
 	end
 
-	-- 2. Clamp runaway velocity and angular spin bursts
 	local allowedSpeed = State.MaxUnusualSpeed + (State.SpeedEnabled and State.ExtraSpeed or 0)
 	if v.Magnitude > allowedSpeed then
 		local dir = v.Magnitude > 0.001 and v.Unit or Vector3.zero
-		root.AssemblyLinearVelocity = dir * (allowedSpeed * 0.65)
-		anomalyDetected = true
+		root.AssemblyLinearVelocity = dir * allowedSpeed
 	end
 
-	if ang.Magnitude > 18 then
-		root.AssemblyAngularVelocity = ang * 0.15
-		if ang.Magnitude > 30 then
-			root.AssemblyAngularVelocity = Vector3.zero
-		end
-		anomalyDetected = true
+	if ang.Magnitude > 25 then
+		root.AssemblyAngularVelocity = Vector3.zero
 	end
 
-	-- 3. Recover from unintended movement states (PlatformStanding, GettingUp loop, unwanted Sit)
 	local hState = hum:GetState()
 	if hState == Enum.HumanoidStateType.PlatformStanding
-		or (hState == Enum.HumanoidStateType.Seated and hum.MoveDirection.Magnitude > 0.1)
-		or (State.AntiUnusualStrict and hState == Enum.HumanoidStateType.GettingUp and hum.MoveDirection.Magnitude > 0.15) then
+		or (hState == Enum.HumanoidStateType.Seated and hum.MoveDirection.Magnitude > 0.1) then
 		hum.Sit = false
 		pcall(function()
 			hum:ChangeState(Enum.HumanoidStateType.Running)
 		end)
-		anomalyDetected = true
 	end
 
-	-- 4. Detect sudden unexpected position jumps when not under-mapping or intentionally bypassing
 	local skipSnapCheck = State.UnderMap or (now < State.IgnoreUnusualUntil)
 	if not skipSnapCheck and State.LastCleanCFrame then
-		local expectedMaxStep = math.max(
-			State.MaxUnusualSnapDist,
-			((hum.WalkSpeed + (State.SpeedEnabled and State.ExtraSpeed or 0)) * dt) + 14
-		)
+		local expectedMaxStep = math.max(State.MaxUnusualSnapDist, ((hum.WalkSpeed + (State.SpeedEnabled and State.ExtraSpeed or 0)) * dt) + 18)
 		local distMoved = (root.Position - State.LastCleanCFrame.Position).Magnitude
 		if distMoved > expectedMaxStep then
-			anomalyDetected = true
-			State.AnomalyStreak = State.AnomalyStreak + 1
-			local neededStreak = State.AntiUnusualStrict and 1 or 2
-
 			root.AssemblyLinearVelocity = Vector3.zero
 			root.AssemblyAngularVelocity = Vector3.zero
-
-			if State.SnapBackOnUnusual and State.AnomalyStreak >= neededStreak then
-				local safePos = State.LastCleanCFrame.Position
-				if isPositionClear(safePos) then
-					root.CFrame = State.LastCleanCFrame
-				end
-				State.AnomalyStreak = 0
+			if State.SnapBackOnUnusual then
+				root.CFrame = State.LastCleanCFrame
 			end
 			return
 		end
 	end
 
-	-- 5. Throttled cleanup of stray movers when anomalies occur
-	if anomalyDetected and (now - State.LastMoverSweepTime) >= 0.15 then
-		State.LastMoverSweepTime = now
-		clearStrayMovers(char)
-	end
-
-	if not anomalyDetected then
-		State.AnomalyStreak = math.max(0, State.AnomalyStreak - 1)
-		if not State.UnderMap then
-			State.LastCleanCFrame = root.CFrame
-		end
+	if not State.UnderMap then
+		State.LastCleanCFrame = root.CFrame
 	end
 end
 
@@ -838,7 +787,7 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 		end
 	end
 
-	applyAntiUnusualMovement(char, hum, root, clampedDt, now)
+	applyAntiUnusualMovement(hum, root, clampedDt)
 end))
 
 table.insert(lifecycleConnections, RunService.RenderStepped:Connect(updateESPFrame))
@@ -850,7 +799,6 @@ table.insert(lifecycleConnections, LocalPlayer.CharacterAdded:Connect(function(c
 	State.UnderMap = false
 	State.SavedCFrame = nil
 	State.LastCleanCFrame = nil
-	State.AnomalyStreak = 0
 	if underPlatform then
 		underPlatform.Parent = nil
 	end
@@ -1047,7 +995,6 @@ ProtectionTab:Toggle({
 	Default = false,
 	Callback = function(value)
 		State.AntiUnusualMovement = value
-		State.AnomalyStreak = 0
 		if value and Cached.Root and not State.UnderMap then
 			State.LastCleanCFrame = Cached.Root.CFrame
 		end
@@ -1055,17 +1002,8 @@ ProtectionTab:Toggle({
 })
 
 ProtectionTab:Toggle({
-	Title = "Strict Mode (Instant Snap)",
-	Desc = "Reacts immediately on first sudden displacement or state glitch",
-	Default = true,
-	Callback = function(value)
-		State.AntiUnusualStrict = value
-	end
-})
-
-ProtectionTab:Toggle({
 	Title = "Snap Back on Position Jump",
-	Desc = "Restores clear saved position if unexpectedly displaced",
+	Desc = "Restores last clean position if unexpectedly displaced",
 	Default = true,
 	Callback = function(value)
 		State.SnapBackOnUnusual = value
