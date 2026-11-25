@@ -5,18 +5,20 @@ local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/rel
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 -- Create Window
 local Window = WindUI:CreateWindow({
-	Title = "DARK MOON | Noclip Beta",
+	Title = "DARK MOON | Under Map Fix",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "DarkMoonNoclipBetaV8",
-	Size = UDim2.fromOffset(540, 500),
+	Folder = "DarkMoonUnderMapFixV10",
+	Size = UDim2.fromOffset(540, 510),
 	MinSize = Vector2.new(440, 320),
-	MaxSize = Vector2.new(720, 610),
+	MaxSize = Vector2.new(720, 620),
 	Theme = "Dark",
 	Transparent = true,
 	Resizable = true,
@@ -52,6 +54,8 @@ local State = {
 	AntiUnusualMovement = false,
 	SnapBackOnUnusual = true,
 	UnderMap = false,
+	UnderMapLockY = true,
+	ShowFloatingUnderBtn = true,
 	SpeedEnabled = false,
 	JumpEnabled = false,
 	BoxESP = false,
@@ -67,11 +71,13 @@ local State = {
 	MaxUnusualSpeed = 95,
 	MaxUnusualSnapDist = 35,
 	SavedCFrame = nil,
+	UnderAnchorY = nil,
 	LastCleanCFrame = nil,
 	LastBypassTime = 0,
 	LastWallProbeTime = 0,
 	LastRagdollSweepTime = 0,
 	IgnoreUnusualUntil = 0,
+	SyncingToggle = false,
 	Unloaded = false
 }
 
@@ -91,7 +97,7 @@ local sharedOverlapParams = OverlapParams.new()
 sharedOverlapParams.FilterType = Enum.RaycastFilterType.Exclude
 
 local function markMovementIntent(duration)
-	State.IgnoreUnusualUntil = os.clock() + (duration or 0.35)
+	State.IgnoreUnusualUntil = math.max(State.IgnoreUnusualUntil, os.clock() + (duration or 0.45))
 end
 
 local function isValidVector3(v)
@@ -340,7 +346,7 @@ local function executeHardWallBypass(forceScan)
 		chosenPos = root.Position + (flatDir * math.min(maxDist, 14))
 	end
 
-	markMovementIntent(0.45)
+	markMovementIntent(0.55)
 	local curY = isValidVector3(root.AssemblyLinearVelocity) and math.max(root.AssemblyLinearVelocity.Y, 0) or 0
 	root.AssemblyLinearVelocity = Vector3.new(0, curY, 0)
 	root.AssemblyAngularVelocity = Vector3.zero
@@ -348,6 +354,266 @@ local function executeHardWallBypass(forceScan)
 	State.LastCleanCFrame = root.CFrame
 	State.LastBypassTime = os.clock()
 	return true
+end
+
+-- ==========================================
+-- BUG-RESISTANT UNDER MAP & RETURN SYSTEM
+-- ==========================================
+local underPlatform = Instance.new("Part")
+underPlatform.Name = "DarkMoon_UnderPlatform"
+underPlatform.Size = Vector3.new(24, 1, 24)
+underPlatform.Anchored = true
+underPlatform.CanCollide = true
+underPlatform.CanTouch = false
+underPlatform.Transparency = 0.75
+underPlatform.Material = Enum.Material.SmoothPlastic
+underPlatform.Parent = nil
+
+local underMapToggleRef = nil
+local refreshFloatingButtonVisual = nil
+
+local function syncUnderMapToggleUI(value)
+	if underMapToggleRef and underMapToggleRef.Set then
+		State.SyncingToggle = true
+		pcall(function()
+			underMapToggleRef:Set(value)
+		end)
+		State.SyncingToggle = false
+	end
+	if refreshFloatingButtonVisual then
+		refreshFloatingButtonVisual()
+	end
+end
+
+local function ensureUnderPlatform()
+	if not underPlatform or not underPlatform.Parent then
+		underPlatform = Instance.new("Part")
+		underPlatform.Name = "DarkMoon_UnderPlatform"
+		underPlatform.Size = Vector3.new(24, 1, 24)
+		underPlatform.Anchored = true
+		underPlatform.CanCollide = true
+		underPlatform.CanTouch = false
+		underPlatform.Transparency = 0.75
+		underPlatform.Material = Enum.Material.SmoothPlastic
+	end
+end
+
+local function updateUnderMapLoop(root)
+	if not State.UnderMap or not root then return end
+	ensureUnderPlatform()
+	markMovementIntent(0.2)
+
+	local targetY = State.UnderMapLockY and State.UnderAnchorY or root.Position.Y
+	if not targetY then
+		targetY = root.Position.Y
+		State.UnderAnchorY = targetY
+	end
+
+	if root.Position.Y < (targetY - 1.5) then
+		local look = root.CFrame.LookVector
+		local flatLook = Vector3.new(look.X, 0, look.Z)
+		local targetPos = Vector3.new(root.Position.X, targetY, root.Position.Z)
+		if flatLook.Magnitude > 0.001 then
+			root.CFrame = CFrame.new(targetPos, targetPos + flatLook.Unit)
+		else
+			root.CFrame = CFrame.new(targetPos)
+		end
+		root.AssemblyLinearVelocity = Vector3.zero
+	end
+
+	underPlatform.Parent = Workspace
+	underPlatform.CFrame = CFrame.new(root.Position.X, targetY - 3.5, root.Position.Z)
+end
+
+local function returnFromUnderMap()
+	local root = Cached.Root
+	State.UnderMap = false
+	State.UnderAnchorY = nil
+	if underPlatform then
+		underPlatform.Parent = nil
+	end
+	markMovementIntent(0.75)
+
+	if root then
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+
+		if State.SavedCFrame then
+			local returnPos = State.SavedCFrame.Position + Vector3.new(0, 2.5, 0)
+			local look = State.SavedCFrame.LookVector
+			local flatLook = Vector3.new(look.X, 0, look.Z)
+			if flatLook.Magnitude > 0.001 then
+				root.CFrame = CFrame.new(returnPos, returnPos + flatLook.Unit)
+			else
+				root.CFrame = CFrame.new(returnPos)
+			end
+			State.LastCleanCFrame = root.CFrame
+			State.SavedCFrame = nil
+		else
+			local upHit = Workspace:Raycast(root.Position, Vector3.new(0, 120, 0), sharedRayParams)
+			if upHit then
+				local safeAbove = upHit.Position + Vector3.new(0, 4.5, 0)
+				root.CFrame = CFrame.new(safeAbove)
+			else
+				local topDownHit = Workspace:Raycast(root.Position + Vector3.new(0, 220, 0), Vector3.new(0, -320, 0), sharedRayParams)
+				if topDownHit then
+					root.CFrame = CFrame.new(topDownHit.Position + Vector3.new(0, 4.0, 0))
+				else
+					root.CFrame = root.CFrame + Vector3.new(0, State.UnderMapOffset + 5, 0)
+				end
+			end
+			State.LastCleanCFrame = root.CFrame
+		end
+	end
+
+	syncUnderMapToggleUI(false)
+end
+
+local function setUnderMap(enabled)
+	if State.SyncingToggle then return end
+	local root = Cached.Root
+
+	if enabled and not State.Unloaded then
+		if not root then
+			syncUnderMapToggleUI(false)
+			return
+		end
+
+		if not State.UnderMap then
+			State.SavedCFrame = root.CFrame
+		end
+
+		State.UnderMap = true
+		markMovementIntent(0.75)
+
+		local look = root.CFrame.LookVector
+		local flatLook = Vector3.new(look.X, 0, look.Z)
+		local targetPos = Vector3.new(root.Position.X, root.Position.Y - State.UnderMapOffset, root.Position.Z)
+		State.UnderAnchorY = targetPos.Y
+
+		ensureUnderPlatform()
+		underPlatform.Parent = Workspace
+		underPlatform.CFrame = CFrame.new(targetPos.X, targetPos.Y - 3.5, targetPos.Z)
+
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+		if flatLook.Magnitude > 0.001 then
+			root.CFrame = CFrame.new(targetPos, targetPos + flatLook.Unit)
+		else
+			root.CFrame = CFrame.new(targetPos)
+		end
+
+		if refreshFloatingButtonVisual then
+			refreshFloatingButtonVisual()
+		end
+	else
+		returnFromUnderMap()
+	end
+end
+
+-- ==========================================
+-- FLOATING MOBILE BUTTON (UNDER MAP / RETURN)
+-- ==========================================
+local floatGui = Instance.new("ScreenGui")
+floatGui.Name = "DarkMoon_FloatingUnderGui"
+floatGui.ResetOnSpawn = false
+floatGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+floatGui.Parent = PlayerGui
+
+local floatBtn = Instance.new("TextButton")
+floatBtn.Name = "UnderMapFloatButton"
+floatBtn.Size = UDim2.fromOffset(118, 42)
+floatBtn.Position = UDim2.new(1, -134, 0.55, 0)
+floatBtn.BackgroundColor3 = Color3.fromRGB(22, 24, 34)
+floatBtn.TextColor3 = Color3.fromRGB(235, 240, 255)
+floatBtn.Text = "Under Map"
+floatBtn.Font = Enum.Font.GothamBold
+floatBtn.TextSize = 13
+floatBtn.AutoButtonColor = true
+floatBtn.Active = true
+floatBtn.Visible = State.ShowFloatingUnderBtn
+floatBtn.Parent = floatGui
+
+local floatCorner = Instance.new("UICorner")
+floatCorner.CornerRadius = UDim.new(0, 12)
+floatCorner.Parent = floatBtn
+
+local floatStroke = Instance.new("UIStroke")
+floatStroke.Color = Color3.fromRGB(115, 130, 255)
+floatStroke.Thickness = 1.2
+floatStroke.Parent = floatBtn
+
+refreshFloatingButtonVisual = function()
+	if not floatBtn or not floatBtn.Parent then return end
+	floatBtn.Visible = State.ShowFloatingUnderBtn and (not State.Unloaded)
+	if State.UnderMap then
+		floatBtn.Text = "Return Surface"
+		floatBtn.BackgroundColor3 = Color3.fromRGB(48, 28, 66)
+		floatStroke.Color = Color3.fromRGB(255, 110, 165)
+	else
+		floatBtn.Text = "Under Map"
+		floatBtn.BackgroundColor3 = Color3.fromRGB(22, 24, 34)
+		floatStroke.Color = Color3.fromRGB(115, 130, 255)
+	end
+end
+
+-- Smooth drag support for touch & mouse without blocking taps
+do
+	local dragging = false
+	local dragInput = nil
+	local dragStart = Vector2.zero
+	local startPos = UDim2.new()
+	local movedEnough = false
+
+	floatBtn.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragInput = input
+			dragStart = Vector2.new(input.Position.X, input.Position.Y)
+			startPos = floatBtn.Position
+			movedEnough = false
+		end
+	end)
+
+	floatBtn.InputChanged:Connect(function(input)
+		if input == dragInput and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local delta = Vector2.new(input.Position.X, input.Position.Y) - dragStart
+			if delta.Magnitude > 6 then
+				movedEnough = true
+			end
+			if dragging and movedEnough then
+				floatBtn.Position = UDim2.new(
+					startPos.X.Scale,
+					startPos.X.Offset + delta.X,
+					startPos.Y.Scale,
+					startPos.Y.Offset + delta.Y
+				)
+			end
+		end
+	end)
+
+	floatBtn.InputEnded:Connect(function(input)
+		if input == dragInput then
+			local wasTap = not movedEnough
+			dragging = false
+			dragInput = nil
+			if wasTap and not State.Unloaded then
+				if State.UnderMap then
+					returnFromUnderMap()
+				else
+					setUnderMap(true)
+					syncUnderMapToggleUI(true)
+				end
+			end
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input == dragInput then
+			dragging = false
+			dragInput = nil
+		end
+	end)
 end
 
 -- ==========================================
@@ -515,68 +781,6 @@ local function setAntiRagdoll(enabled)
 end
 
 -- ==========================================
--- UNDER MAP & RETURN SYSTEM
--- ==========================================
-local underPlatform = Instance.new("Part")
-underPlatform.Name = "DarkMoon_UnderPlatform"
-underPlatform.Size = Vector3.new(16, 1, 16)
-underPlatform.Anchored = true
-underPlatform.CanCollide = true
-underPlatform.Transparency = 0.75
-underPlatform.Material = Enum.Material.SmoothPlastic
-underPlatform.Parent = nil
-
-local underMapToggleRef = nil
-
-local function returnFromUnderMap()
-	local root = Cached.Root
-	State.UnderMap = false
-	if underPlatform then
-		underPlatform.Parent = nil
-	end
-	markMovementIntent(0.45)
-
-	if not root then return end
-
-	if State.SavedCFrame then
-		root.AssemblyLinearVelocity = Vector3.zero
-		root.CFrame = State.SavedCFrame + Vector3.new(0, 2, 0)
-		State.LastCleanCFrame = root.CFrame
-		State.SavedCFrame = nil
-	else
-		local result = Workspace:Raycast(root.Position + Vector3.new(0, 200, 0), Vector3.new(0, -300, 0), sharedRayParams)
-		root.AssemblyLinearVelocity = Vector3.zero
-		if result then
-			root.CFrame = CFrame.new(result.Position + Vector3.new(0, 4, 0))
-		else
-			root.CFrame = root.CFrame + Vector3.new(0, State.UnderMapOffset + 4, 0)
-		end
-		State.LastCleanCFrame = root.CFrame
-	end
-end
-
-local function setUnderMap(enabled)
-	local root = Cached.Root
-
-	if enabled and not State.Unloaded then
-		if not root then return end
-		if not State.UnderMap then
-			State.SavedCFrame = root.CFrame
-		end
-		State.UnderMap = true
-		markMovementIntent(0.45)
-
-		local targetPos = root.Position - Vector3.new(0, State.UnderMapOffset, 0)
-		underPlatform.CFrame = CFrame.new(targetPos - Vector3.new(0, 3.5, 0))
-		underPlatform.Parent = Workspace
-		root.AssemblyLinearVelocity = Vector3.zero
-		root.CFrame = CFrame.new(targetPos)
-	else
-		returnFromUnderMap()
-	end
-end
-
--- ==========================================
 -- JUMP BOOST
 -- ==========================================
 local function applyJumpBoost(enabled)
@@ -720,6 +924,11 @@ local function unloadAll()
 		underPlatform = nil
 	end
 
+	if floatGui then
+		floatGui:Destroy()
+		floatGui = nil
+	end
+
 	pcall(function()
 		Window:Destroy()
 	end)
@@ -770,9 +979,8 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 		end
 	end
 
-	if State.UnderMap and underPlatform then
-		underPlatform.Parent = Workspace
-		underPlatform.CFrame = CFrame.new(root.Position - Vector3.new(0, 3.5, 0))
+	if State.UnderMap then
+		updateUnderMapLoop(root)
 	end
 
 	if State.JumpEnabled then
@@ -797,11 +1005,13 @@ table.insert(lifecycleConnections, LocalPlayer.CharacterAdded:Connect(function(c
 	if State.Unloaded then return end
 	table.clear(Cached.OrigCollide)
 	State.UnderMap = false
+	State.UnderAnchorY = nil
 	State.SavedCFrame = nil
 	State.LastCleanCFrame = nil
 	if underPlatform then
 		underPlatform.Parent = nil
 	end
+	syncUnderMapToggleUI(false)
 
 	rebuildCharacterCache(char)
 	if not Cached.Hum or not Cached.Root then
@@ -918,9 +1128,33 @@ MovementTab:Slider({
 	end
 })
 
+MovementTab:Toggle({
+	Title = "Lock Under Map Height",
+	Desc = "Keeps a steady Y level underground to prevent sinking/bouncing",
+	Default = true,
+	Callback = function(value)
+		State.UnderMapLockY = value
+		if value and State.UnderMap and Cached.Root then
+			State.UnderAnchorY = Cached.Root.Position.Y
+		end
+	end
+})
+
+MovementTab:Toggle({
+	Title = "Floating Under Map Button",
+	Desc = "Show draggable one-tap Under Map / Return button on screen",
+	Default = true,
+	Callback = function(value)
+		State.ShowFloatingUnderBtn = value
+		if refreshFloatingButtonVisual then
+			refreshFloatingButtonVisual()
+		end
+	end
+})
+
 underMapToggleRef = MovementTab:Toggle({
 	Title = "Under Map",
-	Desc = "Drop below the map with a safety platform",
+	Desc = "Drop below the map onto a wide safety platform",
 	Default = false,
 	Callback = function(value)
 		setUnderMap(value)
@@ -929,13 +1163,9 @@ underMapToggleRef = MovementTab:Toggle({
 
 MovementTab:Button({
 	Title = "Return to Surface",
-	Desc = "Return to saved surface position",
+	Desc = "Return safely to your saved surface spot",
 	Callback = function()
-		if underMapToggleRef and underMapToggleRef.Set then
-			underMapToggleRef:Set(false)
-		else
-			returnFromUnderMap()
-		end
+		returnFromUnderMap()
 	end
 })
 
