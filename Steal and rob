@@ -1,5 +1,5 @@
 -- Load WindUI
-local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))() --
 
 -- Services
 local Players = game:GetService("Players")
@@ -7,6 +7,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local TeleportService = game:GetService("TeleportService")
+local CollectionService = game:GetService("CollectionService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -16,7 +17,7 @@ local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubV15",
+	Folder = "PremiumYutaHubV16",
 	Size = UDim2.fromOffset(540, 550),
 	MinSize = Vector2.new(440, 320),
 	MaxSize = Vector2.new(720, 660),
@@ -69,7 +70,7 @@ local State = {
 	LootVaultESP = false,
 	NoclipStepPower = 0.95,
 	BypassScanDistance = 24,
-	InstantGrabRadius = 22,
+	InstantGrabRadius = 24,
 	UnderMapOffset = 12,
 	ExtraSpeed = 16,
 	JumpHeight = 14,
@@ -108,6 +109,13 @@ sharedRayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 local sharedOverlapParams = OverlapParams.new()
 sharedOverlapParams.FilterType = Enum.RaycastFilterType.Exclude
+
+-- Forward declarations so helper functions can reference each other cleanly
+local underPlatform = nil
+local underMapToggleRef = nil
+local refreshFloatingButtonVisual = nil
+local syncUnderMapToggleUI = nil
+local ensureUnderPlatform = nil
 
 local function markMovementIntent(duration)
 	State.IgnoreUnusualUntil = math.max(State.IgnoreUnusualUntil, os.clock() + (duration or 0.45))
@@ -426,14 +434,14 @@ local function triggerSinglePromptInstant(prompt)
 
 	pcall(function()
 		prompt.HoldDuration = 0
-		if prompt.MaxActivationDistance < (State.InstantGrabRadius + 6) then
-			prompt.MaxActivationDistance = State.InstantGrabRadius + 6
+		if prompt.MaxActivationDistance < (State.InstantGrabRadius + 8) then
+			prompt.MaxActivationDistance = State.InstantGrabRadius + 8
 		end
 	end)
 
 	local fired = false
 	pcall(function()
-		if fireproximityprompt then
+		if typeof(fireproximityprompt) == "function" then
 			fireproximityprompt(prompt)
 			fired = true
 		end
@@ -480,7 +488,7 @@ local function executeInstantGrab()
 				if pPos and (pPos - root.Position).Magnitude <= maxDist then
 					if triggerSinglePromptInstant(desc) then
 						grabbedCount += 1
-						if grabbedCount >= 12 then
+						if grabbedCount >= 14 then
 							break
 						end
 					end
@@ -489,14 +497,14 @@ local function executeInstantGrab()
 		end
 	end
 
-	if firetouchinterest then
-		local parts = Workspace:GetPartBoundsInRadius(root.Position, math.min(maxDist, 18), sharedOverlapParams)
+	if typeof(firetouchinterest) == "function" then
+		local parts = Workspace:GetPartBoundsInRadius(root.Position, math.min(maxDist, 20), sharedOverlapParams)
 		local touchCount = 0
 		for _, part in ipairs(parts) do
-			if touchCount >= 10 then break end
+			if touchCount >= 12 then break end
 			if part:IsA("BasePart") and part.CanTouch and not part:IsDescendantOf(char) then
 				local n = part.Name:lower()
-				if n:find("loot") or n:find("diamond") or n:find("vault") or n:find("cash") or n:find("gem") or n:find("pickup") then
+				if n:find("loot") or n:find("diamond") or n:find("vault") or n:find("cash") or n:find("gem") or n:find("pickup") or n:find("item") or n:find("steal") then
 					pcall(function()
 						firetouchinterest(root, part, 0)
 						firetouchinterest(root, part, 1)
@@ -512,55 +520,169 @@ local function executeInstantGrab()
 end
 
 -- ==========================================
--- BEST LOOT / VAULT & OTHER PLAYER BASE TP
+-- LOOT / VAULT DETECTION & SCORING ENGINE
 -- ==========================================
 local TIER_WEIGHTS = {
-	mythic = 100,
-	divine = 95,
-	secret = 90,
-	legendary = 80,
-	diamond = 75,
-	vault = 65,
-	emerald = 55,
-	ruby = 50,
-	safe = 45,
-	gold = 40,
-	gem = 35,
-	cash = 25,
-	money = 25,
-	loot = 20,
-	crate = 15,
-	chest = 15
+	mythic = 110,
+	divine = 105,
+	secret = 100,
+	legendary = 90,
+	diamond = 85,
+	vault = 80,
+	emerald = 65,
+	ruby = 60,
+	safe = 55,
+	gold = 50,
+	gem = 45,
+	cash = 35,
+	money = 35,
+	loot = 30,
+	steal = 28,
+	item = 25,
+	crate = 20,
+	chest = 20,
+	bag = 18
 }
 
-local function scoreLootObject(obj)
-	local nameLower = obj.Name:lower()
+local function isPlayerCharacterDescendant(obj)
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr.Character and obj:IsDescendantOf(plr.Character) then
+			return true
+		end
+	end
+	return false
+end
+
+local function collectTextClues(obj)
+	local chunks = { obj.Name:lower() }
+
+	for _, tag in ipairs(CollectionService:GetTags(obj)) do
+		table.insert(chunks, tostring(tag):lower())
+	end
+
+	for attrName, attrVal in pairs(obj:GetAttributes()) do
+		table.insert(chunks, tostring(attrName):lower() .. " " .. tostring(attrVal):lower())
+	end
+
+	local childLimit = 0
+	for _, child in ipairs(obj:GetDescendants()) do
+		childLimit += 1
+		if childLimit > 25 then break end
+		if child:IsA("TextLabel") or child:IsA("TextButton") then
+			table.insert(chunks, tostring(child.Text):lower())
+		elseif child:IsA("StringValue") or child:IsA("NumberValue") or child:IsA("IntValue") then
+			table.insert(chunks, child.Name:lower() .. " " .. tostring(child.Value):lower())
+		elseif child:IsA("ProximityPrompt") then
+			table.insert(chunks, tostring(child.ActionText):lower() .. " " .. tostring(child.ObjectText):lower())
+		end
+	end
+
+	return table.concat(chunks, " ")
+end
+
+local function scoreLootCandidate(obj)
+	if not obj or not obj.Parent then return 0, nil end
+	if obj:IsA("Folder") or obj:IsA("Configuration") or obj:IsA("WorldModel") then
+		return 0, nil
+	end
+	if isPlayerCharacterDescendant(obj) then
+		return 0, nil
+	end
+
+	local clues = collectTextClues(obj)
 	local score = 0
 
 	for key, weight in pairs(TIER_WEIGHTS) do
-		if nameLower:find(key, 1, true) then
+		if clues:find(key, 1, true) then
 			score = math.max(score, weight)
+		end
+	end
+
+	-- Parse dollar/rate patterns like "$3k/s", "$500", "3k/s"
+	local rateMatch = clues:match("%$?%s*(%d+%.?%d*)%s*k%s*/%s*s")
+	if rateMatch then
+		local rateNum = tonumber(rateMatch)
+		if rateNum and rateNum > 0 then
+			score += math.min(rateNum * 12, 160)
 		end
 	end
 
 	for attrName, attrVal in pairs(obj:GetAttributes()) do
 		local aLower = tostring(attrName):lower()
-		if aLower:find("value") or aLower:find("price") or aLower:find("reward") or aLower:find("cash") or aLower:find("money") then
+		if aLower:find("value") or aLower:find("price") or aLower:find("reward") or aLower:find("cash") or aLower:find("money") or aLower:find("rate") or aLower:find("income") then
 			local num = tonumber(attrVal)
 			if num and num > 0 then
-				score += math.min(num / 100, 120)
+				score += math.min(num / 50, 150)
 			end
 		elseif aLower:find("rarity") or aLower:find("tier") then
 			local vLower = tostring(attrVal):lower()
 			for key, weight in pairs(TIER_WEIGHTS) do
 				if vLower:find(key, 1, true) then
-					score = math.max(score, weight + 15)
+					score = math.max(score, weight + 20)
 				end
 			end
 		end
 	end
 
-	return score
+	if score <= 0 then
+		return 0, nil
+	end
+
+	local displayName = obj.Name
+	for _, child in ipairs(obj:GetDescendants()) do
+		if child:IsA("TextLabel") and child.Text and child.Text ~= "" then
+			local trimmed = child.Text:gsub("^%s+", ""):gsub("%s+$", "")
+			if #trimmed > 0 and #trimmed <= 32 and not trimmed:lower():find("spawns in") then
+				displayName = trimmed
+				break
+			end
+		end
+	end
+
+	return score, displayName
+end
+
+local function getTargetWorldPosition(obj)
+	if not obj or not obj.Parent then return nil end
+	if obj:IsA("BasePart") then
+		return obj.Position
+	elseif obj:IsA("Attachment") then
+		return obj.WorldPosition
+	elseif obj:IsA("Model") then
+		if obj.PrimaryPart then
+			return obj.PrimaryPart.Position
+		end
+		local part = obj:FindFirstChildWhichIsA("BasePart", true)
+		return part and part.Position or nil
+	elseif obj:IsA("BillboardGui") or obj:IsA("GuiObject") then
+		local adornee = obj:IsA("BillboardGui") and obj.Adornee or nil
+		if adornee and adornee:IsA("BasePart") then
+			return adornee.Position
+		end
+		local parent = obj.Parent
+		if parent and parent:IsA("BasePart") then
+			return parent.Position
+		elseif parent and parent:IsA("Model") then
+			local part = parent.PrimaryPart or parent:FindFirstChildWhichIsA("BasePart", true)
+			return part and part.Position or nil
+		end
+	end
+	return nil
+end
+
+local function resolveAnchorInstance(obj)
+	if not obj or not obj.Parent then return nil end
+	if obj:IsA("BasePart") or obj:IsA("Model") or obj:IsA("Attachment") then
+		return obj
+	end
+	if obj:IsA("BillboardGui") and obj.Adornee and (obj.Adornee:IsA("BasePart") or obj.Adornee:IsA("Model")) then
+		return obj.Adornee
+	end
+	local parent = obj.Parent
+	if parent and (parent:IsA("BasePart") or parent:IsA("Model") or parent:IsA("Attachment")) then
+		return parent
+	end
+	return obj
 end
 
 local function teleportToBestLootOrVault()
@@ -572,37 +694,16 @@ local function teleportToBestLootOrVault()
 	local bestScore = -1
 
 	for _, desc in ipairs(Workspace:GetDescendants()) do
-		if (desc:IsA("Model") or desc:IsA("BasePart")) and not desc:IsDescendantOf(char) then
-			local isPlayerChar = false
-			for _, plr in ipairs(Players:GetPlayers()) do
-				if plr.Character and desc:IsDescendantOf(plr.Character) then
-					isPlayerChar = true
-					break
-				end
-			end
-
-			if not isPlayerChar then
-				local baseScore = scoreLootObject(desc)
-				if baseScore > 0 then
-					local pos = nil
-					if desc:IsA("BasePart") then
-						pos = desc.Position
-					elseif desc:IsA("Model") then
-						if desc.PrimaryPart then
-							pos = desc.PrimaryPart.Position
-						else
-							local p = desc:FindFirstChildWhichIsA("BasePart", true)
-							pos = p and p.Position or nil
-						end
-					end
-
-					if pos and isValidVector3(pos) then
-						local dist = (pos - root.Position).Magnitude
-						local totalScore = baseScore - (dist * 0.08)
-						if totalScore > bestScore then
-							bestScore = totalScore
-							bestPos = pos
-						end
+		if desc:IsA("Model") or desc:IsA("BasePart") or desc:IsA("BillboardGui") then
+			local baseScore = scoreLootCandidate(desc)
+			if baseScore > 0 then
+				local pos = getTargetWorldPosition(desc)
+				if pos and isValidVector3(pos) then
+					local dist = (pos - root.Position).Magnitude
+					local totalScore = baseScore - (dist * 0.05)
+					if totalScore > bestScore then
+						bestScore = totalScore
+						bestPos = pos
 					end
 				end
 			end
@@ -622,38 +723,27 @@ local function findOtherPlayerBasePosition(targetPlayer)
 	local pNameLower = targetPlayer.Name:lower()
 	local dNameLower = targetPlayer.DisplayName:lower()
 
-	-- 1. Check Workspace models/folders named after the player or their base/plot
 	for _, desc in ipairs(Workspace:GetDescendants()) do
 		if desc:IsA("Model") or desc:IsA("Folder") then
 			local n = desc.Name:lower()
 			local matchesPlayer = (pNameLower ~= "" and n:find(pNameLower, 1, true))
 				or (#dNameLower >= 3 and n:find(dNameLower, 1, true))
+			local ownerAttr = tostring(desc:GetAttribute("Owner") or desc:GetAttribute("Player") or desc:GetAttribute("UserId") or ""):lower()
 			local isBaseLike = n:find("base", 1, true)
 				or n:find("plot", 1, true)
 				or n:find("tycoon", 1, true)
 				or n:find("home", 1, true)
 				or n:find("hideout", 1, true)
 
-			if matchesPlayer or (isBaseLike and tostring(desc:GetAttribute("Owner") or desc:GetAttribute("Player") or ""):lower():find(pNameLower, 1, true)) then
-				if desc:IsA("Model") then
-					if desc.PrimaryPart then
-						return desc.PrimaryPart.Position
-					end
-					local part = desc:FindFirstChildWhichIsA("BasePart", true)
-					if part then
-						return part.Position
-					end
-				elseif desc:IsA("Folder") then
-					local part = desc:FindFirstChildWhichIsA("BasePart", true)
-					if part then
-						return part.Position
-					end
+			if matchesPlayer or (isBaseLike and (ownerAttr:find(pNameLower, 1, true) or ownerAttr == tostring(targetPlayer.UserId))) then
+				local pos = getTargetWorldPosition(desc)
+				if pos then
+					return pos
 				end
 			end
 		end
 	end
 
-	-- 2. Fallback to the player's current character root if no named base model exists
 	local tChar = targetPlayer.Character
 	local tRoot = tChar and (
 		tChar:FindFirstChild("HumanoidRootPart")
@@ -684,33 +774,7 @@ end
 -- ==========================================
 -- BUG-RESISTANT UNDER MAP & RETURN SYSTEM
 -- ==========================================
-local underPlatform = Instance.new("Part")
-underPlatform.Name = "YutaHub_UnderPlatform"
-underPlatform.Size = Vector3.new(24, 1, 24)
-underPlatform.Anchored = true
-underPlatform.CanCollide = true
-underPlatform.CanTouch = false
-underPlatform.Transparency = 0.75
-underPlatform.Material = Enum.Material.SmoothPlastic
-underPlatform.Parent = nil
-
-local underMapToggleRef = nil
-local refreshFloatingButtonVisual = nil
-
-local function syncUnderMapToggleUI(value)
-	if underMapToggleRef and underMapToggleRef.Set then
-		State.SyncingToggle = true
-		pcall(function()
-			underMapToggleRef:Set(value)
-		end)
-		State.SyncingToggle = false
-	end
-	if refreshFloatingButtonVisual then
-		refreshFloatingButtonVisual()
-	end
-end
-
-local function ensureUnderPlatform()
+ensureUnderPlatform = function()
 	if not underPlatform or not underPlatform.Parent then
 		underPlatform = Instance.new("Part")
 		underPlatform.Name = "YutaHub_UnderPlatform"
@@ -720,6 +784,19 @@ local function ensureUnderPlatform()
 		underPlatform.CanTouch = false
 		underPlatform.Transparency = 0.75
 		underPlatform.Material = Enum.Material.SmoothPlastic
+	end
+end
+
+syncUnderMapToggleUI = function(value)
+	if underMapToggleRef and underMapToggleRef.Set then
+		State.SyncingToggle = true
+		pcall(function()
+			underMapToggleRef:Set(value)
+		end)
+		State.SyncingToggle = false
+	end
+	if refreshFloatingButtonVisual then
+		refreshFloatingButtonVisual()
 	end
 end
 
@@ -849,29 +926,7 @@ end
 local function teleportToSavedBase()
 	local root = Cached.Root
 	if not root or not State.BaseCFrame then return false end
-
-	if State.UnderMap then
-		State.UnderMap = false
-		State.UnderAnchorY = nil
-		if underPlatform then
-			underPlatform.Parent = nil
-		end
-		syncUnderMapToggleUI(false)
-	end
-
-	markMovementIntent(0.65)
-	root.AssemblyLinearVelocity = Vector3.zero
-	root.AssemblyAngularVelocity = Vector3.zero
-	local dest = State.BaseCFrame.Position + Vector3.new(0, 2.5, 0)
-	local look = State.BaseCFrame.LookVector
-	local flatLook = Vector3.new(look.X, 0, look.Z)
-	if flatLook.Magnitude > 0.001 then
-		root.CFrame = CFrame.new(dest, dest + flatLook.Unit)
-	else
-		root.CFrame = CFrame.new(dest)
-	end
-	State.LastCleanCFrame = root.CFrame
-	return true
+	return safeTeleportToPosition(State.BaseCFrame.Position, State.BaseCFrame.LookVector)
 end
 
 -- ==========================================
@@ -1170,51 +1225,58 @@ end
 -- ==========================================
 local espBoxes = {}
 local lootEntries = {}
+local drawingAvailable = (typeof(Drawing) == "table" and typeof(Drawing.new) == "function")
 
-local LOOT_KEYWORDS = {
-	"vault", "safe", "diamond", "gold", "gem", "emerald",
-	"ruby", "loot", "cash", "money", "bag", "crate", "chest"
-}
-
-local function isLootOrVaultObject(obj)
-	for _, plr in ipairs(Players:GetPlayers()) do
-		if plr.Character and obj:IsDescendantOf(plr.Character) then
-			return false
+local function createDrawingObj(objType, props)
+	if not drawingAvailable then return nil end
+	local ok, obj = pcall(function()
+		local d = Drawing.new(objType)
+		for k, v in pairs(props) do
+			d[k] = v
 		end
-	end
-
-	local nameLower = obj.Name:lower()
-	for _, kw in ipairs(LOOT_KEYWORDS) do
-		if nameLower:find(kw, 1, true) then
-			return true
-		end
-	end
-	return false
+		return d
+	end)
+	return ok and obj or nil
 end
 
-local function getTargetWorldPosition(obj)
-	if not obj or not obj.Parent then return nil end
-	if obj:IsA("BasePart") then
-		return obj.Position
-	elseif obj:IsA("Model") then
-		if obj.PrimaryPart then
-			return obj.PrimaryPart.Position
-		end
-		local part = obj:FindFirstChildWhichIsA("BasePart", true)
-		return part and part.Position or nil
+local function safeRemoveDrawing(d)
+	if d then
+		pcall(function()
+			d:Remove()
+		end)
 	end
-	return nil
+end
+
+local function createBox()
+	return createDrawingObj("Square", {
+		Visible = false,
+		Color = Color3.fromRGB(255, 85, 85),
+		Thickness = 1.5,
+		Filled = false,
+		Transparency = 1
+	})
+end
+
+local function hideAllBoxes()
+	for _, box in pairs(espBoxes) do
+		if box then
+			pcall(function() box.Visible = false end)
+		end
+	end
+end
+
+local function hideAllLootESP()
+	for _, entry in ipairs(lootEntries) do
+		if entry.box then pcall(function() entry.box.Visible = false end) end
+		if entry.label then pcall(function() entry.label.Visible = false end) end
+	end
 end
 
 local function clearLootEntries()
 	for i = #lootEntries, 1, -1 do
 		local entry = lootEntries[i]
-		if entry.box then
-			pcall(function() entry.box:Remove() end)
-		end
-		if entry.label then
-			pcall(function() entry.label:Remove() end)
-		end
+		safeRemoveDrawing(entry.box)
+		safeRemoveDrawing(entry.label)
 		table.remove(lootEntries, i)
 	end
 end
@@ -1223,73 +1285,69 @@ local function rescanLootAndVaults()
 	clearLootEntries()
 	if not State.LootVaultESP or State.Unloaded then return end
 
-	local count = 0
+	local seenAnchors = {}
+	local candidates = {}
+
 	for _, desc in ipairs(Workspace:GetDescendants()) do
-		if count >= 40 then break end
-		if (desc:IsA("Model") or desc:IsA("BasePart")) and isLootOrVaultObject(desc) then
-			local pos = getTargetWorldPosition(desc)
-			if pos then
-				local box = Drawing.new("Square")
-				box.Visible = false
-				box.Color = Color3.fromRGB(80, 220, 255)
-				box.Thickness = 1.4
-				box.Filled = false
-				box.Transparency = 1
-
-				local label = Drawing.new("Text")
-				label.Visible = false
-				label.Color = Color3.fromRGB(165, 240, 255)
-				label.Size = 13
-				label.Center = true
-				label.Outline = true
-				label.Text = desc.Name
-
-				table.insert(lootEntries, {
-					target = desc,
-					box = box,
-					label = label
-				})
-				count += 1
+		if #candidates >= 80 then break end
+		if desc:IsA("Model") or desc:IsA("BasePart") or desc:IsA("BillboardGui") then
+			local score, labelText = scoreLootCandidate(desc)
+			local anchor = resolveAnchorInstance(desc)
+			if score > 0 and anchor and not seenAnchors[anchor] then
+				local pos = getTargetWorldPosition(anchor)
+				if pos and isValidVector3(pos) then
+					seenAnchors[anchor] = true
+					table.insert(candidates, {
+						anchor = anchor,
+						score = score,
+						labelText = labelText or anchor.Name
+					})
+				end
 			end
 		end
 	end
-end
 
-local function createBox()
-	local box = Drawing.new("Square")
-	box.Visible = false
-	box.Color = Color3.fromRGB(255, 85, 85)
-	box.Thickness = 1.5
-	box.Filled = false
-	box.Transparency = 1
-	return box
-end
+	table.sort(candidates, function(a, b)
+		return a.score > b.score
+	end)
 
-local function hideAllBoxes()
-	for _, box in pairs(espBoxes) do
-		box.Visible = false
-	end
-end
-
-local function hideAllLootESP()
-	for _, entry in ipairs(lootEntries) do
-		if entry.box then entry.box.Visible = false end
-		if entry.label then entry.label.Visible = false end
+	local maxEntries = math.min(#candidates, 40)
+	for i = 1, maxEntries do
+		local c = candidates[i]
+		local box = createDrawingObj("Square", {
+			Visible = false,
+			Color = Color3.fromRGB(80, 220, 255),
+			Thickness = 1.4,
+			Filled = false,
+			Transparency = 1
+		})
+		local label = createDrawingObj("Text", {
+			Visible = false,
+			Color = Color3.fromRGB(165, 240, 255),
+			Size = 13,
+			Center = true,
+			Outline = true,
+			Text = c.labelText
+		})
+		table.insert(lootEntries, {
+			target = c.anchor,
+			baseText = c.labelText,
+			box = box,
+			label = label
+		})
 	end
 end
 
 local function removePlayerESP(player)
 	local box = espBoxes[player]
 	if box then
-		pcall(function()
-			box:Remove()
-		end)
+		safeRemoveDrawing(box)
 		espBoxes[player] = nil
 	end
 end
 
 local function updateESPFrame()
-	if State.Unloaded then
+	if State.Unloaded or not drawingAvailable then
 		hideAllBoxes()
 		hideAllLootESP()
 		return
@@ -1322,22 +1380,24 @@ local function updateESPFrame()
 						espBoxes[player] = box
 					end
 
-					local rootPos, onScreen = activeCam:WorldToViewportPoint(root.Position)
-					if onScreen and rootPos.Z > 0 then
-						local topPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, 2.6, 0)).Position)
-						local bottomPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, -3.1, 0)).Position)
+					if box then
+						local rootPos, onScreen = activeCam:WorldToViewportPoint(root.Position)
+						if onScreen and rootPos.Z > 0 then
+							local topPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, 2.6, 0)).Position)
+							local bottomPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, -3.1, 0)).Position)
 
-						local height = math.abs(topPos.Y - bottomPos.Y)
-						local width = math.clamp(height * 0.6, 12, 250)
+							local height = math.abs(topPos.Y - bottomPos.Y)
+							local width = math.clamp(height * 0.6, 12, 250)
 
-						box.Size = Vector2.new(width, math.clamp(height, 18, 400))
-						box.Position = Vector2.new(rootPos.X - box.Size.X / 2, topPos.Y)
-						box.Visible = true
-					else
-						box.Visible = false
+							box.Size = Vector2.new(width, math.clamp(height, 18, 400))
+							box.Position = Vector2.new(rootPos.X - box.Size.X / 2, topPos.Y)
+							box.Visible = true
+						else
+							box.Visible = false
+						end
 					end
 				elseif espBoxes[player] then
-					espBoxes[player].Visible = false
+					pcall(function() espBoxes[player].Visible = false end)
 				end
 			end
 		end
@@ -1355,7 +1415,7 @@ local function updateESPFrame()
 		local myRoot = Cached.Root
 		for _, entry in ipairs(lootEntries) do
 			local pos = getTargetWorldPosition(entry.target)
-			if pos then
+			if pos and entry.box and entry.label then
 				local screenPos, onScreen = activeCam:WorldToViewportPoint(pos)
 				if onScreen and screenPos.Z > 0 then
 					local scale = math.clamp(220 / math.max(screenPos.Z, 1), 12, 48)
@@ -1367,7 +1427,7 @@ local function updateESPFrame()
 					if myRoot then
 						distText = string.format(" [%dm]", math.floor((pos - myRoot.Position).Magnitude))
 					end
-					entry.label.Text = entry.target.Name .. distText
+					entry.label.Text = entry.baseText .. distText
 					entry.label.Position = Vector2.new(screenPos.X, screenPos.Y - scale / 2 - 16)
 					entry.label.Visible = true
 				else
@@ -1375,8 +1435,8 @@ local function updateESPFrame()
 					entry.label.Visible = false
 				end
 			else
-				entry.box.Visible = false
-				entry.label.Visible = false
+				if entry.box then pcall(function() entry.box.Visible = false end) end
+				if entry.label then pcall(function() entry.label.Visible = false end) end
 			end
 		end
 	end
@@ -1867,7 +1927,7 @@ UtilityTab:Slider({
 	Value = {
 		Min = 8,
 		Max = 45,
-		Default = 22
+		Default = 24
 	},
 	Callback = function(value)
 		State.InstantGrabRadius = value
