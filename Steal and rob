@@ -10,13 +10,13 @@ local LocalPlayer = Players.LocalPlayer
 
 -- Create Window
 local Window = WindUI:CreateWindow({
-	Title = "DARK MOON | Noclip Ultra",
+	Title = "DARK MOON | Anti-Unusual Pro",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "DarkMoonNoclipUltraV8",
-	Size = UDim2.fromOffset(560, 520),
-	MinSize = Vector2.new(460, 340),
-	MaxSize = Vector2.new(740, 640),
+	Folder = "DarkMoonAntiUnusualProV9",
+	Size = UDim2.fromOffset(540, 510),
+	MinSize = Vector2.new(440, 320),
+	MaxSize = Vector2.new(720, 620),
 	Theme = "Dark",
 	Transparent = true,
 	Resizable = true,
@@ -40,82 +40,62 @@ local VisualsTab = Window:Tab({
 })
 
 -- ==========================================
--- STATE & HELPERS
+-- STATE & CACHED REFERENCES
 -- ==========================================
 local State = {
 	Noclip = false,
+	NoclipBetaUltra = true,
 	WallMicroStep = true,
 	AutoWallBypass = false,
 	AntiRagdoll = false,
 	AntiKnockback = false,
 	AntiUnusualMovement = false,
+	AntiUnusualStrict = true,
 	SnapBackOnUnusual = true,
 	UnderMap = false,
-	UnderMapLockFloor = true,
 	SpeedEnabled = false,
 	JumpEnabled = false,
 	BoxESP = false,
-	NoclipStepPower = 1.05,
+	NoclipStepPower = 0.95,
 	BypassScanDistance = 24,
 	UnderMapOffset = 12,
-	UnderMapAnchorY = nil,
 	ExtraSpeed = 16,
 	JumpHeight = 14,
 	JumpPower = 75,
 	DefaultJumpHeight = 7.2,
 	DefaultJumpPower = 50,
 	MaxSafeVelocity = 110,
-	MaxUnusualSpeed = 95,
-	MaxUnusualSnapDist = 35,
+	MaxUnusualSpeed = 85,
+	MaxUnusualSnapDist = 28,
 	SavedCFrame = nil,
 	LastCleanCFrame = nil,
 	LastBypassTime = 0,
+	LastWallProbeTime = 0,
+	LastRagdollSweepTime = 0,
+	LastMoverSweepTime = 0,
 	IgnoreUnusualUntil = 0,
+	AnomalyStreak = 0,
 	Unloaded = false
 }
 
+local Cached = {
+	Char = nil,
+	Hum = nil,
+	Root = nil,
+	Parts = {},
+	Seats = {},
+	OrigCollide = {}
+}
+
+local sharedRayParams = RaycastParams.new()
+sharedRayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+local sharedOverlapParams = OverlapParams.new()
+sharedOverlapParams.FilterType = Enum.RaycastFilterType.Exclude
+
 local function markMovementIntent(duration)
 	State.IgnoreUnusualUntil = os.clock() + (duration or 0.35)
-end
-
-local function getCharParts()
-	local char = LocalPlayer.Character
-	if not char then return nil, nil, nil end
-	local hum = char:FindFirstChildOfClass("Humanoid")
-	local root = char:FindFirstChild("HumanoidRootPart")
-		or char:FindFirstChild("Torso")
-		or char:FindFirstChild("UpperTorso")
-	return char, hum, root
-end
-
-local function getMoveDirectionFlat(hum, root)
-	if hum and hum.MoveDirection.Magnitude > 0.05 then
-		local flatMove = Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z)
-		if flatMove.Magnitude > 0.001 then
-			return flatMove.Unit
-		end
-	end
-	if root then
-		local lookFlat = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
-		if lookFlat.Magnitude > 0.001 then
-			return lookFlat.Unit
-		end
-	end
-	return Vector3.new(0, 0, -1)
-end
-
-local function isPositionClear(pos, ignoreChar)
-	local overlapParams = OverlapParams.new()
-	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
-	overlapParams.FilterDescendantsInstances = ignoreChar and { ignoreChar } or {}
-
-	local parts = Workspace:GetPartBoundsInRadius(pos, 1.65, overlapParams)
-	for _, part in ipairs(parts) do
-		if part:IsA("BasePart") and part.CanCollide and part.Transparency < 0.98 then
-			return false
-		end
-	end
-	return true
+	State.AnomalyStreak = 0
 end
 
 local function isValidVector3(v)
@@ -135,97 +115,175 @@ local function disconnectList(list)
 	table.clear(list)
 end
 
--- ==========================================
--- ULTRA NOCLIP & HARD WALL BYPASS
--- ==========================================
-local savedPartProps = {}
-local noclipConnections = {}
-local charDescendantConn = nil
+local function rebuildCharacterCache(char)
+	table.clear(Cached.Parts)
+	table.clear(Cached.Seats)
 
-local function applyNoclipToPart(desc)
-	if desc:IsA("BasePart") then
-		if savedPartProps[desc] == nil then
-			savedPartProps[desc] = {
-				CanCollide = desc.CanCollide,
-				CanTouch = desc.CanTouch
-			}
-		end
-		desc.CanCollide = false
-		desc.CanTouch = false
-	elseif desc:IsA("Seat") or desc:IsA("VehicleSeat") then
-		desc.Disabled = true
-	end
-end
+	Cached.Char = char
+	Cached.Hum = char and char:FindFirstChildOfClass("Humanoid") or nil
+	Cached.Root = char and (
+		char:FindFirstChild("HumanoidRootPart")
+		or char:FindFirstChild("Torso")
+		or char:FindFirstChild("UpperTorso")
+	) or nil
 
-local function hasWallAhead(char, origin, dir, distance)
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = char and { char } or {}
+	sharedRayParams.FilterDescendantsInstances = char and { char } or {}
+	sharedOverlapParams.FilterDescendantsInstances = char and { char } or {}
 
-	local heights = { -1.8, -0.8, 0.2, 1.2, 2.0 }
-	for _, h in ipairs(heights) do
-		local startPos = origin + Vector3.new(0, h, 0)
-		local hit = Workspace:Raycast(startPos, dir * distance, params)
-		if hit and hit.Instance and hit.Instance:IsA("BasePart") and hit.Instance.CanCollide then
-			return true, hit
-		end
-	end
-
-	if Workspace.Spherecast then
-		local sphereHit = Workspace:Spherecast(origin, 1.25, dir * distance, params)
-		if sphereHit and sphereHit.Instance and sphereHit.Instance:IsA("BasePart") and sphereHit.Instance.CanCollide then
-			return true, sphereHit
-		end
-	end
-
-	return false, nil
-end
-
-local function applyUltraNoclipFrame()
-	if not State.Noclip or State.Unloaded then return end
-	local char, hum, root = getCharParts()
 	if not char then return end
 
 	for _, desc in ipairs(char:GetDescendants()) do
-		applyNoclipToPart(desc)
+		if desc:IsA("BasePart") then
+			table.insert(Cached.Parts, desc)
+			if Cached.OrigCollide[desc] == nil then
+				Cached.OrigCollide[desc] = desc.CanCollide
+			end
+		elseif desc:IsA("Seat") or desc:IsA("VehicleSeat") then
+			table.insert(Cached.Seats, desc)
+		end
+	end
+end
+
+local function registerDescendant(desc)
+	if desc:IsA("BasePart") then
+		table.insert(Cached.Parts, desc)
+		if Cached.OrigCollide[desc] == nil then
+			Cached.OrigCollide[desc] = desc.CanCollide
+		end
+		if State.Noclip and not State.Unloaded then
+			desc.CanCollide = false
+			desc.CanTouch = false
+		end
+	elseif desc:IsA("Seat") or desc:IsA("VehicleSeat") then
+		table.insert(Cached.Seats, desc)
+		if State.Noclip and not State.Unloaded then
+			desc.Disabled = true
+		end
+	end
+end
+
+local function getMoveDirectionFlat()
+	local hum = Cached.Hum
+	local root = Cached.Root
+	if hum and hum.MoveDirection.Magnitude > 0.05 then
+		local flatMove = Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z)
+		if flatMove.Magnitude > 0.001 then
+			return flatMove.Unit
+		end
+	end
+	if root then
+		local lookFlat = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+		if lookFlat.Magnitude > 0.001 then
+			return lookFlat.Unit
+		end
+	end
+	return Vector3.new(0, 0, -1)
+end
+
+local function isPositionClear(pos)
+	local parts = Workspace:GetPartBoundsInRadius(pos, 1.65, sharedOverlapParams)
+	for _, part in ipairs(parts) do
+		if part:IsA("BasePart") and part.CanCollide and part.Transparency < 0.98 then
+			return false
+		end
+	end
+	return true
+end
+
+-- ==========================================
+-- NOCLIP BETA (ULTRA) & HARD WALL BYPASS
+-- ==========================================
+local noclipConnections = {}
+local charDescendantConn = nil
+
+local function hasWallAhead(origin, dir, distance)
+	local rayLow = Workspace:Raycast(origin - Vector3.new(0, 1.15, 0), dir * distance, sharedRayParams)
+	if rayLow and rayLow.Instance and rayLow.Instance:IsA("BasePart") and rayLow.Instance.CanCollide then
+		return true
 	end
 
-	if State.WallMicroStep and hum and root and hum.MoveDirection.Magnitude > 0.06 then
-		local flatDir = getMoveDirectionFlat(hum, root)
-		local blocked = hasWallAhead(char, root.Position, flatDir, 2.6)
-		if blocked then
-			markMovementIntent(0.25)
-			root.CFrame = root.CFrame + (flatDir * State.NoclipStepPower)
-			local v = root.AssemblyLinearVelocity
-			if isValidVector3(v) then
-				root.AssemblyLinearVelocity = Vector3.new(flatDir.X * 18, v.Y, flatDir.Z * 18)
+	local rayHigh = Workspace:Raycast(origin + Vector3.new(0, 1.15, 0), dir * distance, sharedRayParams)
+	if rayHigh and rayHigh.Instance and rayHigh.Instance:IsA("BasePart") and rayHigh.Instance.CanCollide then
+		return true
+	end
+
+	return false
+end
+
+local function getBetaSlideVector(rootPos, flatDir, stepDist)
+	local testPos = rootPos + (flatDir * stepDist)
+	if isPositionClear(testPos) then
+		return flatDir
+	end
+
+	if State.NoclipBetaUltra then
+		local angles = { math.rad(25), math.rad(-25), math.rad(45), math.rad(-45) }
+		for _, angle in ipairs(angles) do
+			local rotated = (CFrame.Angles(0, angle, 0) * flatDir)
+			local candidate = rootPos + (rotated * stepDist)
+			if isPositionClear(candidate) then
+				return rotated.Unit
+			end
+		end
+	end
+
+	return flatDir
+end
+
+local function applyStrongNoclipFrame()
+	if not State.Noclip or State.Unloaded then return end
+	local char = Cached.Char
+	local hum = Cached.Hum
+	local root = Cached.Root
+	if not char then return end
+
+	for i = #Cached.Parts, 1, -1 do
+		local part = Cached.Parts[i]
+		if part and part.Parent then
+			part.CanCollide = false
+			part.CanTouch = false
+		else
+			table.remove(Cached.Parts, i)
+		end
+	end
+
+	for i = #Cached.Seats, 1, -1 do
+		local seat = Cached.Seats[i]
+		if seat and seat.Parent then
+			seat.Disabled = true
+		else
+			table.remove(Cached.Seats, i)
+		end
+	end
+
+	if State.WallMicroStep and hum and root and hum.MoveDirection.Magnitude > 0.08 then
+		local now = os.clock()
+		local probeInterval = State.NoclipBetaUltra and 0.025 or 0.035
+		if (now - State.LastWallProbeTime) >= probeInterval then
+			State.LastWallProbeTime = now
+			local flatDir = getMoveDirectionFlat()
+			local checkDist = State.NoclipBetaUltra and 2.5 or 2.35
+			if hasWallAhead(root.Position, flatDir, checkDist) then
+				local pushDir = getBetaSlideVector(root.Position, flatDir, State.NoclipStepPower)
+				markMovementIntent(0.25)
+				root.CFrame = root.CFrame + (pushDir * State.NoclipStepPower)
+				local v = root.AssemblyLinearVelocity
+				if isValidVector3(v) then
+					local boostXY = State.NoclipBetaUltra and 18 or 16
+					root.AssemblyLinearVelocity = Vector3.new(pushDir.X * boostXY, v.Y, pushDir.Z * boostXY)
+				end
 			end
 		end
 	end
 end
 
 local function restoreNoclipProps()
-	for part, props in pairs(savedPartProps) do
+	for part, origCollide in pairs(Cached.OrigCollide) do
 		if part and part.Parent and part:IsA("BasePart") then
-			part.CanCollide = props.CanCollide
-			part.CanTouch = props.CanTouch
+			part.CanCollide = origCollide
 		end
 	end
-	table.clear(savedPartProps)
-end
-
-local function bindNoclipDescendantWatcher(char)
-	if charDescendantConn then
-		charDescendantConn:Disconnect()
-		charDescendantConn = nil
-	end
-	if char and State.Noclip and not State.Unloaded then
-		charDescendantConn = char.DescendantAdded:Connect(function(desc)
-			if State.Noclip and not State.Unloaded then
-				applyNoclipToPart(desc)
-			end
-		end)
-	end
+	table.clear(Cached.OrigCollide)
 end
 
 local function setNoclip(enabled)
@@ -238,45 +296,40 @@ local function setNoclip(enabled)
 	end
 
 	if enabled and not State.Unloaded then
-		local char = LocalPlayer.Character
-		bindNoclipDescendantWatcher(char)
-		applyUltraNoclipFrame()
+		if Cached.Char then
+			charDescendantConn = Cached.Char.DescendantAdded:Connect(registerDescendant)
+		end
+		applyStrongNoclipFrame()
 
 		if RunService.PreSimulation then
-			table.insert(noclipConnections, RunService.PreSimulation:Connect(applyUltraNoclipFrame))
+			table.insert(noclipConnections, RunService.PreSimulation:Connect(applyStrongNoclipFrame))
 		end
-		table.insert(noclipConnections, RunService.Stepped:Connect(applyUltraNoclipFrame))
-		table.insert(noclipConnections, RunService.Heartbeat:Connect(applyUltraNoclipFrame))
+		table.insert(noclipConnections, RunService.Stepped:Connect(applyStrongNoclipFrame))
 	else
 		restoreNoclipProps()
 	end
 end
 
 local function executeHardWallBypass(forceScan)
-	local char, hum, root = getCharParts()
+	local char = Cached.Char
+	local root = Cached.Root
 	if not char or not root then return false end
 
-	local flatDir = getMoveDirectionFlat(hum, root)
-	local wallFound = hasWallAhead(char, root.Position, flatDir, 4.0)
-	if not wallFound and not forceScan then
+	local flatDir = getMoveDirectionFlat()
+	if not forceScan and not hasWallAhead(root.Position, flatDir, 4.0) then
 		return false
 	end
-
-	local rayParams = RaycastParams.new()
-	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	rayParams.FilterDescendantsInstances = { char }
 
 	local maxDist = math.max(5, State.BypassScanDistance)
 	local chosenPos = nil
 
 	for dist = 2, maxDist do
 		local probePos = root.Position + (flatDir * dist)
-		local stillWall = hasWallAhead(char, probePos, flatDir, 1.0)
-		if not stillWall and isPositionClear(probePos, char) then
-			local floorHit = Workspace:Raycast(probePos + Vector3.new(0, 2, 0), Vector3.new(0, -10, 0), rayParams)
+		if not hasWallAhead(probePos, flatDir, 1.0) and isPositionClear(probePos) then
+			local floorHit = Workspace:Raycast(probePos + Vector3.new(0, 2, 0), Vector3.new(0, -10, 0), sharedRayParams)
 			if floorHit then
 				local groundedPos = Vector3.new(probePos.X, floorHit.Position.Y + 3.0, probePos.Z)
-				if isPositionClear(groundedPos, char) then
+				if isPositionClear(groundedPos) then
 					chosenPos = groundedPos
 					break
 				end
@@ -302,132 +355,7 @@ local function executeHardWallBypass(forceScan)
 end
 
 -- ==========================================
--- POWERFUL & SMOOTH UNDER MAP SYSTEM
--- ==========================================
-local underPlatform = Instance.new("Part")
-underPlatform.Name = "DarkMoon_UnderPlatform"
-underPlatform.Size = Vector3.new(24, 1.2, 24)
-underPlatform.Anchored = true
-underPlatform.CanCollide = true
-underPlatform.Transparency = 0.75
-underPlatform.Material = Enum.Material.SmoothPlastic
-underPlatform.TopSurface = Enum.SurfaceType.Smooth
-underPlatform.BottomSurface = Enum.SurfaceType.Smooth
-underPlatform.Parent = nil
-
-local underMapToggleRef = nil
-
-local function computeUnderMapTarget(char, root)
-	local rayParams = RaycastParams.new()
-	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	rayParams.FilterDescendantsInstances = { char, underPlatform }
-
-	local floorProbe = Workspace:Raycast(root.Position + Vector3.new(0, 1, 0), Vector3.new(0, -14, 0), rayParams)
-	local baseY = root.Position.Y
-	if floorProbe then
-		local slabProbe = Workspace:Raycast(floorProbe.Position - Vector3.new(0, 0.4, 0), Vector3.new(0, -12, 0), rayParams)
-		if slabProbe then
-			baseY = slabProbe.Position.Y - 1.5
-		else
-			baseY = floorProbe.Position.Y - math.max(State.UnderMapOffset, 8)
-		end
-	else
-		baseY = root.Position.Y - State.UnderMapOffset
-	end
-
-	if State.UnderMapLockFloor and State.UnderMapAnchorY then
-		baseY = State.UnderMapAnchorY
-	end
-
-	return Vector3.new(root.Position.X, baseY, root.Position.Z)
-end
-
-local function updateUnderMapSmooth(char, hum, root, dt)
-	if not State.UnderMap or State.Unloaded or not underPlatform or not root then return end
-
-	underPlatform.Parent = Workspace
-
-	local targetY = State.UnderMapAnchorY or (root.Position.Y - State.UnderMapOffset)
-	local desiredPlatPos = Vector3.new(root.Position.X, targetY - 3.3, root.Position.Z)
-	local curPlatPos = underPlatform.Position
-	local smoothAlpha = math.clamp(dt * 18, 0.15, 0.85)
-	local nextPlatPos = curPlatPos:Lerp(desiredPlatPos, smoothAlpha)
-
-	underPlatform.CFrame = CFrame.new(nextPlatPos)
-
-	if State.UnderMapLockFloor and hum then
-		local desiredCharY = targetY
-		local dy = desiredCharY - root.Position.Y
-		if math.abs(dy) > 0.35 then
-			local stepY = math.clamp(dy, -12 * dt, 12 * dt)
-			local v = isValidVector3(root.AssemblyLinearVelocity) and root.AssemblyLinearVelocity or Vector3.zero
-			root.AssemblyLinearVelocity = Vector3.new(v.X, math.clamp(v.Y, -25, 10), v.Z)
-			root.CFrame = root.CFrame + Vector3.new(0, stepY, 0)
-		end
-	end
-end
-
-local function returnFromUnderMap()
-	local char, _, root = getCharParts()
-	State.UnderMap = false
-	State.UnderMapAnchorY = nil
-	if underPlatform then
-		underPlatform.Parent = nil
-	end
-	markMovementIntent(0.5)
-
-	if not root then return end
-
-	if State.SavedCFrame then
-		root.AssemblyLinearVelocity = Vector3.zero
-		root.AssemblyAngularVelocity = Vector3.zero
-		root.CFrame = State.SavedCFrame + Vector3.new(0, 2.2, 0)
-		State.LastCleanCFrame = root.CFrame
-		State.SavedCFrame = nil
-	else
-		local params = RaycastParams.new()
-		params.FilterDescendantsInstances = { char, underPlatform }
-		params.FilterType = Enum.RaycastFilterType.Exclude
-
-		local result = Workspace:Raycast(root.Position + Vector3.new(0, 220, 0), Vector3.new(0, -320, 0), params)
-		root.AssemblyLinearVelocity = Vector3.zero
-		root.AssemblyAngularVelocity = Vector3.zero
-		if result then
-			root.CFrame = CFrame.new(result.Position + Vector3.new(0, 4.0, 0))
-		else
-			root.CFrame = root.CFrame + Vector3.new(0, State.UnderMapOffset + 5, 0)
-		end
-		State.LastCleanCFrame = root.CFrame
-	end
-end
-
-local function setUnderMap(enabled)
-	local char, _, root = getCharParts()
-
-	if enabled and not State.Unloaded then
-		if not char or not root then return end
-		if not State.UnderMap then
-			State.SavedCFrame = root.CFrame
-		end
-		State.UnderMap = true
-		markMovementIntent(0.5)
-
-		local targetPos = computeUnderMapTarget(char, root)
-		State.UnderMapAnchorY = targetPos.Y
-
-		underPlatform.CFrame = CFrame.new(targetPos.X, targetPos.Y - 3.3, targetPos.Z)
-		underPlatform.Parent = Workspace
-
-		root.AssemblyLinearVelocity = Vector3.zero
-		root.AssemblyAngularVelocity = Vector3.zero
-		root.CFrame = CFrame.new(targetPos, targetPos + root.CFrame.LookVector)
-	else
-		returnFromUnderMap()
-	end
-end
-
--- ==========================================
--- ANTI-UNUSUAL MOVEMENT, RAGDOLL & KNOCKBACK
+-- ANTI-UNUSUAL MOVEMENT (PRO), RAGDOLL & KNOCKBACK
 -- ==========================================
 local ragdollStateConn = nil
 
@@ -459,10 +387,22 @@ local function unlockHumanoidStates(hum)
 	end
 end
 
-local function sanitizeRagdollAndJoints(char, hum, root)
-	if not char or not hum then return end
+local function clearStrayMovers(char)
+	if not char then return end
+	for _, desc in ipairs(char:GetDescendants()) do
+		if desc:IsA("BodyVelocity")
+			or desc:IsA("BodyGyro")
+			or desc:IsA("BodyAngularVelocity")
+			or desc:IsA("BodyPosition")
+			or desc:IsA("LinearVelocity")
+			or desc:IsA("AngularVelocity") then
+			desc:Destroy()
+		end
+	end
+end
 
-	lockHumanoidStates(hum)
+local function sanitizeRagdollAndJoints(char, hum, root, fullSweep)
+	if not char or not hum then return end
 
 	local curState = hum:GetState()
 	if curState == Enum.HumanoidStateType.Ragdoll
@@ -480,16 +420,18 @@ local function sanitizeRagdollAndJoints(char, hum, root)
 		end)
 	end
 
-	for _, desc in ipairs(char:GetDescendants()) do
-		if desc:IsA("Motor6D") then
-			desc.Enabled = true
-		elseif desc:IsA("BallSocketConstraint") or desc:IsA("HingeConstraint") then
-			if desc.Name:lower():find("ragdoll") or (desc.Parent and desc.Parent.Name:lower():find("ragdoll")) then
+	if fullSweep then
+		for _, desc in ipairs(char:GetDescendants()) do
+			if desc:IsA("Motor6D") then
+				desc.Enabled = true
+			elseif desc:IsA("BallSocketConstraint") or desc:IsA("HingeConstraint") then
+				if desc.Name:lower():find("ragdoll") or (desc.Parent and desc.Parent.Name:lower():find("ragdoll")) then
+					desc:Destroy()
+				end
+			elseif State.AntiKnockback
+				and (desc:IsA("BodyVelocity") or desc:IsA("BodyGyro") or desc:IsA("LinearVelocity") or desc:IsA("AngularVelocity")) then
 				desc:Destroy()
 			end
-		elseif State.AntiKnockback
-			and (desc:IsA("BodyVelocity") or desc:IsA("BodyGyro") or desc:IsA("LinearVelocity") or desc:IsA("AngularVelocity")) then
-			desc:Destroy()
 		end
 	end
 
@@ -499,57 +441,90 @@ local function sanitizeRagdollAndJoints(char, hum, root)
 	end
 end
 
-local function applyAntiUnusualMovement(char, hum, root, dt)
+local function applyAntiUnusualMovement(char, hum, root, dt, now)
 	if not State.AntiUnusualMovement or State.Unloaded or not char or not hum or not root then return end
 
-	local now = os.clock()
 	local v = root.AssemblyLinearVelocity
 	local ang = root.AssemblyAngularVelocity
+	local anomalyDetected = false
 
+	-- 1. Catch NaN / non-finite physics vectors immediately
 	if not isValidVector3(v) or not isValidVector3(ang) then
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
+		State.AnomalyStreak = 0
 		if State.LastCleanCFrame then
 			root.CFrame = State.LastCleanCFrame
 		end
 		return
 	end
 
+	-- 2. Clamp runaway velocity and angular spin bursts
 	local allowedSpeed = State.MaxUnusualSpeed + (State.SpeedEnabled and State.ExtraSpeed or 0)
 	if v.Magnitude > allowedSpeed then
 		local dir = v.Magnitude > 0.001 and v.Unit or Vector3.zero
-		root.AssemblyLinearVelocity = dir * allowedSpeed
+		root.AssemblyLinearVelocity = dir * (allowedSpeed * 0.65)
+		anomalyDetected = true
 	end
 
-	if ang.Magnitude > 25 then
-		root.AssemblyAngularVelocity = Vector3.zero
+	if ang.Magnitude > 18 then
+		root.AssemblyAngularVelocity = ang * 0.15
+		if ang.Magnitude > 30 then
+			root.AssemblyAngularVelocity = Vector3.zero
+		end
+		anomalyDetected = true
 	end
 
+	-- 3. Recover from unintended movement states (PlatformStanding, GettingUp loop, unwanted Sit)
 	local hState = hum:GetState()
 	if hState == Enum.HumanoidStateType.PlatformStanding
-		or (hState == Enum.HumanoidStateType.Seated and hum.MoveDirection.Magnitude > 0.1) then
+		or (hState == Enum.HumanoidStateType.Seated and hum.MoveDirection.Magnitude > 0.1)
+		or (State.AntiUnusualStrict and hState == Enum.HumanoidStateType.GettingUp and hum.MoveDirection.Magnitude > 0.15) then
 		hum.Sit = false
 		pcall(function()
 			hum:ChangeState(Enum.HumanoidStateType.Running)
 		end)
+		anomalyDetected = true
 	end
 
+	-- 4. Detect sudden unexpected position jumps when not under-mapping or intentionally bypassing
 	local skipSnapCheck = State.UnderMap or (now < State.IgnoreUnusualUntil)
 	if not skipSnapCheck and State.LastCleanCFrame then
-		local expectedMaxStep = math.max(State.MaxUnusualSnapDist, ((hum.WalkSpeed + (State.SpeedEnabled and State.ExtraSpeed or 0)) * dt) + 18)
+		local expectedMaxStep = math.max(
+			State.MaxUnusualSnapDist,
+			((hum.WalkSpeed + (State.SpeedEnabled and State.ExtraSpeed or 0)) * dt) + 14
+		)
 		local distMoved = (root.Position - State.LastCleanCFrame.Position).Magnitude
 		if distMoved > expectedMaxStep then
+			anomalyDetected = true
+			State.AnomalyStreak = State.AnomalyStreak + 1
+			local neededStreak = State.AntiUnusualStrict and 1 or 2
+
 			root.AssemblyLinearVelocity = Vector3.zero
 			root.AssemblyAngularVelocity = Vector3.zero
-			if State.SnapBackOnUnusual then
-				root.CFrame = State.LastCleanCFrame
+
+			if State.SnapBackOnUnusual and State.AnomalyStreak >= neededStreak then
+				local safePos = State.LastCleanCFrame.Position
+				if isPositionClear(safePos) then
+					root.CFrame = State.LastCleanCFrame
+				end
+				State.AnomalyStreak = 0
 			end
 			return
 		end
 	end
 
-	if not State.UnderMap then
-		State.LastCleanCFrame = root.CFrame
+	-- 5. Throttled cleanup of stray movers when anomalies occur
+	if anomalyDetected and (now - State.LastMoverSweepTime) >= 0.15 then
+		State.LastMoverSweepTime = now
+		clearStrayMovers(char)
+	end
+
+	if not anomalyDetected then
+		State.AnomalyStreak = math.max(0, State.AnomalyStreak - 1)
+		if not State.UnderMap then
+			State.LastCleanCFrame = root.CFrame
+		end
 	end
 end
 
@@ -569,8 +544,7 @@ local function bindRagdollWatcher(char)
 			if newState == Enum.HumanoidStateType.Ragdoll
 				or newState == Enum.HumanoidStateType.FallingDown
 				or newState == Enum.HumanoidStateType.Physics then
-				local c, h, r = getCharParts()
-				sanitizeRagdollAndJoints(c, h, r)
+				sanitizeRagdollAndJoints(Cached.Char, Cached.Hum, Cached.Root, true)
 			end
 		end)
 	end
@@ -578,17 +552,78 @@ end
 
 local function setAntiRagdoll(enabled)
 	State.AntiRagdoll = enabled
-	local char, hum, root = getCharParts()
-
 	if enabled and not State.Unloaded then
-		bindRagdollWatcher(char)
-		sanitizeRagdollAndJoints(char, hum, root)
+		lockHumanoidStates(Cached.Hum)
+		bindRagdollWatcher(Cached.Char)
+		sanitizeRagdollAndJoints(Cached.Char, Cached.Hum, Cached.Root, true)
 	else
 		if ragdollStateConn then
 			ragdollStateConn:Disconnect()
 			ragdollStateConn = nil
 		end
-		unlockHumanoidStates(hum)
+		unlockHumanoidStates(Cached.Hum)
+	end
+end
+
+-- ==========================================
+-- UNDER MAP & RETURN SYSTEM
+-- ==========================================
+local underPlatform = Instance.new("Part")
+underPlatform.Name = "DarkMoon_UnderPlatform"
+underPlatform.Size = Vector3.new(16, 1, 16)
+underPlatform.Anchored = true
+underPlatform.CanCollide = true
+underPlatform.Transparency = 0.75
+underPlatform.Material = Enum.Material.SmoothPlastic
+underPlatform.Parent = nil
+
+local underMapToggleRef = nil
+
+local function returnFromUnderMap()
+	local root = Cached.Root
+	State.UnderMap = false
+	if underPlatform then
+		underPlatform.Parent = nil
+	end
+	markMovementIntent(0.45)
+
+	if not root then return end
+
+	if State.SavedCFrame then
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.CFrame = State.SavedCFrame + Vector3.new(0, 2, 0)
+		State.LastCleanCFrame = root.CFrame
+		State.SavedCFrame = nil
+	else
+		local result = Workspace:Raycast(root.Position + Vector3.new(0, 200, 0), Vector3.new(0, -300, 0), sharedRayParams)
+		root.AssemblyLinearVelocity = Vector3.zero
+		if result then
+			root.CFrame = CFrame.new(result.Position + Vector3.new(0, 4, 0))
+		else
+			root.CFrame = root.CFrame + Vector3.new(0, State.UnderMapOffset + 4, 0)
+		end
+		State.LastCleanCFrame = root.CFrame
+	end
+end
+
+local function setUnderMap(enabled)
+	local root = Cached.Root
+
+	if enabled and not State.Unloaded then
+		if not root then return end
+		if not State.UnderMap then
+			State.SavedCFrame = root.CFrame
+		end
+		State.UnderMap = true
+		markMovementIntent(0.45)
+
+		local targetPos = root.Position - Vector3.new(0, State.UnderMapOffset, 0)
+		underPlatform.CFrame = CFrame.new(targetPos - Vector3.new(0, 3.5, 0))
+		underPlatform.Parent = Workspace
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.CFrame = CFrame.new(targetPos)
+	else
+		returnFromUnderMap()
 	end
 end
 
@@ -597,7 +632,7 @@ end
 -- ==========================================
 local function applyJumpBoost(enabled)
 	State.JumpEnabled = enabled
-	local _, hum = getCharParts()
+	local hum = Cached.Hum
 	if not hum then return end
 
 	if enabled and not State.Unloaded then
@@ -658,16 +693,14 @@ local function updateESPFrame()
 		return
 	end
 
-	for player, box in pairs(espBoxes) do
-		if not player or not player.Parent then
-			removePlayerESP(player)
-		end
-	end
-
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player ~= LocalPlayer then
 			local char = player.Character
-			local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso"))
+			local root = char and (
+				char:FindFirstChild("HumanoidRootPart")
+				or char:FindFirstChild("Torso")
+				or char:FindFirstChild("UpperTorso")
+			)
 			local humanoid = char and char:FindFirstChildOfClass("Humanoid")
 
 			if root and humanoid and humanoid.Health > 0 then
@@ -699,9 +732,13 @@ local function updateESPFrame()
 end
 
 -- ==========================================
--- LIFECYCLE CONNECTIONS & CLEANUP
+-- LIFECYCLE & LOOPS
 -- ==========================================
 local lifecycleConnections = {}
+
+if LocalPlayer.Character then
+	rebuildCharacterCache(LocalPlayer.Character)
+end
 
 local function unloadAll()
 	if State.Unloaded then return end
@@ -741,17 +778,24 @@ end
 
 table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 	if State.Unloaded then return end
-	local char, hum, root = getCharParts()
+	local char = Cached.Char
+	local hum = Cached.Hum
+	local root = Cached.Root
 	if not char or not hum or not root or hum.Health <= 0 then return end
 
 	local clampedDt = math.min(dt, 0.05)
+	local now = os.clock()
 
-	if State.AutoWallBypass and hum.MoveDirection.Magnitude > 0.1 and (os.clock() - State.LastBypassTime) > 0.2 then
+	if State.AutoWallBypass and hum.MoveDirection.Magnitude > 0.1 and (now - State.LastBypassTime) > 0.22 then
 		executeHardWallBypass(false)
 	end
 
 	if State.AntiRagdoll then
-		sanitizeRagdollAndJoints(char, hum, root)
+		local doFullSweep = (now - State.LastRagdollSweepTime) >= 0.12
+		if doFullSweep then
+			State.LastRagdollSweepTime = now
+		end
+		sanitizeRagdollAndJoints(char, hum, root, doFullSweep)
 	end
 
 	if State.AntiKnockback then
@@ -777,8 +821,9 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 		end
 	end
 
-	if State.UnderMap then
-		updateUnderMapSmooth(char, hum, root, clampedDt)
+	if State.UnderMap and underPlatform then
+		underPlatform.Parent = Workspace
+		underPlatform.CFrame = CFrame.new(root.Position - Vector3.new(0, 3.5, 0))
 	end
 
 	if State.JumpEnabled then
@@ -793,40 +838,45 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 		end
 	end
 
-	applyAntiUnusualMovement(char, hum, root, clampedDt)
+	applyAntiUnusualMovement(char, hum, root, clampedDt, now)
 end))
 
 table.insert(lifecycleConnections, RunService.RenderStepped:Connect(updateESPFrame))
-
 table.insert(lifecycleConnections, Players.PlayerRemoving:Connect(removePlayerESP))
 
 table.insert(lifecycleConnections, LocalPlayer.CharacterAdded:Connect(function(char)
 	if State.Unloaded then return end
-	table.clear(savedPartProps)
+	table.clear(Cached.OrigCollide)
 	State.UnderMap = false
-	State.UnderMapAnchorY = nil
 	State.SavedCFrame = nil
 	State.LastCleanCFrame = nil
+	State.AnomalyStreak = 0
 	if underPlatform then
 		underPlatform.Parent = nil
 	end
 
-	local hum = char:WaitForChild("Humanoid", 5)
-	local root = char:WaitForChild("HumanoidRootPart", 5)
+	rebuildCharacterCache(char)
+	if not Cached.Hum or not Cached.Root then
+		char:WaitForChild("Humanoid", 5)
+		char:WaitForChild("HumanoidRootPart", 5)
+		rebuildCharacterCache(char)
+	end
+
 	task.wait(0.15)
 	if State.Unloaded then return end
 
-	if root then
-		State.LastCleanCFrame = root.CFrame
+	if Cached.Root then
+		State.LastCleanCFrame = Cached.Root.CFrame
 	end
 	if State.Noclip then
 		setNoclip(true)
 	end
 	if State.AntiRagdoll then
+		lockHumanoidStates(Cached.Hum)
 		bindRagdollWatcher(char)
-		sanitizeRagdollAndJoints(char, hum, root)
+		sanitizeRagdollAndJoints(char, Cached.Hum, Cached.Root, true)
 	end
-	if hum and State.JumpEnabled then
+	if Cached.Hum and State.JumpEnabled then
 		applyJumpBoost(true)
 	end
 end))
@@ -835,8 +885,8 @@ end))
 -- UI CONTROLS
 -- ==========================================
 MovementTab:Toggle({
-	Title = "Strong Noclip",
-	Desc = "Locks CanCollide & CanTouch off + watches new parts",
+	Title = "Noclip (Beta)",
+	Desc = "Cached collision/touch lock + seat disable",
 	Default = false,
 	Callback = function(value)
 		setNoclip(value)
@@ -844,8 +894,17 @@ MovementTab:Toggle({
 })
 
 MovementTab:Toggle({
+	Title = "Noclip Beta Ultra (Edge Slide)",
+	Desc = "Tests angled slide vectors to prevent wall-edge snagging",
+	Default = true,
+	Callback = function(value)
+		State.NoclipBetaUltra = value
+	end
+})
+
+MovementTab:Toggle({
 	Title = "Wall Micro-Step Push",
-	Desc = "Advances through wall faces while noclipping",
+	Desc = "Smoothly advances through wall faces while noclipping",
 	Default = true,
 	Callback = function(value)
 		State.WallMicroStep = value
@@ -854,12 +913,12 @@ MovementTab:Toggle({
 
 MovementTab:Slider({
 	Title = "Noclip Step Power",
-	Desc = "Studs nudged per wall contact frame",
+	Desc = "Studs nudged per wall contact step",
 	Step = 0.05,
 	Value = {
 		Min = 0.2,
 		Max = 2.5,
-		Default = 1.05
+		Default = 0.95
 	},
 	Callback = function(value)
 		State.NoclipStepPower = value
@@ -899,7 +958,7 @@ MovementTab:Button({
 
 MovementTab:Slider({
 	Title = "Under Map Depth",
-	Desc = "Fallback studs below current position",
+	Desc = "Studs below current position",
 	Step = 1,
 	Value = {
 		Min = 5,
@@ -911,18 +970,9 @@ MovementTab:Slider({
 	end
 })
 
-MovementTab:Toggle({
-	Title = "Lock Under-Map Depth",
-	Desc = "Smoothly holds your Y depth & glides platform underneath",
-	Default = true,
-	Callback = function(value)
-		State.UnderMapLockFloor = value
-	end
-})
-
 underMapToggleRef = MovementTab:Toggle({
 	Title = "Under Map",
-	Desc = "Drop smoothly below floor with a wide safety platform",
+	Desc = "Drop below the map with a safety platform",
 	Default = false,
 	Callback = function(value)
 		setUnderMap(value)
@@ -931,7 +981,7 @@ underMapToggleRef = MovementTab:Toggle({
 
 MovementTab:Button({
 	Title = "Return to Surface",
-	Desc = "Smoothly return to saved surface position",
+	Desc = "Return to saved surface position",
 	Callback = function()
 		if underMapToggleRef and underMapToggleRef.Set then
 			underMapToggleRef:Set(false)
@@ -997,16 +1047,25 @@ ProtectionTab:Toggle({
 	Default = false,
 	Callback = function(value)
 		State.AntiUnusualMovement = value
-		local _, _, root = getCharParts()
-		if value and root and not State.UnderMap then
-			State.LastCleanCFrame = root.CFrame
+		State.AnomalyStreak = 0
+		if value and Cached.Root and not State.UnderMap then
+			State.LastCleanCFrame = Cached.Root.CFrame
 		end
 	end
 })
 
 ProtectionTab:Toggle({
+	Title = "Strict Mode (Instant Snap)",
+	Desc = "Reacts immediately on first sudden displacement or state glitch",
+	Default = true,
+	Callback = function(value)
+		State.AntiUnusualStrict = value
+	end
+})
+
+ProtectionTab:Toggle({
 	Title = "Snap Back on Position Jump",
-	Desc = "Restores last clean position if unexpectedly displaced",
+	Desc = "Restores clear saved position if unexpectedly displaced",
 	Default = true,
 	Callback = function(value)
 		State.SnapBackOnUnusual = value
