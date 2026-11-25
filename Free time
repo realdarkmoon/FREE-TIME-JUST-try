@@ -8,8 +8,7 @@ local TextChatService = game:GetService("TextChatService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
 local Workspace = game:GetService("Workspace")
-local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
 -- Clean up previous Sound instance cleanly
@@ -126,7 +125,7 @@ for i, item in ipairs(UGCEmoteList) do
 	UGCEmoteByName[item.name] = item.id
 end
 
--- 40 R15 Animation Bundles (Idle, Walk, Run, Jump, Fall, Climb)
+-- 20 R15 Animation Bundles (Idle, Walk, Run, Jump, Fall, Climb)
 local AnimationBundles = {
 	{
 		name = "1. Cartoony",
@@ -308,186 +307,6 @@ local AnimationBundles = {
 		fall = "16738333171",
 		climb = "16738328195",
 	},
-	{
-		name = "21. Catwalk",
-		idle = { "13380255751", "13380104418" },
-		walk = "13380621499",
-		run = "13380532622",
-		jump = "13380213657",
-		fall = "13380067956",
-		climb = "13379901034",
-	},
-	{
-		name = "22. Ranger",
-		idle = { "10921144709", "10921148939" },
-		walk = "10921155867",
-		run = "10921153087",
-		jump = "10921151718",
-		fall = "10921150029",
-		climb = "10921143204",
-	},
-	{
-		name = "23. Samurai",
-		idle = { "10921188913", "10921192045" },
-		walk = "10921198939",
-		run = "10921196160",
-		jump = "10921194613",
-		fall = "10921193339",
-		climb = "10921187360",
-	},
-	{
-		name = "24. Cowboy",
-		idle = { "10921101664", "10921104374" },
-		walk = "10921111375",
-		run = "10921108645",
-		jump = "10921107310",
-		fall = "10921105711",
-		climb = "10921100400",
-	},
-	{
-		name = "25. Ghost",
-		idle = { "10921132092", "10921135640" },
-		walk = "10921140719",
-		run = "10921137402",
-		jump = "10921136539",
-		fall = "10921136539",
-		climb = "10921130549",
-	},
-	{
-		name = "26. Cheerleader",
-		idle = { "10921113225", "10921116691" },
-		walk = "10921124713",
-		run = "10921121648",
-		jump = "10921119897",
-		fall = "10921118325",
-		climb = "10921111832",
-	},
-	{
-		name = "27. Rthro",
-		idle = { "2510235063", "2510236626" },
-		walk = "2510242378",
-		run = "2510238627",
-		jump = "2510237845",
-		fall = "2510237317",
-		climb = "2510233257",
-	},
-	{
-		name = "28. Toy Rthro",
-		idle = { "10921230744", "10921233828" },
-		walk = "10921242015",
-		run = "10921239280",
-		jump = "10921237516",
-		fall = "10921235529",
-		climb = "10921229866",
-	},
-	{
-		name = "29. Villager",
-		idle = { "10921244327", "10921247141" },
-		walk = "10921253544",
-		run = "10921250460",
-		jump = "10921248882",
-		fall = "10921248882",
-		climb = "10921242606",
-	},
-	{
-		name = "30. Superhero Rthro",
-		idle = { "10921216160", "10921219485" },
-		walk = "10921226156",
-		run = "10921224008",
-		jump = "10921222650",
-		fall = "10921221208",
-		climb = "10921214743",
-	},
-	{
-		name = "31. Mage Rthro",
-		idle = { "10921170922", "10921174018" },
-		walk = "10921181506",
-		run = "10921178703",
-		jump = "10921176782",
-		fall = "10921175335",
-		climb = "10921169702",
-	},
-	{
-		name = "32. Knight Rthro",
-		idle = { "10921157129", "10921160337" },
-		walk = "10921167588",
-		run = "10921165007",
-		jump = "10921163274",
-		fall = "10921161598",
-		climb = "10921155867",
-	},
-	{
-		name = "33. Astronaut Rthro",
-		idle = { "10921089311", "10921092606" },
-		walk = "10921098435",
-		run = "10921095739",
-		jump = "10921094506",
-		fall = "10921093567",
-		climb = "10921088228",
-	},
-	{
-		name = "34. Cartoony Rthro",
-		idle = { "10921113225", "10921116691" },
-		walk = "10921124713",
-		run = "10921121648",
-		jump = "10921119897",
-		fall = "10921118325",
-		climb = "10921111832",
-	},
-	{
-		name = "35. Pirate Rthro",
-		idle = { "10921188913", "10921192045" },
-		walk = "10921198939",
-		run = "10921196160",
-		jump = "10921194613",
-		fall = "10921193339",
-		climb = "10921187360",
-	},
-	{
-		name = "36. Zombie Rthro",
-		idle = { "10921244327", "10921247141" },
-		walk = "10921253544",
-		run = "10921250460",
-		jump = "10921248882",
-		fall = "10921248882",
-		climb = "10921242606",
-	},
-	{
-		name = "37. Ninja Rthro",
-		idle = { "10921144709", "10921148939" },
-		walk = "10921155867",
-		run = "10921153087",
-		jump = "10921151718",
-		fall = "10921150029",
-		climb = "10921143204",
-	},
-	{
-		name = "38. Werewolf Rthro",
-		idle = { "10921230744", "10921233828" },
-		walk = "10921242015",
-		run = "10921239280",
-		jump = "10921237516",
-		fall = "10921235529",
-		climb = "10921229866",
-	},
-	{
-		name = "39. Vampire Rthro",
-		idle = { "10921132092", "10921135640" },
-		walk = "10921140719",
-		run = "10921137402",
-		jump = "10921136539",
-		fall = "10921136539",
-		climb = "10921130549",
-	},
-	{
-		name = "40. Elder Rthro",
-		idle = { "10921101664", "10921104374" },
-		walk = "10921111375",
-		run = "10921108645",
-		jump = "10921107310",
-		fall = "10921105711",
-		climb = "10921100400",
-	},
 }
 
 local BundleNames = table.create(#AnimationBundles)
@@ -495,362 +314,6 @@ local BundleByName = {}
 for i, b in ipairs(AnimationBundles) do
 	BundleNames[i] = b.name
 	BundleByName[b.name] = b
-end
-
--- 20 Body Effects definitions
-local BodyEffectsList = {
-	{
-		id = "moon_aura",
-		name = "1. Moon Aura",
-		color = Color3.fromHex("C084FC"),
-		secondary = Color3.fromHex("E9D5FF"),
-		rate = 18,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(1, 0) }),
-		lightBrightness = 1.6,
-	},
-	{
-		id = "shadow_flame",
-		name = "2. Shadow Flame",
-		color = Color3.fromHex("7E22CE"),
-		secondary = Color3.fromHex("3B0764"),
-		rate = 24,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.55), NumberSequenceKeypoint.new(1, 0.05) }),
-		lightBrightness = 1.8,
-	},
-	{
-		id = "neon_sparkles",
-		name = "3. Neon Sparkles",
-		color = Color3.fromHex("22D3EE"),
-		secondary = Color3.fromHex("F472B6"),
-		rate = 20,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.28), NumberSequenceKeypoint.new(1, 0) }),
-		lightBrightness = 2.0,
-	},
-	{
-		id = "frost_mist",
-		name = "4. Frost Mist",
-		color = Color3.fromHex("93C5FD"),
-		secondary = Color3.fromHex("EFF6FF"),
-		rate = 22,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.65), NumberSequenceKeypoint.new(1, 0.1) }),
-		lightBrightness = 1.4,
-	},
-	{
-		id = "golden_halo",
-		name = "5. Golden Halo",
-		color = Color3.fromHex("FBBF24"),
-		secondary = Color3.fromHex("FEF08A"),
-		rate = 16,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(1, 0) }),
-		lightBrightness = 2.2,
-	},
-	{
-		id = "crimson_pulse",
-		name = "6. Crimson Pulse",
-		color = Color3.fromHex("EF4444"),
-		secondary = Color3.fromHex("7F1D1D"),
-		rate = 22,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.45), NumberSequenceKeypoint.new(1, 0) }),
-		lightBrightness = 2.0,
-	},
-	{
-		id = "cyber_trail",
-		name = "7. Cyber Grid Trail",
-		color = Color3.fromHex("38BDF8"),
-		secondary = Color3.fromHex("818CF8"),
-		rate = 14,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.25), NumberSequenceKeypoint.new(1, 0) }),
-		lightBrightness = 1.7,
-		useTrail = true,
-	},
-	{
-		id = "sakura_petals",
-		name = "8. Sakura Petals",
-		color = Color3.fromHex("F9A8D4"),
-		secondary = Color3.fromHex("FDF2F8"),
-		rate = 18,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(1, 0.05) }),
-		lightBrightness = 1.5,
-	},
-	{
-		id = "void_smoke",
-		name = "9. Void Smoke",
-		color = Color3.fromHex("312E81"),
-		secondary = Color3.fromHex("09090B"),
-		rate = 24,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.75), NumberSequenceKeypoint.new(1, 0.15) }),
-		lightBrightness = 1.1,
-	},
-	{
-		id = "starlight_burst",
-		name = "10. Starlight Burst",
-		color = Color3.fromHex("F8FAFC"),
-		secondary = Color3.fromHex("DDD6FE"),
-		rate = 24,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.32), NumberSequenceKeypoint.new(1, 0) }),
-		lightBrightness = 2.4,
-	},
-	{
-		id = "solar_flare",
-		name = "11. Solar Flare",
-		color = Color3.fromHex("FB923C"),
-		secondary = Color3.fromHex("FDE047"),
-		rate = 26,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.50), NumberSequenceKeypoint.new(1, 0) }),
-		lightBrightness = 2.5,
-		useTrail = true,
-	},
-	{
-		id = "ice_crystal",
-		name = "12. Ice Crystal",
-		color = Color3.fromHex("67E8F9"),
-		secondary = Color3.fromHex("ECFEFF"),
-		rate = 20,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.38), NumberSequenceKeypoint.new(1, 0) }),
-		lightBrightness = 1.9,
-	},
-	{
-		id = "toxic_venom",
-		name = "13. Toxic Venom",
-		color = Color3.fromHex("4ADE80"),
-		secondary = Color3.fromHex("14532D"),
-		rate = 22,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.48), NumberSequenceKeypoint.new(1, 0.05) }),
-		lightBrightness = 1.8,
-	},
-	{
-		id = "astral_nova",
-		name = "14. Astral Nova",
-		color = Color3.fromHex("A855F7"),
-		secondary = Color3.fromHex("38BDF8"),
-		rate = 24,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.42), NumberSequenceKeypoint.new(1, 0) }),
-		lightBrightness = 2.3,
-		useTrail = true,
-	},
-	{
-		id = "rose_thorn",
-		name = "15. Rose Thorn",
-		color = Color3.fromHex("F43F5E"),
-		secondary = Color3.fromHex("881337"),
-		rate = 18,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.34), NumberSequenceKeypoint.new(1, 0.05) }),
-		lightBrightness = 1.6,
-	},
-	{
-		id = "plasma_arc",
-		name = "16. Plasma Arc",
-		color = Color3.fromHex("E879F9"),
-		secondary = Color3.fromHex("22D3EE"),
-		rate = 26,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.30), NumberSequenceKeypoint.new(1, 0) }),
-		lightBrightness = 2.4,
-		useTrail = true,
-	},
-	{
-		id = "shadow_mist",
-		name = "17. Shadow Mist",
-		color = Color3.fromHex("52525B"),
-		secondary = Color3.fromHex("18181B"),
-		rate = 22,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.70), NumberSequenceKeypoint.new(1, 0.15) }),
-		lightBrightness = 1.2,
-	},
-	{
-		id = "luminous_pearl",
-		name = "18. Luminous Pearl",
-		color = Color3.fromHex("FEF9C3"),
-		secondary = Color3.fromHex("F5D0FE"),
-		rate = 16,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.36), NumberSequenceKeypoint.new(1, 0) }),
-		lightBrightness = 2.1,
-	},
-	{
-		id = "inferno_ember",
-		name = "19. Inferno Ember",
-		color = Color3.fromHex("F97316"),
-		secondary = Color3.fromHex("991B1B"),
-		rate = 28,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.45), NumberSequenceKeypoint.new(1, 0) }),
-		lightBrightness = 2.2,
-	},
-	{
-		id = "celestial_prism",
-		name = "20. Celestial Prism",
-		color = Color3.fromHex("818CF8"),
-		secondary = Color3.fromHex("F472B6"),
-		rate = 22,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.40), NumberSequenceKeypoint.new(1, 0) }),
-		lightBrightness = 2.3,
-		useTrail = true,
-	},
-}
-
-local BodyEffectNames = table.create(#BodyEffectsList)
-local BodyEffectByName = {}
-for i, fx in ipairs(BodyEffectsList) do
-	BodyEffectNames[i] = fx.name
-	BodyEffectByName[fx.name] = fx
-end
-
--- 10 Skybox Presets
-local SkyBoxPresets = {
-	{
-		name = "1. Dark Moon Nebula",
-		clockTime = 21.5,
-		sunAngularSize = 11,
-		moonAngularSize = 16,
-		starCount = 3000,
-		celestialBodiesShown = true,
-		skyColor = Color3.fromHex("C4B5FD"),
-		tex = "rbxassetid://159454299",
-	},
-	{
-		name = "2. Violet Twilight",
-		clockTime = 19.0,
-		sunAngularSize = 14,
-		moonAngularSize = 12,
-		starCount = 1800,
-		celestialBodiesShown = true,
-		skyColor = Color3.fromHex("E879F9"),
-		tex = "rbxassetid://149397692",
-	},
-	{
-		name = "3. Crimson Eclipse",
-		clockTime = 20.5,
-		sunAngularSize = 18,
-		moonAngularSize = 14,
-		starCount = 2400,
-		celestialBodiesShown = true,
-		skyColor = Color3.fromHex("FDA4AF"),
-		tex = "rbxassetid://159454299",
-	},
-	{
-		name = "4. Arctic Aurora",
-		clockTime = 22.5,
-		sunAngularSize = 10,
-		moonAngularSize = 13,
-		starCount = 3000,
-		celestialBodiesShown = true,
-		skyColor = Color3.fromHex("67E8F9"),
-		tex = "rbxassetid://159454299",
-	},
-	{
-		name = "5. Golden Sunset",
-		clockTime = 18.0,
-		sunAngularSize = 20,
-		moonAngularSize = 8,
-		starCount = 600,
-		celestialBodiesShown = true,
-		skyColor = Color3.fromHex("FDE68A"),
-		tex = "rbxassetid://149397692",
-	},
-	{
-		name = "6. Midnight Void",
-		clockTime = 0.0,
-		sunAngularSize = 8,
-		moonAngularSize = 15,
-		starCount = 3000,
-		celestialBodiesShown = true,
-		skyColor = Color3.fromHex("818CF8"),
-		tex = "rbxassetid://159454299",
-	},
-	{
-		name = "7. Emerald Horizon",
-		clockTime = 17.5,
-		sunAngularSize = 15,
-		moonAngularSize = 10,
-		starCount = 1200,
-		celestialBodiesShown = true,
-		skyColor = Color3.fromHex("6EE7B7"),
-		tex = "rbxassetid://149397692",
-	},
-	{
-		name = "8. Rose Quartz Sky",
-		clockTime = 18.8,
-		sunAngularSize = 16,
-		moonAngularSize = 11,
-		starCount = 1500,
-		celestialBodiesShown = true,
-		skyColor = Color3.fromHex("F9A8D4"),
-		tex = "rbxassetid://149397692",
-	},
-	{
-		name = "9. Amber Storm",
-		clockTime = 16.5,
-		sunAngularSize = 19,
-		moonAngularSize = 9,
-		starCount = 900,
-		celestialBodiesShown = false,
-		skyColor = Color3.fromHex("FBBF24"),
-		tex = "rbxassetid://149397692",
-	},
-	{
-		name = "10. Clear Day Sky",
-		clockTime = 13.5,
-		sunAngularSize = 12,
-		moonAngularSize = 7,
-		starCount = 200,
-		celestialBodiesShown = true,
-		skyColor = Color3.fromHex("FFFFFF"),
-		tex = "rbxassetid://149397692",
-	},
-}
-
-local SkyBoxNames = table.create(#SkyBoxPresets)
-local SkyBoxByName = {}
-for i, s in ipairs(SkyBoxPresets) do
-	SkyBoxNames[i] = s.name
-	SkyBoxByName[s.name] = s
-end
-
--- Sky Animation Presets
-local SkyAnimationPresets = {
-	{
-		name = "1. Moon Cycle Drift",
-		mode = "cycle",
-		startHour = 18.0,
-		endHour = 24.0,
-		texA = "rbxassetid://159454299",
-		texB = "rbxassetid://149397692",
-	},
-	{
-		name = "2. Nebula Pulse",
-		mode = "pulse",
-		baseHour = 21.5,
-		texA = "rbxassetid://159454299",
-		texB = "rbxassetid://149397692",
-	},
-	{
-		name = "3. Sunset to Midnight",
-		mode = "cycle",
-		startHour = 17.5,
-		endHour = 23.5,
-		texA = "rbxassetid://149397692",
-		texB = "rbxassetid://159454299",
-	},
-	{
-		name = "4. Aurora Wave",
-		mode = "pulse",
-		baseHour = 22.0,
-		texA = "rbxassetid://159454299",
-		texB = "rbxassetid://159454299",
-	},
-	{
-		name = "5. Full Day Sweep",
-		mode = "cycle",
-		startHour = 0.0,
-		endHour = 24.0,
-		texA = "rbxassetid://149397692",
-		texB = "rbxassetid://159454299",
-	},
-}
-
-local SkyAnimNames = table.create(#SkyAnimationPresets)
-local SkyAnimByName = {}
-for i, anim in ipairs(SkyAnimationPresets) do
-	SkyAnimNames[i] = anim.name
-	SkyAnimByName[anim.name] = anim
 end
 
 local state = {
@@ -868,10 +331,17 @@ local state = {
 	selectedFavLabel = nil,
 	volume = 0.5,
 	speed = 1.0,
-	-- MM2 Radio state
-	mm2RadioId = "1848354536",
-	mm2AutoSyncPlayer = false,
-	mm2LastSentId = nil,
+	-- Proximity / Game Audio Share state
+	shareToOthers = false,
+	shareRange = 80,
+	-- Headless & Korblox Limiteds state
+	headlessEnabled = false,
+	hideHeadAccessories = true,
+	korbloxEnabled = false,
+	korbloxColor = Color3.fromHex("111118"),
+	korbloxSlimLeg = true,
+	persistLimitedsOnRespawn = true,
+	tryAvatarRemotes = false,
 	-- UGC Emotes state
 	selectedUGCEmoteName = UGCEmoteList[1].name,
 	customUGCEmoteId = "",
@@ -882,16 +352,6 @@ local state = {
 	selectedBundleName = AnimationBundles[1].name,
 	activeBundle = nil,
 	bundleAutoRespawn = true,
-	-- Body Effects (20) state
-	bodyEffectEnabled = false,
-	selectedBodyEffectName = BodyEffectsList[1].name,
-	bodyEffectAutoRespawn = true,
-	-- Skybox (10) & Sky Animations state
-	skyBoxEnabled = false,
-	selectedSkyBoxName = SkyBoxPresets[1].name,
-	skyAnimEnabled = false,
-	selectedSkyAnimName = SkyAnimationPresets[1].name,
-	skyAnimSpeed = 1.0,
 	-- Head Tag state
 	headTagEnabled = true,
 	headTagLogo = "🌙",
@@ -911,7 +371,7 @@ local state = {
 	atmosDecay = Color3.fromHex("17132B"),
 	clockTime = 21.5,
 	brightness = 2.0,
-	-- Anti-Voice Chat & Anti-Chat state
+	-- Anti-Voice Chat & Anti-Chat bypass state
 	antiVoiceChat = false,
 	muteVoiceAudioStreams = true,
 	antiChatEnabled = false,
@@ -925,9 +385,13 @@ local defaultLightingSnap = {
 	Brightness = Lighting.Brightness,
 }
 
+local spatialSound = nil
+local savedLimbSnapshots = {}
 local mutedVoiceObjects = {}
+local mutedInputStates = {}
 local savedChatConfigs = {}
-local savedLegacyChatStates = {}
+local savedGuiStates = {}
+local hookedChannels = {}
 local currentUGCEmoteTrack = nil
 local currentUGCEmoteAnim = nil
 local resolvedEmoteIdCache = {}
@@ -936,8 +400,6 @@ local UGCEmoteDropdown = nil
 local peerTagConfigs = {}
 local originalAnimateIds = nil
 local isApplyingBundle = false
-local skyAnimConn = nil
-local skyAnimElapsed = 0
 
 local fileMap = {}
 local fileLabels = {}
@@ -951,7 +413,6 @@ local favDropdown = nil
 local trollPlayerLabels = {}
 local trollPlayerDropdown = nil
 local StatusParagraph = nil
-local MM2StatusParagraph = nil
 
 local function notify(title, content, icon)
 	WindUI:Notify({
@@ -975,164 +436,359 @@ local function updateStatus(statusText)
 	end
 end
 
-local function updateMM2Status(statusText)
-	if MM2StatusParagraph and typeof(MM2StatusParagraph.SetDesc) == "function" then
-		pcall(MM2StatusParagraph.SetDesc, MM2StatusParagraph, statusText)
+-- === HEADLESS & KORBLOX LIMITEDS HELPERS ===
+local function snapshotPartOnce(part)
+	if not part or not part:IsA("BasePart") or savedLimbSnapshots[part] then
+		return
+	end
+	savedLimbSnapshots[part] = {
+		Transparency = part.Transparency,
+		LocalTransparencyModifier = part.LocalTransparencyModifier,
+		Color = part.Color,
+		Material = part.Material,
+		Size = part.Size,
+		CanCollide = part.CanCollide,
+	}
+end
+
+local function restorePartSnapshot(part)
+	local snap = part and savedLimbSnapshots[part]
+	if not snap then
+		return
+	end
+	pcall(function()
+		part.Transparency = snap.Transparency
+		part.LocalTransparencyModifier = snap.LocalTransparencyModifier
+		part.Color = snap.Color
+		part.Material = snap.Material
+		part.Size = snap.Size
+		part.CanCollide = snap.CanCollide
+	end)
+	savedLimbSnapshots[part] = nil
+end
+
+local function setPartVisualHidden(part, hidden)
+	if not part or not part:IsA("BasePart") then
+		return
+	end
+	if hidden then
+		snapshotPartOnce(part)
+		pcall(function()
+			part.Transparency = 1
+			part.LocalTransparencyModifier = 1
+			part.CanCollide = false
+		end)
+	else
+		restorePartSnapshot(part)
+	end
+
+	for _, desc in ipairs(part:GetDescendants()) do
+		if desc:IsA("Decal") or desc:IsA("Texture") then
+			pcall(function()
+				if hidden then
+					if not desc:GetAttribute("DMOrigTrans") then
+						desc:SetAttribute("DMOrigTrans", desc.Transparency)
+					end
+					desc.Transparency = 1
+				else
+					local origT = desc:GetAttribute("DMOrigTrans")
+					desc.Transparency = (type(origT) == "number") and origT or 0
+				end
+			end)
+		elseif desc:IsA("SpecialMesh") then
+			pcall(function()
+				if hidden then
+					if not desc:GetAttribute("DMOrigScale") then
+						desc:SetAttribute("DMOrigScale", desc.Scale)
+					end
+					desc.Scale = Vector3.new(0.001, 0.001, 0.001)
+				else
+					local origScale = desc:GetAttribute("DMOrigScale")
+					if typeof(origScale) == "Vector3" then
+						desc.Scale = origScale
+					end
+				end
+			end)
+		end
 	end
 end
 
--- === MURDER MYSTERY 2 (MM2) RADIO HELPERS ===
-local function findMM2RadioTool()
-	local char = LocalPlayer and LocalPlayer.Character
-	if char then
-		for _, item in ipairs(char:GetChildren()) do
-			if item:IsA("Tool") and item.Name:lower():find("radio", 1, true) then
-				return item, true
-			end
-		end
+local function setHeadAccessoriesHidden(character, hidden)
+	if not character then
+		return
 	end
-	local backpack = LocalPlayer and LocalPlayer:FindFirstChildOfClass("Backpack")
-	if backpack then
-		for _, item in ipairs(backpack:GetChildren()) do
-			if item:IsA("Tool") and item.Name:lower():find("radio", 1, true) then
-				return item, false
-			end
-		end
-	end
-	return nil, false
-end
-
-local function findRadioRemotes()
-	local remotes = {}
-	local containers = { ReplicatedStorage, Workspace, LocalPlayer }
-	for _, root in ipairs(containers) do
-		if root then
-			for _, desc in ipairs(root:GetDescendants()) do
-				if desc:IsA("RemoteEvent") or desc:IsA("RemoteFunction") then
-					local lowName = desc.Name:lower()
-					if lowName:find("radio", 1, true) or lowName:find("boombox", 1, true) or lowName:find("playsong", 1, true) or lowName:find("soundid", 1, true) then
-						table.insert(remotes, desc)
+	local shouldHide = hidden and state.hideHeadAccessories
+	for _, child in ipairs(character:GetChildren()) do
+		if child:IsA("Accessory") then
+			local handle = child:FindFirstChild("Handle")
+			local isHeadAcc = false
+			if handle then
+				for _, att in ipairs(handle:GetDescendants()) do
+					if att:IsA("Attachment") and (att.Name:find("Hat") or att.Name:find("Hair") or att.Name:find("Face")) then
+						isHeadAcc = true
+						break
 					end
 				end
 			end
-		end
-	end
-	return remotes
-end
-
-local function trySetRadioGuiBox(digits)
-	local gui = LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui")
-	if not gui then
-		return false
-	end
-	local applied = false
-	for _, desc in ipairs(gui:GetDescendants()) do
-		if desc:IsA("TextBox") then
-			local pathStr = tostring(desc:GetFullName()):lower()
-			if pathStr:find("radio", 1, true) or pathStr:find("boombox", 1, true) or pathStr:find("song", 1, true) or pathStr:find("id", 1, true) then
-				pcall(function()
-					desc.Text = digits
-					desc:CaptureFocus()
-					desc:ReleaseFocus(true)
-					applied = true
-				end)
+			if isHeadAcc and handle and handle:IsA("BasePart") then
+				setPartVisualHidden(handle, shouldHide)
 			end
 		end
 	end
-	return applied
 end
 
-local function playSongOnMM2Radio(rawId, songLabel, silent)
-	local digits = tostring(rawId or ""):match("%d+")
-	if not digits or digits == "0" then
+local function getKorbloxLegParts(character)
+	local parts = {}
+	if not character then
+		return parts
+	end
+	local r6Leg = character:FindFirstChild("Right Leg")
+	if r6Leg and r6Leg:IsA("BasePart") then
+		table.insert(parts, r6Leg)
+	end
+	for _, name in ipairs({ "RightUpperLeg", "RightLowerLeg", "RightFoot" }) do
+		local p = character:FindFirstChild(name)
+		if p and p:IsA("BasePart") then
+			table.insert(parts, p)
+		end
+	end
+	return parts
+end
+
+local function fireAvatarRemotesIfEnabled(modeTag)
+	if not state.tryAvatarRemotes then
+		return
+	end
+	local candidateKeys = { "morph", "avatar", "outfit", "character", "headless", "korblox", "bundle" }
+	for _, root in ipairs({ ReplicatedStorage, Workspace }) do
+		pcall(function()
+			for _, desc in ipairs(root:GetDescendants()) do
+				if desc:IsA("RemoteEvent") then
+					local low = desc.Name:lower()
+					for _, kw in ipairs(candidateKeys) do
+						if low:find(kw, 1, true) then
+							pcall(function()
+								desc:FireServer(modeTag)
+							end)
+							pcall(function()
+								desc:FireServer({
+									mode = modeTag,
+									headless = state.headlessEnabled,
+									korblox = state.korbloxEnabled,
+								})
+							end)
+							break
+						end
+					end
+				end
+			end
+		end)
+	end
+end
+
+local function applyHeadlessToCharacter(character, silent)
+	if not character then
+		return
+	end
+	local head = character:FindFirstChild("Head")
+	if not head or not head:IsA("BasePart") then
+		return
+	end
+
+	setPartVisualHidden(head, state.headlessEnabled)
+	setHeadAccessoriesHidden(character, state.headlessEnabled)
+
+	if state.headlessEnabled then
+		fireAvatarRemotesIfEnabled("headless")
 		if not silent then
-			notify("Invalid ID", "Enter a valid numeric Roblox Audio ID for MM2 Radio.", "alert-circle")
+			notify("Headless Applied", "Headless applied to character.", "ghost")
 		end
-		return false
+	elseif not silent then
+		notify("Headless Removed", "Restored head visibility.", "user")
+	end
+end
+
+local function applyKorbloxToCharacter(character, silent)
+	if not character then
+		return
+	end
+	local legParts = getKorbloxLegParts(character)
+	if #legParts == 0 then
+		return
 	end
 
-	state.mm2RadioId = digits
-	state.mm2LastSentId = digits
-
-	local radioTool, isEquipped = findMM2RadioTool()
-	if radioTool and not isEquipped then
-		local char = LocalPlayer and LocalPlayer.Character
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		if hum then
+	if state.korbloxEnabled then
+		for _, part in ipairs(legParts) do
+			snapshotPartOnce(part)
+			local snap = savedLimbSnapshots[part]
 			pcall(function()
-				hum:EquipTool(radioTool)
+				part.Color = state.korbloxColor
+				part.Material = Enum.Material.SmoothPlastic
+				if state.korbloxSlimLeg and snap then
+					if part.Name == "RightUpperLeg" or part.Name == "Right Leg" then
+						part.Size = Vector3.new(snap.Size.X * 0.72, snap.Size.Y, snap.Size.Z * 0.72)
+					elseif part.Name == "RightLowerLeg" then
+						part.Size = Vector3.new(snap.Size.X * 0.52, snap.Size.Y, snap.Size.Z * 0.52)
+					elseif part.Name == "RightFoot" then
+						part.Size = Vector3.new(snap.Size.X * 0.65, snap.Size.Y * 0.85, snap.Size.Z * 0.8)
+					end
+				elseif snap then
+					part.Size = snap.Size
+				end
 			end)
-			task.wait(0.1)
+			for _, desc in ipairs(part:GetDescendants()) do
+				if desc:IsA("SpecialMesh") then
+					pcall(function()
+						desc.VertexColor = Vector3.new(
+							state.korbloxColor.R,
+							state.korbloxColor.G,
+							state.korbloxColor.B
+						)
+					end)
+				end
+			end
+		end
+		fireAvatarRemotesIfEnabled("korblox")
+		if not silent then
+			notify("Korblox Applied", "Korblox right leg styling applied.", "footprints")
+		end
+	else
+		for _, part in ipairs(legParts) do
+			restorePartSnapshot(part)
+		end
+		if not silent then
+			notify("Korblox Removed", "Restored original right leg.", "user")
 		end
 	end
+end
 
-	local triggered = false
+local function applyLimitedsNow(silent)
+	local char = LocalPlayer and LocalPlayer.Character
+	if not char then
+		if not silent then
+			notify("Character Missing", "Wait for your character to spawn first.", "alert-circle")
+		end
+		return
+	end
+	applyHeadlessToCharacter(char, true)
+	applyKorbloxToCharacter(char, true)
+	if not silent then
+		notify("Limiteds Updated", "Applied Headless & Korblox settings.", "crown")
+	end
+end
 
-	if radioTool then
-		for _, desc in ipairs(radioTool:GetDescendants()) do
-			if desc:IsA("RemoteEvent") then
-				pcall(function()
-					desc:FireServer(digits)
-					desc:FireServer("Play", digits)
-					desc:FireServer(tonumber(digits) or digits)
-					triggered = true
-				end)
-			elseif desc:IsA("RemoteFunction") then
-				pcall(function()
-					desc:InvokeServer(digits)
-					desc:InvokeServer("Play", digits)
-					triggered = true
-				end)
-			elseif desc:IsA("Sound") then
-				pcall(function()
-					desc.SoundId = "rbxassetid://" .. digits
-					desc:Play()
-					triggered = true
-				end)
+-- Keep active Headless / Korblox state enforced against character resets
+task.spawn(function()
+	while true do
+		task.wait(1.5)
+		local char = LocalPlayer and LocalPlayer.Character
+		if char then
+			if state.headlessEnabled then
+				applyHeadlessToCharacter(char, true)
+			end
+			if state.korbloxEnabled then
+				applyKorbloxToCharacter(char, true)
 			end
 		end
 	end
+end)
 
-	local remotes = findRadioRemotes()
-	for _, rem in ipairs(remotes) do
-		if rem:IsA("RemoteEvent") then
+-- === SPATIAL CHARACTER SOUND & REMOTE AUDIO TRIGGER ===
+local function getCharacterAudioAnchor()
+	local char = LocalPlayer and LocalPlayer.Character
+	if not char then
+		return nil
+	end
+	return char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+end
+
+local function ensureSpatialSound()
+	local anchor = getCharacterAudioAnchor()
+	if not anchor then
+		return nil
+	end
+	if spatialSound and spatialSound.Parent ~= anchor then
+		pcall(function()
+			spatialSound:Destroy()
+		end)
+		spatialSound = nil
+	end
+	if not spatialSound then
+		spatialSound = Instance.new("Sound")
+		spatialSound.Name = "DarkMoonSpatialEmitter"
+		spatialSound.RollOffMode = Enum.RollOffMode.Linear
+		spatialSound.RollOffMinDistance = 10
+		spatialSound.RollOffMaxDistance = state.shareRange
+		spatialSound.Parent = anchor
+	end
+	spatialSound.RollOffMaxDistance = state.shareRange
+	return spatialSound
+end
+
+local function fireGameAudioRemotes(digits)
+	local assetId = "rbxassetid://" .. tostring(digits)
+	local numericId = tonumber(digits) or digits
+	local candidateNames = {
+		"playsong", "playmusic", "playsound", "setmusic", "setsong",
+		"equipradio", "radioremote", "boombox", "playaudio", "soundevent"
+	}
+
+	local containers = { ReplicatedStorage, Workspace }
+	for _, container in ipairs(containers) do
+		pcall(function()
+			for _, desc in ipairs(container:GetDescendants()) do
+				if desc:IsA("RemoteEvent") then
+					local low = desc.Name:lower()
+					for _, key in ipairs(candidateNames) do
+						if low:find(key, 1, true) then
+							pcall(function()
+								desc:FireServer(assetId)
+							end)
+							pcall(function()
+								desc:FireServer(numericId)
+							end)
+							break
+						end
+					end
+				end
+			end
+		end)
+	end
+end
+
+local function syncSpatialSoundPlayback()
+	if not state.shareToOthers or state.sourceMode ~= "roblox" or not state.currentId or state.currentId == "0" then
+		if spatialSound then
 			pcall(function()
-				rem:FireServer(digits)
-				rem:FireServer("Play", digits)
-				rem:FireServer(tonumber(digits) or digits)
-				triggered = true
-			end)
-		elseif rem:IsA("RemoteFunction") then
-			pcall(function()
-				rem:InvokeServer(digits)
-				rem:InvokeServer("Play", digits)
-				triggered = true
+				spatialSound:Stop()
 			end)
 		end
+		return
 	end
 
-	local guiUpdated = trySetRadioGuiBox(digits)
-
-	if canClipboard and not silent then
-		copyText(digits)
+	local s = ensureSpatialSound()
+	if not s then
+		return
 	end
 
-	local displayName = songLabel and (songLabel .. " (" .. digits .. ")") or ("ID: " .. digits)
-	local statusMsg = "Sent to MM2 Radio: " .. displayName
-	if not radioTool and #remotes == 0 and not guiUpdated then
-		statusMsg = "Copied ID " .. digits .. " (Equip MM2 Radio gamepass/tool to play)"
-	end
-	updateMM2Status(statusMsg)
+	s.SoundId = "rbxassetid://" .. tostring(state.currentId)
+	s.Volume = math.clamp(state.volume, 0, 2)
+	s.PlaybackSpeed = state.speed
+	s.Looped = state.loopSingle
+	s.RollOffMaxDistance = state.shareRange
 
-	if not silent then
-		if radioTool or #remotes > 0 or guiUpdated or triggered then
-			notify("MM2 Radio", "Sent song ID " .. digits .. " to MM2 Radio.", "radio")
-		else
-			notify("MM2 Radio ID Copied", "Copied " .. digits .. ". Equip your MM2 Radio to play.", "radio")
-		end
+	if Sound.IsPlaying then
+		pcall(function()
+			s.TimePosition = Sound.TimePosition
+			s:Play()
+		end)
+	else
+		pcall(function()
+			s:Stop()
+		end)
 	end
 
-	return true
+	fireGameAudioRemotes(state.currentId)
 end
 
 -- === SHARED HEAD TAG PARSER (DECLARED BEFORE CHAT CONNECTIONS) ===
@@ -1165,12 +821,12 @@ local function handleIncomingTagPayload(senderName, rawText)
 	end
 end
 
--- === ANTI-VOICE CHAT & ANTI-CHAT HELPERS ===
+-- === ANTI-VOICE CHAT & ANTI-CHAT BYPASS HELPERS ===
 local function isVoiceAudioObject(inst)
-	if not inst or inst == Sound then
+	if not inst or inst == Sound or inst == spatialSound then
 		return false
 	end
-	if inst:IsA("AudioPlayer") or inst:IsA("AudioDeviceInput") or inst:IsA("AudioDeviceOutput") or inst:IsA("AudioEmitter") then
+	if inst:IsA("AudioDeviceInput") or inst:IsA("AudioDeviceOutput") or inst:IsA("AudioPlayer") or inst:IsA("AudioEmitter") then
 		return true
 	end
 	if inst:IsA("Sound") then
@@ -1186,10 +842,35 @@ local function isVoiceAudioObject(inst)
 	return false
 end
 
-local function setVoiceVolumeOnObject(inst, shouldMute)
+local function setVoiceStateOnObject(inst, shouldMute)
 	if not isVoiceAudioObject(inst) then
 		return
 	end
+
+	if inst:IsA("AudioDeviceInput") then
+		if shouldMute then
+			if mutedInputStates[inst] == nil then
+				local okM, curM = pcall(function()
+					return inst.Muted
+				end)
+				if okM then
+					mutedInputStates[inst] = curM
+				end
+			end
+			pcall(function()
+				inst.Muted = true
+			end)
+		else
+			local prevM = mutedInputStates[inst]
+			if prevM ~= nil then
+				pcall(function()
+					inst.Muted = prevM
+				end)
+				mutedInputStates[inst] = nil
+			end
+		end
+	end
+
 	if shouldMute then
 		if mutedVoiceObjects[inst] == nil then
 			local okVol, curVol = pcall(function()
@@ -1217,9 +898,11 @@ local function scanAndApplyVoiceMute(rootContainer, shouldMute)
 	if not rootContainer then
 		return
 	end
-	for _, desc in ipairs(rootContainer:GetDescendants()) do
-		setVoiceVolumeOnObject(desc, shouldMute)
-	end
+	pcall(function()
+		for _, desc in ipairs(rootContainer:GetDescendants()) do
+			setVoiceStateOnObject(desc, shouldMute)
+		end
+	end)
 end
 
 local function applyAntiVoiceChat(silent)
@@ -1234,8 +917,10 @@ local function applyAntiVoiceChat(silent)
 
 	scanAndApplyVoiceMute(SoundService, shouldMute)
 	scanAndApplyVoiceMute(Workspace, shouldMute)
+	scanAndApplyVoiceMute(CoreGui, shouldMute)
 
 	for _, plr in ipairs(Players:GetPlayers()) do
+		scanAndApplyVoiceMute(plr, shouldMute)
 		if plr.Character then
 			scanAndApplyVoiceMute(plr.Character, shouldMute)
 		end
@@ -1243,11 +928,68 @@ local function applyAntiVoiceChat(silent)
 
 	if not silent then
 		notify(
-			"Anti-Voice Chat",
-			state.antiVoiceChat and "Voice chat audio muted." or "Voice chat audio unmuted.",
+			"Anti-VC Bypass",
+			state.antiVoiceChat and "Voice chat streams muted & bypassed." or "Voice chat audio restored.",
 			state.antiVoiceChat and "mic-off" or "mic"
 		)
 	end
+end
+
+local function suppressIncomingMessage(message)
+	if not message then
+		return nil
+	end
+	if message.TextSource then
+		handleIncomingTagPayload(message.TextSource.Name, message.Text)
+	end
+	if state.antiChatEnabled then
+		local props = Instance.new("TextChatMessageProperties")
+		props.Text = ""
+		if typeof(props.PrefixText) == "string" then
+			props.PrefixText = ""
+		end
+		pcall(function()
+			props.Visible = false
+		end)
+		return props
+	end
+	return nil
+end
+
+local function hookTextChannel(channel)
+	if not channel or not channel:IsA("TextChannel") or hookedChannels[channel] then
+		return
+	end
+	hookedChannels[channel] = true
+	pcall(function()
+		channel.OnIncomingMessage = function(message)
+			return suppressIncomingMessage(message)
+		end
+	end)
+end
+
+local function toggleChatGuiContainer(container, hideFlag)
+	if not container then
+		return
+	end
+	pcall(function()
+		for _, child in ipairs(container:GetChildren()) do
+			if child:IsA("ScreenGui") then
+				local lowerName = child.Name:lower()
+				if lowerName:find("chat") or lowerName:find("bubble") or lowerName:find("experiencechat") then
+					if hideFlag then
+						if savedGuiStates[child] == nil then
+							savedGuiStates[child] = child.Enabled
+						end
+						child.Enabled = false
+					elseif savedGuiStates[child] ~= nil then
+						child.Enabled = savedGuiStates[child]
+						savedGuiStates[child] = nil
+					end
+				end
+			end
+		end
+	end)
 end
 
 local function applyAntiChat(silent)
@@ -1299,26 +1041,20 @@ local function applyAntiChat(silent)
 	end)
 
 	local playerGui = LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui")
-	if playerGui then
-		for _, gui in ipairs(playerGui:GetChildren()) do
-			if gui:IsA("ScreenGui") and (gui.Name == "Chat" or gui.Name == "ExperienceChat") then
-				if active and state.hideChatWindow then
-					if savedLegacyChatStates[gui] == nil then
-						savedLegacyChatStates[gui] = gui.Enabled
-					end
-					gui.Enabled = false
-				elseif savedLegacyChatStates[gui] ~= nil then
-					gui.Enabled = savedLegacyChatStates[gui]
-					savedLegacyChatStates[gui] = nil
-				end
-			end
+	toggleChatGuiContainer(playerGui, active and state.hideChatWindow)
+	toggleChatGuiContainer(CoreGui, active and state.hideChatWindow)
+
+	local channelsFolder = TextChatService:FindFirstChild("TextChannels")
+	if channelsFolder then
+		for _, ch in ipairs(channelsFolder:GetChildren()) do
+			hookTextChannel(ch)
 		end
 	end
 
 	if not silent then
 		notify(
-			"Anti-Chat",
-			active and "Chat blocked & hidden." or "Chat restored.",
+			"Anti-Chat Bypass",
+			active and "Incoming chat cleared & chat UIs hidden." or "Chat UI & messages restored.",
 			active and "message-square-off" or "message-square"
 		)
 	end
@@ -1328,15 +1064,18 @@ local function hookAudioWatcher(container)
 	if not container then
 		return
 	end
-	container.DescendantAdded:Connect(function(desc)
-		if state.antiVoiceChat and state.muteVoiceAudioStreams then
-			setVoiceVolumeOnObject(desc, true)
-		end
+	pcall(function()
+		container.DescendantAdded:Connect(function(desc)
+			if state.antiVoiceChat and state.muteVoiceAudioStreams then
+				setVoiceStateOnObject(desc, true)
+			end
+		end)
 	end)
 end
 
 hookAudioWatcher(SoundService)
 hookAudioWatcher(Workspace)
+hookAudioWatcher(CoreGui)
 pcall(function()
 	local vcService = game:GetService("VoiceChatService")
 	if vcService then
@@ -1345,24 +1084,18 @@ pcall(function()
 end)
 
 pcall(function()
-	if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
-		TextChatService.OnIncomingMessage = function(message)
-			if message.TextSource then
-				handleIncomingTagPayload(message.TextSource.Name, message.Text)
-			end
-			if state.antiChatEnabled then
-				local props = Instance.new("TextChatMessageProperties")
-				props.Text = ""
-				if typeof(props.PrefixText) == "string" then
-					props.PrefixText = ""
-				end
-				pcall(function()
-					props.Visible = false
-				end)
-				return props
-			end
-			return nil
+	TextChatService.OnIncomingMessage = function(message)
+		return suppressIncomingMessage(message)
+	end
+
+	local channelsFolder = TextChatService:FindFirstChild("TextChannels")
+	if channelsFolder then
+		for _, ch in ipairs(channelsFolder:GetChildren()) do
+			hookTextChannel(ch)
 		end
+		channelsFolder.ChildAdded:Connect(function(ch)
+			hookTextChannel(ch)
+		end)
 	end
 end)
 
@@ -1378,220 +1111,18 @@ pcall(function()
 	end
 end)
 
--- === 20 BODY EFFECTS HELPERS ===
-local BODY_FX_FOLDER = "DarkMoonBodyEffects"
-
-local function clearBodyEffects(character)
-	if not character then
-		return
-	end
-	for _, desc in ipairs(character:GetDescendants()) do
-		if desc.Name == BODY_FX_FOLDER then
-			pcall(function()
-				desc:Destroy()
-			end)
+-- Continuous bypass enforcement loop while Anti-Chat or Anti-VC is active
+task.spawn(function()
+	while true do
+		task.wait(1.5)
+		if state.antiVoiceChat and state.muteVoiceAudioStreams then
+			applyAntiVoiceChat(true)
+		end
+		if state.antiChatEnabled then
+			applyAntiChat(true)
 		end
 	end
-end
-
-local function applyBodyEffect(fxConfig, silent)
-	local character = LocalPlayer and LocalPlayer.Character
-	local root = character and (character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso"))
-	if not character or not root or not root:IsA("BasePart") then
-		if not silent then
-			notify("Character Missing", "Wait for your character to spawn first.", "alert-circle")
-		end
-		return
-	end
-
-	clearBodyEffects(character)
-
-	if not state.bodyEffectEnabled or not fxConfig then
-		if not silent then
-			notify("Body FX", "Body effect disabled.", "sparkles")
-		end
-		return
-	end
-
-	state.selectedBodyEffectName = fxConfig.name
-
-	local holder = Instance.new("Folder")
-	holder.Name = BODY_FX_FOLDER
-	holder.Parent = root
-
-	local attTop = Instance.new("Attachment")
-	attTop.Name = "FXTop"
-	attTop.Position = Vector3.new(0, 1.5, 0)
-	attTop.Parent = holder
-
-	local attBot = Instance.new("Attachment")
-	attBot.Name = "FXBot"
-	attBot.Position = Vector3.new(0, -1.5, 0)
-	attBot.Parent = holder
-
-	local emitter = Instance.new("ParticleEmitter")
-	emitter.Name = BODY_FX_FOLDER
-	emitter.Color = ColorSequence.new(fxConfig.color, fxConfig.secondary or fxConfig.color)
-	emitter.Size = fxConfig.size
-	emitter.Rate = fxConfig.rate
-	emitter.Lifetime = NumberRange.new(0.6, 1.35)
-	emitter.Speed = NumberRange.new(1.5, 4.5)
-	emitter.SpreadAngle = Vector2.new(180, 180)
-	emitter.LightEmission = 0.65
-	emitter.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.15),
-		NumberSequenceKeypoint.new(0.8, 0.45),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	emitter.Parent = holder
-
-	if fxConfig.useTrail then
-		local trail = Instance.new("Trail")
-		trail.Name = BODY_FX_FOLDER
-		trail.Attachment0 = attTop
-		trail.Attachment1 = attBot
-		trail.Color = ColorSequence.new(fxConfig.color, fxConfig.secondary or fxConfig.color)
-		trail.Lifetime = 0.45
-		trail.MinLength = 0.1
-		trail.LightEmission = 0.7
-		trail.Parent = holder
-	end
-
-	local pointLight = Instance.new("PointLight")
-	pointLight.Name = BODY_FX_FOLDER
-	pointLight.Color = fxConfig.color
-	pointLight.Brightness = fxConfig.lightBrightness or 1.6
-	pointLight.Range = 9
-	pointLight.Parent = holder
-
-	if not silent then
-		notify("Body FX Active", fxConfig.name, "sparkles")
-	end
-end
-
--- === 10 SKYBOX PRESETS & SKY ANIMATION HELPERS ===
-local SKY_NAME = "DarkMoonCustomSky"
-
-local function removeCustomSky()
-	for _, child in ipairs(Lighting:GetChildren()) do
-		if child:IsA("Sky") and child.Name == SKY_NAME then
-			child:Destroy()
-		end
-	end
-end
-
-local function ensureCustomSky()
-	local sky = Lighting:FindFirstChild(SKY_NAME)
-	if sky and sky:IsA("Sky") then
-		return sky
-	end
-	removeCustomSky()
-	local created = Instance.new("Sky")
-	created.Name = SKY_NAME
-	created.Parent = Lighting
-	return created
-end
-
-local function stopSkyAnimation()
-	if skyAnimConn then
-		skyAnimConn:Disconnect()
-		skyAnimConn = nil
-	end
-end
-
-local function startSkyAnimation(animCfg, silent)
-	stopSkyAnimation()
-	if not state.skyAnimEnabled or not animCfg then
-		if not silent then
-			notify("Sky Animation", "Sky animation stopped.", "cloud-off")
-		end
-		return
-	end
-
-	state.selectedSkyAnimName = animCfg.name
-	skyAnimElapsed = 0
-
-	local sky = ensureCustomSky()
-	sky.SkyboxBk = animCfg.texA or "rbxassetid://159454299"
-	sky.SkyboxDn = animCfg.texA or "rbxassetid://159454299"
-	sky.SkyboxFt = animCfg.texA or "rbxassetid://159454299"
-	sky.SkyboxLf = animCfg.texA or "rbxassetid://159454299"
-	sky.SkyboxRt = animCfg.texA or "rbxassetid://159454299"
-	sky.SkyboxUp = animCfg.texA or "rbxassetid://159454299"
-	sky.CelestialBodiesShown = true
-	sky.StarCount = 3000
-
-	skyAnimConn = RunService.Heartbeat:Connect(function(dt)
-		if not state.skyAnimEnabled then
-			stopSkyAnimation()
-			return
-		end
-		local speed = math.clamp(tonumber(state.skyAnimSpeed) or 1.0, 0.1, 5.0)
-		skyAnimElapsed += dt * speed
-
-		local activeSky = ensureCustomSky()
-		if animCfg.mode == "cycle" then
-			local startH = animCfg.startHour or 18.0
-			local endH = animCfg.endHour or 24.0
-			local span = math.max(1.0, endH - startH)
-			local t = (skyAnimElapsed * 0.25) % 1
-			Lighting.ClockTime = (startH + (span * t)) % 24
-			local useAltTex = (t > 0.5)
-			local chosenTex = useAltTex and (animCfg.texB or animCfg.texA) or (animCfg.texA or "rbxassetid://159454299")
-			activeSky.SkyboxBk = chosenTex
-			activeSky.SkyboxDn = chosenTex
-			activeSky.SkyboxFt = chosenTex
-			activeSky.SkyboxLf = chosenTex
-			activeSky.SkyboxRt = chosenTex
-			activeSky.SkyboxUp = chosenTex
-		else
-			local wave = (math.sin(skyAnimElapsed * 1.4) + 1) * 0.5
-			local baseH = animCfg.baseHour or 21.5
-			Lighting.ClockTime = (baseH + (wave - 0.5) * 4.0) % 24
-			activeSky.SunAngularSize = 10 + (wave * 10)
-			activeSky.MoonAngularSize = 11 + ((1 - wave) * 8)
-		end
-	end)
-
-	if not silent then
-		notify("Sky Animation Active", animCfg.name, "cloud")
-	end
-end
-
-local function applySkyBoxPreset(skyCfg, silent)
-	if not state.skyBoxEnabled or not skyCfg then
-		if not state.skyAnimEnabled then
-			removeCustomSky()
-			Lighting.ClockTime = defaultLightingSnap.ClockTime
-		end
-		if not silent then
-			notify("Sky Box", "Custom skybox disabled.", "cloud-off")
-		end
-		return
-	end
-
-	stopSkyAnimation()
-	state.skyAnimEnabled = false
-	state.selectedSkyBoxName = skyCfg.name
-
-	local sky = ensureCustomSky()
-	sky.SkyboxBk = skyCfg.tex
-	sky.SkyboxDn = skyCfg.tex
-	sky.SkyboxFt = skyCfg.tex
-	sky.SkyboxLf = skyCfg.tex
-	sky.SkyboxRt = skyCfg.tex
-	sky.SkyboxUp = skyCfg.tex
-	sky.SunAngularSize = skyCfg.sunAngularSize or 11
-	sky.MoonAngularSize = skyCfg.moonAngularSize or 14
-	sky.StarCount = skyCfg.starCount or 2500
-	sky.CelestialBodiesShown = (skyCfg.celestialBodiesShown ~= false)
-
-	Lighting.ClockTime = math.clamp(tonumber(skyCfg.clockTime) or 21.5, 0, 24)
-
-	if not silent then
-		notify("Sky Box Active", skyCfg.name, "cloud")
-	end
-end
+end)
 
 -- === UGC EMOTE HELPERS (WITH ASSET/EMOTE ID RESOLUTION) ===
 local function stopCurrentUGCEmote(silent)
@@ -2053,9 +1584,9 @@ local function performTrollAction(actionType)
 	end
 
 	local myChar = LocalPlayer and LocalPlayer.Character
-	local myRoot = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("UpperTorso") or myChar:FindFirstChild("Torso"))
+	local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
 	local targetChar = targetPlr.Character
-	local targetRoot = targetChar and (targetChar:FindFirstChild("HumanoidRootPart") or targetChar:FindFirstChild("UpperTorso") or targetChar:FindFirstChild("Torso"))
+	local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
 
 	if not myRoot or not myRoot:IsA("BasePart") then
 		notify("Character Missing", "Wait for your character to spawn.", "alert-circle")
@@ -2079,19 +1610,11 @@ local function performTrollAction(actionType)
 
 	if actionType == "kiss" then
 		local kissSpot = targetPos + (flatForward * dist)
-		local goalCF = CFrame.lookAt(kissSpot, Vector3.new(targetPos.X, kissSpot.Y, targetPos.Z))
-		pcall(function()
-			TweenService:Create(myRoot, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { CFrame = goalCF }):Play()
-		end)
-		myRoot.CFrame = goalCF
+		myRoot.CFrame = CFrame.lookAt(kissSpot, Vector3.new(targetPos.X, kissSpot.Y, targetPos.Z))
 		notify("Kiss", "Kissed " .. targetPlr.Name .. " 💋", "heart")
 	elseif actionType == "hug" then
-		local hugSpot = targetPos + (flatForward * math.max(0.9, dist * 0.8))
-		local goalCF = CFrame.lookAt(hugSpot, Vector3.new(targetPos.X, hugSpot.Y, targetPos.Z))
-		pcall(function()
-			TweenService:Create(myRoot, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { CFrame = goalCF }):Play()
-		end)
-		myRoot.CFrame = goalCF
+		local hugSpot = targetPos + (flatForward * math.max(0.95, dist * 0.85))
+		myRoot.CFrame = CFrame.lookAt(hugSpot, Vector3.new(targetPos.X, hugSpot.Y, targetPos.Z))
 		notify("Hug", "Hugged " .. targetPlr.Name .. " 🤗", "sparkles")
 	end
 end
@@ -2204,31 +1727,22 @@ local function applyAnimationBundle(bundle, silent)
 
 	isApplyingBundle = true
 
-	local okApply, errApply = pcall(function()
-		if not originalAnimateIds then
-			originalAnimateIds = snapshotDefaultAnimate(animate)
-		end
+	if not originalAnimateIds then
+		originalAnimateIds = snapshotDefaultAnimate(animate)
+	end
 
-		writeBundleAnimValue(animate, "idle", bundle.idle)
-		writeBundleAnimValue(animate, "walk", bundle.walk)
-		writeBundleAnimValue(animate, "run", bundle.run)
-		writeBundleAnimValue(animate, "jump", bundle.jump)
-		writeBundleAnimValue(animate, "fall", bundle.fall)
-		writeBundleAnimValue(animate, "climb", bundle.climb)
+	writeBundleAnimValue(animate, "idle", bundle.idle)
+	writeBundleAnimValue(animate, "walk", bundle.walk)
+	writeBundleAnimValue(animate, "run", bundle.run)
+	writeBundleAnimValue(animate, "jump", bundle.jump)
+	writeBundleAnimValue(animate, "fall", bundle.fall)
+	writeBundleAnimValue(animate, "climb", bundle.climb)
 
-		state.activeBundle = bundle
-		state.selectedBundleName = bundle.name
-		refreshAnimateState(character)
-	end)
+	state.activeBundle = bundle
+	state.selectedBundleName = bundle.name
+	refreshAnimateState(character)
 
 	isApplyingBundle = false
-
-	if not okApply then
-		if not silent then
-			notify("Animation Error", tostring(errApply), "x-circle")
-		end
-		return
-	end
 
 	if not silent then
 		notify("Animation Applied", bundle.name .. " animation pack active.", "user-check")
@@ -2248,34 +1762,44 @@ local function resetAnimationBundle()
 
 	isApplyingBundle = true
 
-	pcall(function()
-		for valueName, animMap in pairs(originalAnimateIds) do
-			local valObj = animate:FindFirstChild(valueName)
-			if valObj and valObj:IsA("StringValue") then
-				for _, animChild in ipairs(valObj:GetChildren()) do
-					if animChild:IsA("Animation") and animMap[animChild.Name] then
-						animChild.AnimationId = animMap[animChild.Name]
-					end
+	for valueName, animMap in pairs(originalAnimateIds) do
+		local valObj = animate:FindFirstChild(valueName)
+		if valObj and valObj:IsA("StringValue") then
+			for _, animChild in ipairs(valObj:GetChildren()) do
+				if animChild:IsA("Animation") and animMap[animChild.Name] then
+					animChild.AnimationId = animMap[animChild.Name]
 				end
 			end
 		end
+	end
 
-		refreshAnimateState(character)
-	end)
-
+	refreshAnimateState(character)
 	isApplyingBundle = false
 	notify("Animation Reset", "Reverted to default animations.", "rotate-ccw")
 end
 
 local function hookPlayerCharacter(plr)
+	hookAudioWatcher(plr)
 	if plr.Character then
 		applyPlayerHeadTag(plr, plr.Character)
+		hookAudioWatcher(plr.Character)
+		if plr == LocalPlayer then
+			if state.headlessEnabled then
+				applyHeadlessToCharacter(plr.Character, true)
+			end
+			if state.korbloxEnabled then
+				applyKorbloxToCharacter(plr.Character, true)
+			end
+		end
 		if state.antiVoiceChat and state.muteVoiceAudioStreams then
 			scanAndApplyVoiceMute(plr.Character, true)
 		end
 	end
 	plr.CharacterAdded:Connect(function(char)
+		hookAudioWatcher(char)
 		if plr == LocalPlayer then
+			spatialSound = nil
+			table.clear(savedLimbSnapshots)
 			originalAnimateIds = nil
 			isApplyingBundle = false
 			currentUGCEmoteTrack = nil
@@ -2295,6 +1819,17 @@ local function hookPlayerCharacter(plr)
 		end
 
 		if plr == LocalPlayer then
+			if state.persistLimitedsOnRespawn then
+				if state.headlessEnabled then
+					applyHeadlessToCharacter(char, true)
+				end
+				if state.korbloxEnabled then
+					applyKorbloxToCharacter(char, true)
+				end
+			end
+			if state.shareToOthers then
+				syncSpatialSoundPlayback()
+			end
 			if state.bundleAutoRespawn and state.activeBundle then
 				applyAnimationBundle(state.activeBundle, true)
 			end
@@ -2302,17 +1837,6 @@ local function hookPlayerCharacter(plr)
 				playUGCEmote(state.activeUGCEmoteId, state.selectedUGCEmoteName)
 			else
 				state.activeUGCEmoteId = nil
-			end
-			if state.bodyEffectEnabled and state.bodyEffectAutoRespawn then
-				local fxCfg = BodyEffectByName[state.selectedBodyEffectName] or BodyEffectsList[1]
-				applyBodyEffect(fxCfg, true)
-			end
-			if state.skyAnimEnabled then
-				local animCfg = SkyAnimByName[state.selectedSkyAnimName] or SkyAnimationPresets[1]
-				startSkyAnimation(animCfg, true)
-			elseif state.skyBoxEnabled then
-				local skyCfg = SkyBoxByName[state.selectedSkyBoxName] or SkyBoxPresets[1]
-				applySkyBoxPreset(skyCfg, true)
 			end
 			if state.atmosEnabled then
 				applyAtmosphereSettings(true)
@@ -2481,7 +2005,6 @@ local function playRobloxId(raw, label)
 	state.sourceMode = "roblox"
 	state.currentId = digits
 	state.currentTitle = label or ("ID: " .. digits)
-	state.mm2RadioId = digits
 
 	Sound:Stop()
 	Sound.SoundId = "rbxassetid://" .. digits
@@ -2489,12 +2012,10 @@ local function playRobloxId(raw, label)
 	Sound.PlaybackSpeed = state.speed
 	Sound:Play()
 
+	syncSpatialSoundPlayback()
+
 	updateStatus("Playing: " .. state.currentTitle)
 	notify("Playing", state.currentTitle)
-
-	if state.mm2AutoSyncPlayer then
-		playSongOnMM2Radio(digits, state.currentTitle, true)
-	end
 end
 
 local function playFileByLabel(lbl)
@@ -2522,6 +2043,8 @@ local function playFileByLabel(lbl)
 		Sound.Looped = state.loopSingle
 		Sound.PlaybackSpeed = state.speed
 		Sound:Play()
+
+		syncSpatialSoundPlayback()
 
 		updateStatus("Playing Local: " .. lbl)
 		notify("Playing File", lbl)
@@ -2570,6 +2093,7 @@ Sound.Ended:Connect(function()
 	if not state.loopSingle and state.autoNext then
 		playNextTrack(1)
 	else
+		syncSpatialSoundPlayback()
 		updateStatus("Stopped / Ended: " .. state.currentTitle)
 	end
 end)
@@ -2650,6 +2174,7 @@ local function applyAudioPreset(preset)
 		Reverb.Enabled = false
 	end
 	Sound.PlaybackSpeed = state.speed
+	syncSpatialSoundPlayback()
 	notify("Audio FX", "Applied preset: " .. preset, "sliders")
 end
 
@@ -2678,14 +2203,12 @@ Window:EditOpenButton({
 })
 
 local PlayerTab = Window:Tab({ Title = "Player", Icon = "headphones" })
-local MM2RadioTab = Window:Tab({ Title = "MM2 Radio", Icon = "radio" })
+local LimitedsTab = Window:Tab({ Title = "Headless & Korblox", Icon = "crown" })
 local UGCEmotesTab = Window:Tab({ Title = "UGC Emotes (20)", Icon = "sparkles" })
-local AnimationsTab = Window:Tab({ Title = "Animations (40)", Icon = "user-check" })
-local BodyFxTab = Window:Tab({ Title = "Body FX (20)", Icon = "flame" })
-local SkyBoxTab = Window:Tab({ Title = "Sky Box & Anim", Icon = "cloud" })
+local AnimationsTab = Window:Tab({ Title = "Animations", Icon = "user-check" })
 local TrollTab = Window:Tab({ Title = "Trolling", Icon = "heart" })
 local TagTab = Window:Tab({ Title = "Head Tag", Icon = "moon" })
-local AtmosTab = Window:Tab({ Title = "Atmosphere", Icon = "sun" })
+local AtmosTab = Window:Tab({ Title = "Atmosphere", Icon = "cloud" })
 local AntiTab = Window:Tab({ Title = "Anti-Chat & VC", Icon = "shield" })
 local LibraryTab = Window:Tab({ Title = "My Songs", Icon = "download" })
 local FavTab = Window:Tab({ Title = "Favorites", Icon = "star" })
@@ -2730,6 +2253,33 @@ PlayerTab:Button({
 	end,
 })
 
+PlayerTab:Section({ Title = "Proximity / Game Audio Share" })
+
+PlayerTab:Toggle({
+	Title = "Share Track to Nearby / Game Audio",
+	Desc = "Anchors Roblox audio to character & triggers audio remotes",
+	Value = false,
+	Callback = function(v)
+		state.shareToOthers = v
+		syncSpatialSoundPlayback()
+		notify(
+			"Audio Share",
+			v and "Enabled spatial character emitter & remote scan." or "Disabled spatial character emitter.",
+			"radio"
+		)
+	end,
+})
+
+PlayerTab:Slider({
+	Title = "Proximity Range (Studs)",
+	Step = 5,
+	Value = { Min = 20, Max = 200, Default = 80 },
+	Callback = function(v)
+		state.shareRange = v
+		syncSpatialSoundPlayback()
+	end,
+})
+
 PlayerTab:Section({ Title = "Tracks & Roblox ID" })
 
 PlayerTab:Dropdown({
@@ -2771,6 +2321,7 @@ PlayerTab:Button({
 			playRobloxId(state.currentId, state.currentTitle)
 		elseif not Sound.IsPlaying then
 			Sound:Resume()
+			syncSpatialSoundPlayback()
 			updateStatus("Playing: " .. state.currentTitle)
 		end
 	end,
@@ -2782,6 +2333,7 @@ PlayerTab:Button({
 	Callback = function()
 		if Sound.IsPlaying then
 			Sound:Pause()
+			syncSpatialSoundPlayback()
 			updateStatus("Paused: " .. state.currentTitle)
 		end
 	end,
@@ -2808,6 +2360,7 @@ PlayerTab:Button({
 	Icon = "square",
 	Callback = function()
 		Sound:Stop()
+		syncSpatialSoundPlayback()
 		updateStatus("Stopped")
 	end,
 })
@@ -2821,6 +2374,7 @@ PlayerTab:Slider({
 	Callback = function(v)
 		state.volume = v
 		Sound.Volume = v
+		syncSpatialSoundPlayback()
 	end,
 })
 
@@ -2830,6 +2384,7 @@ PlayerTab:Toggle({
 	Callback = function(v)
 		state.loopSingle = v
 		Sound.Looped = v
+		syncSpatialSoundPlayback()
 	end,
 })
 
@@ -2849,65 +2404,121 @@ PlayerTab:Toggle({
 	end,
 })
 
--- === TAB 2: MURDER MYSTERY 2 (MM2) RADIO ===
-MM2RadioTab:Section({ Title = "MM2 Radio Status & Sync" })
+-- === TAB 2: HEADLESS & KORBLOX LIMITEDS ===
+LimitedsTab:Section({ Title = "Headless Horseman" })
 
-MM2StatusParagraph = MM2RadioTab:Paragraph({
-	Title = "Radio Status",
-	Desc = "Ready — Play any Roblox Audio ID on your MM2 Radio",
-})
-
-MM2RadioTab:Toggle({
-	Title = "Auto-Send Player Songs to MM2 Radio",
-	Desc = "Automatically sends tracks played in Player tab to MM2 Radio",
+LimitedsTab:Toggle({
+	Title = "Enable Headless Head",
+	Desc = "Hides Head mesh, face decals & head accessories",
 	Value = false,
 	Callback = function(v)
-		state.mm2AutoSyncPlayer = v
-		notify("MM2 Radio Sync", v and "Auto-sync enabled." or "Auto-sync disabled.", "radio")
+		state.headlessEnabled = v
+		if LocalPlayer and LocalPlayer.Character then
+			applyHeadlessToCharacter(LocalPlayer.Character, false)
+		end
 	end,
 })
 
-MM2RadioTab:Section({ Title = "Play Any Song ID on MM2 Radio" })
-
-MM2RadioTab:Input({
-	Title = "Any Roblox Audio ID",
-	Desc = "Paste any numeric sound ID to play on your MM2 Radio",
-	Placeholder = "1848354536",
+LimitedsTab:Toggle({
+	Title = "Hide Head Accessories / Hats",
+	Desc = "Hides hats/hair attached to head when Headless is active",
+	Value = true,
 	Callback = function(v)
-		state.mm2RadioId = v
+		state.hideHeadAccessories = v
+		if LocalPlayer and LocalPlayer.Character then
+			setHeadAccessoriesHidden(LocalPlayer.Character, state.headlessEnabled)
+		end
 	end,
 })
 
-MM2RadioTab:Button({
-	Title = "Play Typed ID on MM2 Radio",
-	Icon = "radio",
+LimitedsTab:Section({ Title = "Korblox Deathspeaker Leg" })
+
+LimitedsTab:Toggle({
+	Title = "Enable Korblox Right Leg",
+	Desc = "Applies Korblox right leg styling on R15 & R6",
+	Value = false,
+	Callback = function(v)
+		state.korbloxEnabled = v
+		if LocalPlayer and LocalPlayer.Character then
+			applyKorbloxToCharacter(LocalPlayer.Character, false)
+		end
+	end,
+})
+
+LimitedsTab:Toggle({
+	Title = "Slim Korblox Leg Profile",
+	Desc = "Tapers lower right leg for a classic Korblox look",
+	Value = true,
+	Callback = function(v)
+		state.korbloxSlimLeg = v
+		if LocalPlayer and LocalPlayer.Character and state.korbloxEnabled then
+			applyKorbloxToCharacter(LocalPlayer.Character, true)
+		end
+	end,
+})
+
+LimitedsTab:Dropdown({
+	Title = "Korblox Leg Shade",
+	Values = { "Void Obsidian", "Midnight Violet", "Shadow Slate", "Crimson Edge" },
+	Value = "Void Obsidian",
+	Callback = function(shade)
+		if shade == "Midnight Violet" then
+			state.korbloxColor = Color3.fromHex("2E1065")
+		elseif shade == "Shadow Slate" then
+			state.korbloxColor = Color3.fromHex("1E293B")
+		elseif shade == "Crimson Edge" then
+			state.korbloxColor = Color3.fromHex("450A0A")
+		else
+			state.korbloxColor = Color3.fromHex("111118")
+		end
+		if LocalPlayer and LocalPlayer.Character and state.korbloxEnabled then
+			applyKorbloxToCharacter(LocalPlayer.Character, true)
+		end
+	end,
+})
+
+LimitedsTab:Section({ Title = "Persistence & Sync" })
+
+LimitedsTab:Toggle({
+	Title = "Keep Limiteds After Respawn",
+	Desc = "Automatically re-applies Headless & Korblox on spawn",
+	Value = true,
+	Callback = function(v)
+		state.persistLimitedsOnRespawn = v
+	end,
+})
+
+LimitedsTab:Toggle({
+	Title = "Try Game Avatar/Morph Remotes",
+	Desc = "Fires matching avatar/morph remotes if game supports them",
+	Value = false,
+	Callback = function(v)
+		state.tryAvatarRemotes = v
+		if v then
+			applyLimitedsNow(true)
+		end
+	end,
+})
+
+LimitedsTab:Button({
+	Title = "Apply Both Headless + Korblox",
+	Icon = "crown",
 	Callback = function()
-		playSongOnMM2Radio(state.mm2RadioId, "Typed ID", false)
+		state.headlessEnabled = true
+		state.korbloxEnabled = true
+		applyLimitedsNow(false)
 	end,
 })
 
-MM2RadioTab:Button({
-	Title = "Send Current Player Track to MM2 Radio",
-	Icon = "send",
+LimitedsTab:Button({
+	Title = "Reset Both Headless + Korblox",
+	Icon = "rotate-ccw",
 	Callback = function()
-		playSongOnMM2Radio(state.currentId, state.currentTitle, false)
+		state.headlessEnabled = false
+		state.korbloxEnabled = false
+		applyLimitedsNow(false)
 	end,
 })
-
-MM2RadioTab:Section({ Title = "Quick Playlist Tracks for MM2 Radio" })
-
-for _, track in ipairs(Tracks) do
-	if track.id ~= "0" then
-		MM2RadioTab:Button({
-			Title = track.label,
-			Desc = "ID: " .. track.id,
-			Icon = "music",
-			Callback = function()
-				playSongOnMM2Radio(track.id, track.label, false)
-			end,
-		})
-	end
-end
 
 -- === TAB 3: ROBLOX MARKETPLACE UGC EMOTES (20) ===
 UGCEmotesTab:Section({ Title = "UGC Emote Search & Quick Controls" })
@@ -3032,11 +2643,11 @@ UGCEmotesTab:Button({
 	end,
 })
 
--- === TAB 4: ANIMATIONS (40) ===
+-- === TAB 4: ANIMATIONS ===
 AnimationsTab:Section({ Title = "Animation Controls (R15)" })
 
 AnimationsTab:Dropdown({
-	Title = "Select Animation (40)",
+	Title = "Select Animation",
 	Values = BundleNames,
 	Value = BundleNames[1],
 	Callback = function(selectedBundle)
@@ -3075,7 +2686,7 @@ AnimationsTab:Toggle({
 	end,
 })
 
-AnimationsTab:Section({ Title = "All 40 Animations" })
+AnimationsTab:Section({ Title = "All 20 Animations" })
 
 for _, bundle in ipairs(AnimationBundles) do
 	AnimationsTab:Button({
@@ -3088,176 +2699,7 @@ for _, bundle in ipairs(AnimationBundles) do
 	})
 end
 
--- === TAB 5: BODY EFFECTS (20) ===
-BodyFxTab:Section({ Title = "Body FX Controls" })
-
-BodyFxTab:Toggle({
-	Title = "Enable Body Effect",
-	Value = false,
-	Callback = function(v)
-		state.bodyEffectEnabled = v
-		local fxCfg = BodyEffectByName[state.selectedBodyEffectName] or BodyEffectsList[1]
-		applyBodyEffect(fxCfg, false)
-	end,
-})
-
-BodyFxTab:Dropdown({
-	Title = "Select Body Effect (20)",
-	Values = BodyEffectNames,
-	Value = BodyEffectNames[1],
-	Callback = function(selectedFx)
-		local fxCfg = selectedFx and BodyEffectByName[selectedFx]
-		if fxCfg then
-			state.selectedBodyEffectName = fxCfg.name
-			state.bodyEffectEnabled = true
-			applyBodyEffect(fxCfg, false)
-		end
-	end,
-})
-
-BodyFxTab:Toggle({
-	Title = "Keep Body Effect After Respawn",
-	Value = true,
-	Callback = function(v)
-		state.bodyEffectAutoRespawn = v
-	end,
-})
-
-BodyFxTab:Button({
-	Title = "Clear Body Effect",
-	Icon = "trash-2",
-	Callback = function()
-		state.bodyEffectEnabled = false
-		clearBodyEffects(LocalPlayer and LocalPlayer.Character)
-		notify("Body FX", "Cleared active body effect.", "trash")
-	end,
-})
-
-BodyFxTab:Section({ Title = "All 20 Body Effects" })
-
-for _, fx in ipairs(BodyEffectsList) do
-	BodyFxTab:Button({
-		Title = fx.name,
-		Icon = "flame",
-		Callback = function()
-			state.selectedBodyEffectName = fx.name
-			state.bodyEffectEnabled = true
-			applyBodyEffect(fx, false)
-		end,
-	})
-end
-
--- === TAB 6: SKY BOX (10) & SKY ANIMATIONS ===
-SkyBoxTab:Section({ Title = "Sky Animations" })
-
-SkyBoxTab:Toggle({
-	Title = "Enable Sky Animation",
-	Desc = "Animates sky cycle & celestial motion smoothly",
-	Value = false,
-	Callback = function(v)
-		state.skyAnimEnabled = v
-		if v then
-			state.skyBoxEnabled = true
-			local animCfg = SkyAnimByName[state.selectedSkyAnimName] or SkyAnimationPresets[1]
-			startSkyAnimation(animCfg, false)
-		else
-			stopSkyAnimation()
-			notify("Sky Animation", "Sky animation paused.", "cloud-off")
-		end
-	end,
-})
-
-SkyBoxTab:Dropdown({
-	Title = "Select Sky Animation (5)",
-	Values = SkyAnimNames,
-	Value = SkyAnimNames[1],
-	Callback = function(selectedAnim)
-		local animCfg = selectedAnim and SkyAnimByName[selectedAnim]
-		if animCfg then
-			state.selectedSkyAnimName = animCfg.name
-			state.skyAnimEnabled = true
-			state.skyBoxEnabled = true
-			startSkyAnimation(animCfg, false)
-		end
-	end,
-})
-
-SkyBoxTab:Slider({
-	Title = "Sky Animation Speed",
-	Step = 0.1,
-	Value = { Min = 0.2, Max = 4.0, Default = 1.0 },
-	Callback = function(v)
-		state.skyAnimSpeed = v
-	end,
-})
-
-SkyBoxTab:Section({ Title = "All 5 Sky Animations" })
-
-for _, animCfg in ipairs(SkyAnimationPresets) do
-	SkyBoxTab:Button({
-		Title = animCfg.name,
-		Icon = "play-circle",
-		Callback = function()
-			state.selectedSkyAnimName = animCfg.name
-			state.skyAnimEnabled = true
-			state.skyBoxEnabled = true
-			startSkyAnimation(animCfg, false)
-		end,
-	})
-end
-
-SkyBoxTab:Section({ Title = "Static Sky Box Controls" })
-
-SkyBoxTab:Toggle({
-	Title = "Enable Custom Sky Box",
-	Value = false,
-	Callback = function(v)
-		state.skyBoxEnabled = v
-		local skyCfg = SkyBoxByName[state.selectedSkyBoxName] or SkyBoxPresets[1]
-		applySkyBoxPreset(skyCfg, false)
-	end,
-})
-
-SkyBoxTab:Dropdown({
-	Title = "Select Sky Box (10)",
-	Values = SkyBoxNames,
-	Value = SkyBoxNames[1],
-	Callback = function(selectedSky)
-		local skyCfg = selectedSky and SkyBoxByName[selectedSky]
-		if skyCfg then
-			state.selectedSkyBoxName = skyCfg.name
-			state.skyBoxEnabled = true
-			applySkyBoxPreset(skyCfg, false)
-		end
-	end,
-})
-
-SkyBoxTab:Button({
-	Title = "Reset to Default Sky",
-	Icon = "rotate-ccw",
-	Callback = function()
-		state.skyAnimEnabled = false
-		state.skyBoxEnabled = false
-		stopSkyAnimation()
-		applySkyBoxPreset(nil, false)
-	end,
-})
-
-SkyBoxTab:Section({ Title = "All 10 Sky Boxes" })
-
-for _, skyCfg in ipairs(SkyBoxPresets) do
-	SkyBoxTab:Button({
-		Title = skyCfg.name,
-		Icon = "cloud",
-		Callback = function()
-			state.selectedSkyBoxName = skyCfg.name
-			state.skyBoxEnabled = true
-			applySkyBoxPreset(skyCfg, false)
-		end,
-	})
-end
-
--- === TAB 7: TROLLING (KISS & HUG) ===
+-- === TAB 5: TROLLING (KISS & HUG) ===
 TrollTab:Section({ Title = "Target Player" })
 
 refreshTrollTargets()
@@ -3311,7 +2753,7 @@ TrollTab:Button({
 	end,
 })
 
--- === TAB 8: SMALL HEAD TAG (MOON + MEOW + SHARED SCRIPT SYNC) ===
+-- === TAB 6: SMALL HEAD TAG (MOON + MEOW + SHARED SCRIPT SYNC) ===
 TagTab:Section({ Title = "Small Head Tag (Moon + Meow)" })
 
 TagTab:Toggle({
@@ -3386,7 +2828,7 @@ TagTab:Button({
 	end,
 })
 
--- === TAB 9: ATMOSPHERE CUSTOMIZATION ===
+-- === TAB 7: ATMOSPHERE CUSTOMIZATION ===
 AtmosTab:Section({ Title = "Atmosphere Presets" })
 
 AtmosTab:Toggle({
@@ -3491,12 +2933,12 @@ AtmosTab:Slider({
 	end,
 })
 
--- === TAB 10: ANTI-CHAT & ANTI-VOICE CHAT ===
-AntiTab:Section({ Title = "Anti-Voice Chat" })
+-- === TAB 8: ANTI-CHAT & ANTI-VOICE CHAT BYPASS ===
+AntiTab:Section({ Title = "Anti-Voice Chat Bypass" })
 
 AntiTab:Toggle({
-	Title = "Enable Anti-Voice Chat",
-	Desc = "Mutes voice chat audio streams on your client",
+	Title = "Enable Anti-Voice Chat Bypass",
+	Desc = "Mutes voice chat streams & blocks incoming voice audio",
 	Value = false,
 	Callback = function(v)
 		state.antiVoiceChat = v
@@ -3506,7 +2948,7 @@ AntiTab:Toggle({
 
 AntiTab:Toggle({
 	Title = "Mute Voice Audio Streams",
-	Desc = "Zeroes volume on voice audio nodes & players",
+	Desc = "Zeroes volume & mutes voice audio nodes continuously",
 	Value = true,
 	Callback = function(v)
 		state.muteVoiceAudioStreams = v
@@ -3515,7 +2957,7 @@ AntiTab:Toggle({
 })
 
 AntiTab:Button({
-	Title = "Re-Scan & Mute Voice Streams",
+	Title = "Force Re-Scan & Mute VC Streams",
 	Icon = "mic-off",
 	Callback = function()
 		state.antiVoiceChat = true
@@ -3523,11 +2965,11 @@ AntiTab:Button({
 	end,
 })
 
-AntiTab:Section({ Title = "Anti-Chat" })
+AntiTab:Section({ Title = "Anti-Chat Bypass" })
 
 AntiTab:Toggle({
-	Title = "Enable Anti-Chat",
-	Desc = "Hides chat & clears incoming chat text locally",
+	Title = "Enable Anti-Chat Bypass",
+	Desc = "Clears incoming chat messages & hides chat GUIs",
 	Value = false,
 	Callback = function(v)
 		state.antiChatEnabled = v
@@ -3568,7 +3010,16 @@ AntiTab:Toggle({
 	end,
 })
 
--- === TAB 11: MY SONGS (DOWNLOAD & LOCAL) ===
+AntiTab:Button({
+	Title = "Force Re-Apply Chat Bypass",
+	Icon = "message-square-off",
+	Callback = function()
+		state.antiChatEnabled = true
+		applyAntiChat(false)
+	end,
+})
+
+-- === TAB 9: MY SONGS (DOWNLOAD & LOCAL) ===
 LibraryTab:Section({ Title = "Add Downloaded Song" })
 
 LibraryTab:Input({
@@ -3667,7 +3118,7 @@ LibraryTab:Button({
 	end,
 })
 
--- === TAB 12: FAVORITES ===
+-- === TAB 10: FAVORITES ===
 FavTab:Section({ Title = "Quick Favorites" })
 
 FavTab:Button({
@@ -3748,7 +3199,7 @@ FavTab:Button({
 	end,
 })
 
--- === TAB 13: AUDIO FX ===
+-- === TAB 11: AUDIO FX ===
 FxTab:Section({ Title = "One-Tap Sound Presets" })
 
 FxTab:Dropdown({
@@ -3769,6 +3220,7 @@ FxTab:Slider({
 	Callback = function(v)
 		state.speed = v
 		Sound.PlaybackSpeed = v
+		syncSpatialSoundPlayback()
 	end,
 })
 
