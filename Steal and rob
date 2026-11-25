@@ -16,7 +16,7 @@ local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubV16",
+	Folder = "PremiumYutaHubV17",
 	Size = UDim2.fromOffset(550, 530),
 	MinSize = Vector2.new(440, 320),
 	MaxSize = Vector2.new(740, 640),
@@ -68,7 +68,7 @@ local State = {
 	UnderMapLockY = true,
 	ShowFloatingUnderBtn = true,
 	ShowFloatingBaseBtn = true,
-	FloatingBtnWidth = 156,
+	FloatingBtnSize = 72,
 	SpeedEnabled = false,
 	JumpEnabled = false,
 	BoxESP = false,
@@ -115,7 +115,7 @@ local sharedOverlapParams = OverlapParams.new()
 sharedOverlapParams.FilterType = Enum.RaycastFilterType.Exclude
 
 local function markMovementIntent(duration)
-	State.IgnoreUnusualUntil = math.max(State.IgnoreUnusualUntil, os.clock() + (duration or 0.45))
+	State.IgnoreUnusualUntil = math.max(State.IgnoreUnusualUntil, os.clock() + (duration or 0.5))
 end
 
 local function isValidVector3(v)
@@ -223,6 +223,22 @@ underPlatform.Transparency = 0.75
 underPlatform.Material = Enum.Material.SmoothPlastic
 underPlatform.Parent = nil
 
+local underMapToggleRef = nil
+local refreshFloatingButtonVisual = nil
+
+local function syncUnderMapToggleUI(value)
+	if underMapToggleRef and underMapToggleRef.Set then
+		State.SyncingToggle = true
+		pcall(function()
+			underMapToggleRef:Set(value)
+		end)
+		State.SyncingToggle = false
+	end
+	if refreshFloatingButtonVisual then
+		refreshFloatingButtonVisual()
+	end
+end
+
 local function saveCurrentBaseSpot()
 	local root = Cached.Root
 	if not root then return false end
@@ -240,21 +256,36 @@ local function teleportToSavedBase()
 		if underPlatform then
 			underPlatform.Parent = nil
 		end
+		syncUnderMapToggleUI(false)
 	end
 
-	markMovementIntent(0.75)
+	markMovementIntent(1.25)
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 
 	local targetPos = State.SavedBaseCFrame.Position + Vector3.new(0, 2.5, 0)
 	local look = State.SavedBaseCFrame.LookVector
 	local flatLook = Vector3.new(look.X, 0, look.Z)
+	local finalCF = nil
 	if flatLook.Magnitude > 0.001 then
-		root.CFrame = CFrame.new(targetPos, targetPos + flatLook.Unit)
+		finalCF = CFrame.new(targetPos, targetPos + flatLook.Unit)
 	else
-		root.CFrame = CFrame.new(targetPos)
+		finalCF = CFrame.new(targetPos)
 	end
-	State.LastCleanCFrame = root.CFrame
+
+	root.CFrame = finalCF
+	State.LastCleanCFrame = finalCF
+
+	task.defer(function()
+		if root and root.Parent and not State.Unloaded then
+			markMovementIntent(0.9)
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+			root.CFrame = finalCF
+			State.LastCleanCFrame = finalCF
+		end
+	end)
+
 	return true
 end
 
@@ -412,7 +443,7 @@ local function executeHardWallBypass(forceScan)
 		chosenPos = root.Position + (flatDir * math.min(maxDist, 14))
 	end
 
-	markMovementIntent(0.55)
+	markMovementIntent(0.75)
 	local curY = isValidVector3(root.AssemblyLinearVelocity) and math.max(root.AssemblyLinearVelocity.Y, 0) or 0
 	root.AssemblyLinearVelocity = Vector3.new(0, curY, 0)
 	root.AssemblyAngularVelocity = Vector3.zero
@@ -425,22 +456,6 @@ end
 -- ==========================================
 -- BUG-RESISTANT UNDER MAP & RETURN SYSTEM
 -- ==========================================
-local underMapToggleRef = nil
-local refreshFloatingButtonVisual = nil
-
-local function syncUnderMapToggleUI(value)
-	if underMapToggleRef and underMapToggleRef.Set then
-		State.SyncingToggle = true
-		pcall(function()
-			underMapToggleRef:Set(value)
-		end)
-		State.SyncingToggle = false
-	end
-	if refreshFloatingButtonVisual then
-		refreshFloatingButtonVisual()
-	end
-end
-
 local function ensureUnderPlatform()
 	if not underPlatform or not underPlatform.Parent then
 		underPlatform = Instance.new("Part")
@@ -457,7 +472,7 @@ end
 local function updateUnderMapLoop(root)
 	if not State.UnderMap or not root then return end
 	ensureUnderPlatform()
-	markMovementIntent(0.2)
+	markMovementIntent(0.25)
 
 	local targetY = State.UnderMapLockY and State.UnderAnchorY or root.Position.Y
 	if not targetY then
@@ -488,7 +503,7 @@ local function returnFromUnderMap()
 	if underPlatform then
 		underPlatform.Parent = nil
 	end
-	markMovementIntent(0.75)
+	markMovementIntent(0.85)
 
 	if root then
 		root.AssemblyLinearVelocity = Vector3.zero
@@ -540,7 +555,7 @@ local function setUnderMap(enabled)
 		end
 
 		State.UnderMap = true
-		markMovementIntent(0.75)
+		markMovementIntent(0.85)
 
 		local look = root.CFrame.LookVector
 		local flatLook = Vector3.new(look.X, 0, look.Z)
@@ -568,7 +583,7 @@ local function setUnderMap(enabled)
 end
 
 -- ==========================================
--- BIG FLOATING MOBILE BUTTONS (UNDER MAP & TP BASE)
+-- ROUND (GOL) FLOATING MOBILE BUTTONS
 -- ==========================================
 local floatGui = Instance.new("ScreenGui")
 floatGui.Name = "YutaHub_FloatingUnderGui"
@@ -576,23 +591,23 @@ floatGui.ResetOnSpawn = false
 floatGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 floatGui.Parent = PlayerGui
 
-local function getFloatingBtnDimensions(widthPx)
-	local w = math.clamp(math.floor(widthPx or 156), 120, 220)
-	local h = math.clamp(math.floor(w * 0.35), 44, 78)
-	local textSize = math.clamp(math.floor(h * 0.28), 14, 20)
-	return w, h, textSize
+local function getRoundBtnSize(diamPx)
+	local d = math.clamp(math.floor(diamPx or 72), 54, 110)
+	local textSize = math.clamp(math.floor(d * 0.19), 11, 16)
+	return d, textSize
 end
 
-local initW, initH, initTextSize = getFloatingBtnDimensions(State.FloatingBtnWidth)
+local initDiam, initTextSize = getRoundBtnSize(State.FloatingBtnSize)
 
-local function createFloatingButton(name, text, pos, bgColor, strokeColor)
+local function createRoundFloatingButton(name, text, pos, bgColor, strokeColor)
 	local btn = Instance.new("TextButton")
 	btn.Name = name
-	btn.Size = UDim2.fromOffset(initW, initH)
+	btn.Size = UDim2.fromOffset(initDiam, initDiam)
 	btn.Position = pos
 	btn.BackgroundColor3 = bgColor
 	btn.TextColor3 = Color3.fromRGB(235, 240, 255)
 	btn.Text = text
+	btn.TextWrapped = true
 	btn.Font = Enum.Font.GothamBold
 	btn.TextSize = initTextSize
 	btn.AutoButtonColor = true
@@ -600,60 +615,60 @@ local function createFloatingButton(name, text, pos, bgColor, strokeColor)
 	btn.Parent = floatGui
 
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 14)
+	corner.CornerRadius = UDim.new(1, 0)
 	corner.Parent = btn
 
 	local stroke = Instance.new("UIStroke")
 	stroke.Color = strokeColor
-	stroke.Thickness = 1.5
+	stroke.Thickness = 2
 	stroke.Parent = btn
 
 	return btn, stroke
 end
 
-local floatBtn, floatStroke = createFloatingButton(
+local floatBtn, floatStroke = createRoundFloatingButton(
 	"UnderMapFloatButton",
-	"Under Map",
-	UDim2.new(1, -(initW + 18), 0.50, 0),
+	"Under\nMap",
+	UDim2.new(1, -(initDiam + 18), 0.48, 0),
 	Color3.fromRGB(22, 24, 34),
 	Color3.fromRGB(115, 130, 255)
 )
 floatBtn.Visible = State.ShowFloatingUnderBtn
 
-local baseFloatBtn = createFloatingButton(
+local baseFloatBtn = createRoundFloatingButton(
 	"TpBaseFloatButton",
-	"TP Base",
-	UDim2.new(1, -(initW + 18), 0.50, initH + 10),
-	Color3.fromRGB(22, 34, 38),
-	Color3.fromRGB(70, 220, 200)
+	"TP\nBase",
+	UDim2.new(1, -(initDiam + 18), 0.48, initDiam + 12),
+	Color3.fromRGB(22, 36, 38),
+	Color3.fromRGB(70, 225, 200)
 )
 baseFloatBtn.Visible = State.ShowFloatingBaseBtn
 
-local function applyFloatingButtonSize(widthPx)
-	State.FloatingBtnWidth = widthPx
-	local w, h, textSize = getFloatingBtnDimensions(widthPx)
+local function applyFloatingButtonSize(diamPx)
+	State.FloatingBtnSize = diamPx
+	local d, textSize = getRoundBtnSize(diamPx)
 	if floatBtn and floatBtn.Parent then
-		floatBtn.Size = UDim2.fromOffset(w, h)
+		floatBtn.Size = UDim2.fromOffset(d, d)
 		floatBtn.TextSize = textSize
 	end
 	if baseFloatBtn and baseFloatBtn.Parent then
-		baseFloatBtn.Size = UDim2.fromOffset(w, h)
+		baseFloatBtn.Size = UDim2.fromOffset(d, d)
 		baseFloatBtn.TextSize = textSize
 	end
 end
 
 refreshFloatingButtonVisual = function()
 	if not State.Unloaded then
-		applyFloatingButtonSize(State.FloatingBtnWidth)
+		applyFloatingButtonSize(State.FloatingBtnSize)
 	end
 	if floatBtn and floatBtn.Parent then
 		floatBtn.Visible = State.ShowFloatingUnderBtn and (not State.Unloaded)
 		if State.UnderMap then
-			floatBtn.Text = "Return Surface"
+			floatBtn.Text = "Return\nSurface"
 			floatBtn.BackgroundColor3 = Color3.fromRGB(48, 28, 66)
 			floatStroke.Color = Color3.fromRGB(255, 110, 165)
 		else
-			floatBtn.Text = "Under Map"
+			floatBtn.Text = "Under\nMap"
 			floatBtn.BackgroundColor3 = Color3.fromRGB(22, 24, 34)
 			floatStroke.Color = Color3.fromRGB(115, 130, 255)
 		end
@@ -857,7 +872,7 @@ local function applyAntiUnusualMovement(hum, root, dt)
 		end
 	end
 
-	if not State.UnderMap then
+	if not State.UnderMap and (now >= State.IgnoreUnusualUntil) then
 		State.LastCleanCFrame = root.CFrame
 	end
 end
@@ -1430,7 +1445,7 @@ MovementTab:Toggle({
 
 MovementTab:Toggle({
 	Title = "Floating Under Map Button",
-	Desc = "Show draggable big Under Map / Return button on screen",
+	Desc = "Show draggable round Under Map / Return button on screen",
 	Default = true,
 	Callback = function(value)
 		State.ShowFloatingUnderBtn = value
@@ -1442,7 +1457,7 @@ MovementTab:Toggle({
 
 MovementTab:Toggle({
 	Title = "Floating TP Base Button",
-	Desc = "Show draggable big TP Base button on screen",
+	Desc = "Show draggable round TP Base button on screen",
 	Default = true,
 	Callback = function(value)
 		State.ShowFloatingBaseBtn = value
@@ -1453,13 +1468,13 @@ MovementTab:Toggle({
 })
 
 MovementTab:Slider({
-	Title = "Floating Button Size",
-	Desc = "Adjust width (px) of the floating buttons",
-	Step = 4,
+	Title = "Round Button Diameter",
+	Desc = "Adjust circle size (px) of the floating buttons",
+	Step = 2,
 	Value = {
-		Min = 120,
-		Max = 220,
-		Default = 156
+		Min = 54,
+		Max = 110,
+		Default = 72
 	},
 	Callback = function(value)
 		applyFloatingButtonSize(value)
