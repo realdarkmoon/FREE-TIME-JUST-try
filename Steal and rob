@@ -12,10 +12,10 @@ local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 -- Create Window
 local Window = WindUI:CreateWindow({
-	Title = "DARK MOON | Under Map Fix",
+	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "DarkMoonUnderMapFixV10",
+	Folder = "PremiumYutaHubV11",
 	Size = UDim2.fromOffset(540, 510),
 	MinSize = Vector2.new(440, 320),
 	MaxSize = Vector2.new(720, 620),
@@ -360,7 +360,7 @@ end
 -- BUG-RESISTANT UNDER MAP & RETURN SYSTEM
 -- ==========================================
 local underPlatform = Instance.new("Part")
-underPlatform.Name = "DarkMoon_UnderPlatform"
+underPlatform.Name = "YutaHub_UnderPlatform"
 underPlatform.Size = Vector3.new(24, 1, 24)
 underPlatform.Anchored = true
 underPlatform.CanCollide = true
@@ -388,7 +388,7 @@ end
 local function ensureUnderPlatform()
 	if not underPlatform or not underPlatform.Parent then
 		underPlatform = Instance.new("Part")
-		underPlatform.Name = "DarkMoon_UnderPlatform"
+		underPlatform.Name = "YutaHub_UnderPlatform"
 		underPlatform.Size = Vector3.new(24, 1, 24)
 		underPlatform.Anchored = true
 		underPlatform.CanCollide = true
@@ -515,7 +515,7 @@ end
 -- FLOATING MOBILE BUTTON (UNDER MAP / RETURN)
 -- ==========================================
 local floatGui = Instance.new("ScreenGui")
-floatGui.Name = "DarkMoon_FloatingUnderGui"
+floatGui.Name = "YutaHub_FloatingUnderGui"
 floatGui.ResetOnSpawn = false
 floatGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 floatGui.Parent = PlayerGui
@@ -557,7 +557,6 @@ refreshFloatingButtonVisual = function()
 	end
 end
 
--- Smooth drag support for touch & mouse without blocking taps
 do
 	local dragging = false
 	local dragInput = nil
