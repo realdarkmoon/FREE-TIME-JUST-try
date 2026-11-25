@@ -7,16 +7,37 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+local SCRIPT_VERSION = "v18.0"
+local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v18.json"
+
+-- ==========================================
+-- CHANGELOG DATA (WHAT'S NEW / WHAT'S FIXED)
+-- ==========================================
+local CHANGELOG = {
+	Version = SCRIPT_VERSION,
+	WhatsNew = {
+		"Auto-Save Features: Automatically saves toggles & sliders you use and restores them on launch.",
+		"Reset Saved Features button in Utility tab to restore clean defaults anytime.",
+		"Automatic What's New & What's Fixed screen on script update or first launch."
+	},
+	WhatsFixed = {
+		"Loot & Vault ESP immediate scan on toggle + duplicate marker filtering within 2 studs.",
+		"Safe BasePart, Model, and TextLabel world position lookup without GetPivot crashes.",
+		"Safe Drawing logo badge rendering with pcall guards across mobile & PC executors."
+	}
+}
 
 -- Create Window
 local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubV17",
+	Folder = "PremiumYutaHubV18",
 	Size = UDim2.fromOffset(550, 530),
 	MinSize = Vector2.new(440, 320),
 	MaxSize = Vector2.new(740, 640),
@@ -74,6 +95,7 @@ local State = {
 	BoxESP = false,
 	LootVaultESP = false,
 	LootEspLogo = true,
+	AutoSaveEnabled = true,
 	NoclipStepPower = 0.95,
 	BypassScanDistance = 24,
 	UnderMapOffset = 12,
@@ -94,7 +116,9 @@ local State = {
 	LastRagdollSweepTime = 0,
 	LastLootScanTime = 0,
 	LastRejoinAttempt = 0,
+	LastAutoSaveTime = 0,
 	IgnoreUnusualUntil = 0,
+	LoadingSaved = false,
 	SyncingToggle = false,
 	Unloaded = false
 }
@@ -107,6 +131,8 @@ local Cached = {
 	Seats = {},
 	OrigCollide = {}
 }
+
+local UIRefs = {}
 
 local sharedRayParams = RaycastParams.new()
 sharedRayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -135,6 +161,291 @@ local function disconnectList(list)
 	table.clear(list)
 end
 
+-- ==========================================
+-- AUTO-SAVE FEATURES SYSTEM
+-- ==========================================
+local function hasFileIO()
+	return (typeof(writefile) == "function") and (typeof(readfile) == "function")
+end
+
+local function buildSavePayload()
+	return {
+		LastSeenVersion = SCRIPT_VERSION,
+		AutoSaveEnabled = State.AutoSaveEnabled,
+		Features = {
+			Noclip = State.Noclip,
+			NoclipBetaUltra = State.NoclipBetaUltra,
+			WallMicroStep = State.WallMicroStep,
+			NoclipStepPower = State.NoclipStepPower,
+			AutoWallBypass = State.AutoWallBypass,
+			BypassScanDistance = State.BypassScanDistance,
+			UnderMapOffset = State.UnderMapOffset,
+			UnderMapLockY = State.UnderMapLockY,
+			ShowFloatingUnderBtn = State.ShowFloatingUnderBtn,
+			ShowFloatingBaseBtn = State.ShowFloatingBaseBtn,
+			FloatingBtnWidth = State.FloatingBtnWidth,
+			SpeedEnabled = State.SpeedEnabled,
+			ExtraSpeed = State.ExtraSpeed,
+			JumpEnabled = State.JumpEnabled,
+			JumpHeight = State.JumpHeight,
+			LootVaultESP = State.LootVaultESP,
+			LootEspLogo = State.LootEspLogo,
+			AntiUnusualMovement = State.AntiUnusualMovement,
+			SnapBackOnUnusual = State.SnapBackOnUnusual,
+			AntiRagdoll = State.AntiRagdoll,
+			AntiKnockback = State.AntiKnockback,
+			BoxESP = State.BoxESP
+		}
+	}
+end
+
+local function persistSaveNow()
+	if State.Unloaded or State.LoadingSaved then return end
+	if not State.AutoSaveEnabled or not hasFileIO() then return end
+
+	local okEncoded, encoded = pcall(function()
+		return HttpService:JSONEncode(buildSavePayload())
+	end)
+	if okEncoded and typeof(encoded) == "string" then
+		pcall(function()
+			writefile(SAVE_FILE_NAME, encoded)
+		end)
+	end
+end
+
+local function markFeatureUsed()
+	if State.Unloaded or State.LoadingSaved or not State.AutoSaveEnabled then return end
+	State.LastAutoSaveTime = os.clock()
+	persistSaveNow()
+end
+
+local function loadSavedData()
+	if not hasFileIO() then
+		return nil, true
+	end
+
+	local exists = true
+	if typeof(isfile) == "function" then
+		local okExists, isFile = pcall(function()
+			return isfile(SAVE_FILE_NAME)
+		end)
+		if okExists then
+			exists = isFile
+		end
+	end
+
+	if not exists then
+		return nil, true
+	end
+
+	local okRead, raw = pcall(function()
+		return readfile(SAVE_FILE_NAME)
+	end)
+	if not okRead or typeof(raw) ~= "string" or raw == "" then
+		return nil, true
+	end
+
+	local okDecode, decoded = pcall(function()
+		return HttpService:JSONDecode(raw)
+	end)
+	if not okDecode or typeof(decoded) ~= "table" then
+		return nil, true
+	end
+
+	local shouldShowChangelog = (decoded.LastSeenVersion ~= SCRIPT_VERSION)
+	return decoded, shouldShowChangelog
+end
+
+local function resetSavedFeatures()
+	State.LoadingSaved = true
+	State.NoclipStepPower = 0.95
+	State.BypassScanDistance = 24
+	State.UnderMapOffset = 12
+	State.ExtraSpeed = 16
+	State.JumpHeight = 14
+	State.JumpPower = 70
+	State.FloatingBtnWidth = 156
+
+	local defaults = {
+		Noclip = false,
+		NoclipBetaUltra = true,
+		WallMicroStep = true,
+		NoclipStepPower = 0.95,
+		AutoWallBypass = false,
+		BypassScanDistance = 24,
+		UnderMapOffset = 12,
+		UnderMapLockY = true,
+		ShowFloatingUnderBtn = true,
+		ShowFloatingBaseBtn = true,
+		FloatingBtnWidth = 156,
+		SpeedEnabled = false,
+		ExtraSpeed = 16,
+		JumpEnabled = false,
+		JumpHeight = 14,
+		LootVaultESP = false,
+		LootEspLogo = true,
+		AntiUnusualMovement = false,
+		SnapBackOnUnusual = true,
+		AntiRagdoll = false,
+		AntiKnockback = false,
+		BoxESP = false
+	}
+
+	for key, val in pairs(defaults) do
+		local ctrl = UIRefs[key]
+		if ctrl and ctrl.Set then
+			pcall(function()
+				ctrl:Set(val)
+			end)
+		end
+	end
+
+	State.LoadingSaved = false
+	persistSaveNow()
+end
+
+-- ==========================================
+-- AUTOMATIC WHAT'S NEW / WHAT'S FIXED SCREEN
+-- ==========================================
+local changelogGui = nil
+
+local function buildChangelogText()
+	local lines = {}
+	table.insert(lines, "WHAT'S NEW (" .. CHANGELOG.Version .. ")")
+	for _, item in ipairs(CHANGELOG.WhatsNew) do
+		table.insert(lines, "• " .. item)
+	end
+	table.insert(lines, "")
+	table.insert(lines, "WHAT'S FIXED")
+	for _, item in ipairs(CHANGELOG.WhatsFixed) do
+		table.insert(lines, "• " .. item)
+	end
+	return table.concat(lines, "\n")
+end
+
+local function closeChangelogScreen()
+	if changelogGui then
+		changelogGui:Destroy()
+		changelogGui = nil
+	end
+end
+
+local function showChangelogScreen()
+	if State.Unloaded then return end
+	closeChangelogScreen()
+
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "YutaHub_ChangelogScreen"
+	gui.ResetOnSpawn = false
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	gui.DisplayOrder = 50
+	gui.Parent = PlayerGui
+	changelogGui = gui
+
+	local backdrop = Instance.new("Frame")
+	backdrop.Name = "Backdrop"
+	backdrop.Size = UDim2.fromScale(1, 1)
+	backdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	backdrop.BackgroundTransparency = 0.45
+	backdrop.BorderSizePixel = 0
+	backdrop.Parent = gui
+
+	local card = Instance.new("Frame")
+	card.Name = "ChangelogCard"
+	card.Size = UDim2.new(0.86, 0, 0.72, 0)
+	card.Position = UDim2.fromScale(0.5, 0.5)
+	card.AnchorPoint = Vector2.new(0.5, 0.5)
+	card.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
+	card.BorderSizePixel = 0
+	card.Parent = gui
+
+	local sizeConstraint = Instance.new("UISizeConstraint")
+	sizeConstraint.MinSize = Vector2.new(300, 260)
+	sizeConstraint.MaxSize = Vector2.new(540, 460)
+	sizeConstraint.Parent = card
+
+	local cardCorner = Instance.new("UICorner")
+	cardCorner.CornerRadius = UDim.new(0, 16)
+	cardCorner.Parent = card
+
+	local cardStroke = Instance.new("UIStroke")
+	cardStroke.Color = Color3.fromRGB(115, 130, 255)
+	cardStroke.Thickness = 1.5
+	cardStroke.Parent = card
+
+	local header = Instance.new("TextLabel")
+	header.Name = "Header"
+	header.Size = UDim2.new(1, -24, 0, 40)
+	header.Position = UDim2.fromOffset(12, 10)
+	header.BackgroundTransparency = 1
+	header.Text = "PREMIUM YUTAHUB  •  " .. CHANGELOG.Version
+	header.TextColor3 = Color3.fromRGB(235, 240, 255)
+	header.Font = Enum.Font.GothamBold
+	header.TextSize = 16
+	header.TextXAlignment = Enum.TextXAlignment.Left
+	header.Parent = card
+
+	local scroll = Instance.new("ScrollingFrame")
+	scroll.Name = "ContentScroll"
+	scroll.Size = UDim2.new(1, -24, 1, -112)
+	scroll.Position = UDim2.fromOffset(12, 54)
+	scroll.BackgroundColor3 = Color3.fromRGB(25, 28, 42)
+	scroll.BorderSizePixel = 0
+	scroll.ScrollBarThickness = 5
+	scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	scroll.Parent = card
+
+	local scrollCorner = Instance.new("UICorner")
+	scrollCorner.CornerRadius = UDim.new(0, 12)
+	scrollCorner.Parent = scroll
+
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0, 10)
+	pad.PaddingBottom = UDim.new(0, 10)
+	pad.PaddingLeft = UDim.new(0, 12)
+	pad.PaddingRight = UDim.new(0, 12)
+	pad.Parent = scroll
+
+	local bodyLabel = Instance.new("TextLabel")
+	bodyLabel.Name = "BodyText"
+	bodyLabel.Size = UDim2.new(1, 0, 0, 0)
+	bodyLabel.AutomaticSize = Enum.AutomaticSize.Y
+	bodyLabel.BackgroundTransparency = 1
+	bodyLabel.Text = buildChangelogText()
+	bodyLabel.TextColor3 = Color3.fromRGB(220, 226, 245)
+	bodyLabel.Font = Enum.Font.Gotham
+	bodyLabel.TextSize = 13
+	bodyLabel.TextWrapped = true
+	bodyLabel.TextXAlignment = Enum.TextXAlignment.Left
+	bodyLabel.TextYAlignment = Enum.TextYAlignment.Top
+	bodyLabel.Parent = scroll
+
+	local closeBtn = Instance.new("TextButton")
+	closeBtn.Name = "CloseButton"
+	closeBtn.Size = UDim2.new(1, -24, 0, 40)
+	closeBtn.Position = UDim2.new(0, 12, 1, -50)
+	closeBtn.BackgroundColor3 = Color3.fromRGB(95, 110, 255)
+	closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	closeBtn.Text = "Got It"
+	closeBtn.Font = Enum.Font.GothamBold
+	closeBtn.TextSize = 14
+	closeBtn.AutoButtonColor = true
+	closeBtn.Parent = card
+
+	local btnCorner = Instance.new("UICorner")
+	btnCorner.CornerRadius = UDim.new(0, 10)
+	btnCorner.Parent = closeBtn
+
+	closeBtn.MouseButton1Click:Connect(function()
+		persistSaveNow()
+		closeChangelogScreen()
+	end)
+end
+
+-- ==========================================
+-- CHARACTER CACHE HELPERS
+-- ==========================================
 local function rebuildCharacterCache(char)
 	table.clear(Cached.Parts)
 	table.clear(Cached.Seats)
@@ -1138,7 +1449,6 @@ local function updateESPFrame()
 		return
 	end
 
-	-- 1. Player Box ESP
 	if State.BoxESP then
 		for player, box in pairs(espBoxes) do
 			if not player or not player.Parent then
@@ -1190,7 +1500,6 @@ local function updateESPFrame()
 		hideAllBoxes()
 	end
 
-	-- 2. Loot / Vault ESP with Logo
 	if State.LootVaultESP then
 		local now = os.clock()
 		if (now - State.LastLootScanTime) >= 1.5 or #lootMarkers == 0 then
@@ -1295,6 +1604,9 @@ end
 local function unloadAll()
 	if State.Unloaded then return end
 	State.Unloaded = true
+
+	persistSaveNow()
+	closeChangelogScreen()
 
 	State.AutoWallBypass = false
 	State.AntiUnusualMovement = false
@@ -1441,36 +1753,39 @@ table.insert(lifecycleConnections, LocalPlayer.CharacterAdded:Connect(function(c
 end))
 
 -- ==========================================
--- UI CONTROLS
+-- UI CONTROLS (WITH AUTO-SAVE HOOKS)
 -- ==========================================
-MovementTab:Toggle({
+UIRefs.Noclip = MovementTab:Toggle({
 	Title = "Noclip (Beta)",
 	Desc = "Cached collision/touch lock + seat disable",
 	Default = false,
 	Callback = function(value)
 		setNoclip(value)
+		markFeatureUsed()
 	end
 })
 
-MovementTab:Toggle({
+UIRefs.NoclipBetaUltra = MovementTab:Toggle({
 	Title = "Noclip Beta Ultra (Edge Slide)",
 	Desc = "Tests angled slide vectors to prevent wall-edge snagging",
 	Default = true,
 	Callback = function(value)
 		State.NoclipBetaUltra = value
+		markFeatureUsed()
 	end
 })
 
-MovementTab:Toggle({
+UIRefs.WallMicroStep = MovementTab:Toggle({
 	Title = "Wall Micro-Step Push",
 	Desc = "Smoothly advances through wall faces while noclipping",
 	Default = true,
 	Callback = function(value)
 		State.WallMicroStep = value
+		markFeatureUsed()
 	end
 })
 
-MovementTab:Slider({
+UIRefs.NoclipStepPower = MovementTab:Slider({
 	Title = "Noclip Step Power",
 	Desc = "Studs nudged per wall contact step",
 	Step = 0.05,
@@ -1481,19 +1796,21 @@ MovementTab:Slider({
 	},
 	Callback = function(value)
 		State.NoclipStepPower = value
+		markFeatureUsed()
 	end
 })
 
-MovementTab:Toggle({
+UIRefs.AutoWallBypass = MovementTab:Toggle({
 	Title = "Auto Hard Wall Bypass",
 	Desc = "Automatically scans & jumps past solid barriers on contact",
 	Default = false,
 	Callback = function(value)
 		State.AutoWallBypass = value
+		markFeatureUsed()
 	end
 })
 
-MovementTab:Slider({
+UIRefs.BypassScanDistance = MovementTab:Slider({
 	Title = "Bypass Scan Distance",
 	Desc = "Max studs scanned ahead to find clear ground past a wall",
 	Step = 1,
@@ -1504,6 +1821,7 @@ MovementTab:Slider({
 	},
 	Callback = function(value)
 		State.BypassScanDistance = value
+		markFeatureUsed()
 	end
 })
 
@@ -1515,7 +1833,7 @@ MovementTab:Button({
 	end
 })
 
-MovementTab:Slider({
+UIRefs.UnderMapOffset = MovementTab:Slider({
 	Title = "Under Map Depth",
 	Desc = "Studs below current position",
 	Step = 1,
@@ -1526,10 +1844,11 @@ MovementTab:Slider({
 	},
 	Callback = function(value)
 		State.UnderMapOffset = value
+		markFeatureUsed()
 	end
 })
 
-MovementTab:Toggle({
+UIRefs.UnderMapLockY = MovementTab:Toggle({
 	Title = "Lock Under Map Height",
 	Desc = "Keeps a steady Y level underground to prevent sinking/bouncing",
 	Default = true,
@@ -1538,10 +1857,11 @@ MovementTab:Toggle({
 		if value and State.UnderMap and Cached.Root then
 			State.UnderAnchorY = Cached.Root.Position.Y
 		end
+		markFeatureUsed()
 	end
 })
 
-MovementTab:Toggle({
+UIRefs.ShowFloatingUnderBtn = MovementTab:Toggle({
 	Title = "Floating Under Map Button",
 	Desc = "Show draggable big Under Map / Return button on screen",
 	Default = true,
@@ -1550,10 +1870,11 @@ MovementTab:Toggle({
 		if refreshFloatingButtonVisual then
 			refreshFloatingButtonVisual()
 		end
+		markFeatureUsed()
 	end
 })
 
-MovementTab:Toggle({
+UIRefs.ShowFloatingBaseBtn = MovementTab:Toggle({
 	Title = "Floating TP Base Button",
 	Desc = "Show draggable big TP Base button on screen",
 	Default = true,
@@ -1562,10 +1883,11 @@ MovementTab:Toggle({
 		if refreshFloatingButtonVisual then
 			refreshFloatingButtonVisual()
 		end
+		markFeatureUsed()
 	end
 })
 
-MovementTab:Slider({
+UIRefs.FloatingBtnWidth = MovementTab:Slider({
 	Title = "Floating Button Size",
 	Desc = "Adjust width (px) of the floating buttons",
 	Step = 4,
@@ -1576,6 +1898,7 @@ MovementTab:Slider({
 	},
 	Callback = function(value)
 		applyFloatingButtonSize(value)
+		markFeatureUsed()
 	end
 })
 
@@ -1596,16 +1919,17 @@ MovementTab:Button({
 	end
 })
 
-MovementTab:Toggle({
+UIRefs.SpeedEnabled = MovementTab:Toggle({
 	Title = "Speed Boost",
 	Desc = "Smooth step movement boost while walking",
 	Default = false,
 	Callback = function(value)
 		State.SpeedEnabled = value
+		markFeatureUsed()
 	end
 })
 
-MovementTab:Slider({
+UIRefs.ExtraSpeed = MovementTab:Slider({
 	Title = "Bonus Speed",
 	Desc = "Extra studs/sec added to movement",
 	Step = 1,
@@ -1616,19 +1940,21 @@ MovementTab:Slider({
 	},
 	Callback = function(value)
 		State.ExtraSpeed = value
+		markFeatureUsed()
 	end
 })
 
-MovementTab:Toggle({
+UIRefs.JumpEnabled = MovementTab:Toggle({
 	Title = "Jump Boost",
 	Desc = "Adjust character jump height/power",
 	Default = false,
 	Callback = function(value)
 		applyJumpBoost(value)
+		markFeatureUsed()
 	end
 })
 
-MovementTab:Slider({
+UIRefs.JumpHeight = MovementTab:Slider({
 	Title = "Jump Boost Amount",
 	Desc = "Jump height (or scaled JumpPower)",
 	Step = 1,
@@ -1643,6 +1969,7 @@ MovementTab:Slider({
 		if State.JumpEnabled then
 			applyJumpBoost(true)
 		end
+		markFeatureUsed()
 	end
 })
 
@@ -1662,7 +1989,7 @@ HeistTab:Button({
 	end
 })
 
-HeistTab:Toggle({
+UIRefs.LootVaultESP = HeistTab:Toggle({
 	Title = "Loot & Vault ESP",
 	Desc = "Highlight nearby vault/loot/diamond objects & distance",
 	Default = false,
@@ -1674,19 +2001,21 @@ HeistTab:Toggle({
 		else
 			clearLootMarkers()
 		end
+		markFeatureUsed()
 	end
 })
 
-HeistTab:Toggle({
+UIRefs.LootEspLogo = HeistTab:Toggle({
 	Title = "Loot ESP Logo Badge",
 	Desc = "Show diamond logo emblem + ◆ [VAULT]/[LOOT] tag on markers",
 	Default = true,
 	Callback = function(value)
 		State.LootEspLogo = value
+		markFeatureUsed()
 	end
 })
 
-ProtectionTab:Toggle({
+UIRefs.AntiUnusualMovement = ProtectionTab:Toggle({
 	Title = "Anti-Unusual Movement",
 	Desc = "Stops abnormal velocity/spin bursts & odd movement states",
 	Default = false,
@@ -1695,43 +2024,72 @@ ProtectionTab:Toggle({
 		if value and Cached.Root and not State.UnderMap then
 			State.LastCleanCFrame = Cached.Root.CFrame
 		end
+		markFeatureUsed()
 	end
 })
 
-ProtectionTab:Toggle({
+UIRefs.SnapBackOnUnusual = ProtectionTab:Toggle({
 	Title = "Snap Back on Position Jump",
 	Desc = "Restores last clean position if unexpectedly displaced",
 	Default = true,
 	Callback = function(value)
 		State.SnapBackOnUnusual = value
+		markFeatureUsed()
 	end
 })
 
-ProtectionTab:Toggle({
+UIRefs.AntiRagdoll = ProtectionTab:Toggle({
 	Title = "Anti-Ragdoll",
 	Desc = "Blocks Ragdoll/FallingDown states & restores joints",
 	Default = false,
 	Callback = function(value)
 		setAntiRagdoll(value)
+		markFeatureUsed()
 	end
 })
 
-ProtectionTab:Toggle({
+UIRefs.AntiKnockback = ProtectionTab:Toggle({
 	Title = "Anti-Knockback / Fling Guard",
 	Desc = "Clamps extreme velocity & angular spin spikes",
 	Default = false,
 	Callback = function(value)
 		State.AntiKnockback = value
+		markFeatureUsed()
 	end
 })
 
-VisualsTab:Toggle({
+UIRefs.BoxESP = VisualsTab:Toggle({
 	Title = "Box ESP",
 	Desc = "2D boxes around other players",
 	Default = false,
 	Callback = function(value)
 		State.BoxESP = value
+		markFeatureUsed()
 	end
+})
+
+UIRefs.AutoSaveEnabled = UtilityTab:Toggle({
+	Title = "Auto-Save Used Features",
+	Desc = "Automatically saves & restores toggles and sliders you use",
+	Default = true,
+	Callback = function(value)
+		State.AutoSaveEnabled = value
+		if value then
+			persistSaveNow()
+		end
+	end
+})
+
+UtilityTab:Button({
+	Title = "Reset Saved Features",
+	Desc = "Reset saved toggles & sliders back to default values",
+	Callback = resetSavedFeatures
+})
+
+UtilityTab:Button({
+	Title = "What's New & Fixed",
+	Desc = "Open the update log screen anytime",
+	Callback = showChangelogScreen
 })
 
 UtilityTab:Button({
@@ -1745,3 +2103,41 @@ UtilityTab:Button({
 	Desc = "Cleanly disconnect loops, restore values, and close UI",
 	Callback = unloadAll
 })
+
+-- ==========================================
+-- APPLY SAVED FEATURES & AUTO-SHOW CHANGELOG
+-- ==========================================
+do
+	local savedData, shouldShowChangelog = loadSavedData()
+	State.LoadingSaved = true
+
+	if typeof(savedData) == "table" then
+		if typeof(savedData.AutoSaveEnabled) == "boolean" then
+			State.AutoSaveEnabled = savedData.AutoSaveEnabled
+			if UIRefs.AutoSaveEnabled and UIRefs.AutoSaveEnabled.Set then
+				pcall(function()
+					UIRefs.AutoSaveEnabled:Set(State.AutoSaveEnabled)
+				end)
+			end
+		end
+
+		if typeof(savedData.Features) == "table" then
+			for key, val in pairs(savedData.Features) do
+				local ctrl = UIRefs[key]
+				if ctrl and ctrl.Set and val ~= nil then
+					pcall(function()
+						ctrl:Set(val)
+					end)
+				end
+			end
+		end
+	end
+
+	State.LoadingSaved = false
+
+	if shouldShowChangelog then
+		task.defer(function()
+			showChangelogScreen()
+		end)
+	end
+end
