@@ -3,6 +3,11 @@ local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/rel
 
 local SoundService = game:GetService("SoundService")
 local Players = game:GetService("Players")
+local Lighting = game:GetService("Lighting")
+local TextChatService = game:GetService("TextChatService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterGui = game:GetService("StarterGui")
+local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 
 -- Clean up previous Sound instance cleanly
@@ -88,35 +93,35 @@ for i, item in ipairs(Tracks) do
 	TrackByLabel[item.label] = item.id
 end
 
--- Emotes List (20 Emotes, no Featured Emotes section)
-local EmoteList = {
-	{ name = "1. Nervy Emote Dance", id = "107071154699616" },
-	{ name = "2. Good Boy Dog Emote", id = "100737291015384" },
-	{ name = "3. Shuffle Dance", id = "4349242221" },
-	{ name = "4. Floss Dance", id = "5917459365" },
-	{ name = "5. Hype Dance", id = "3695333486" },
-	{ name = "6. Robot Dance", id = "3338025566" },
-	{ name = "7. Twist Dance", id = "3338097973" },
-	{ name = "8. Stylish Dance", id = "4555808220" },
-	{ name = "9. Disco Dance", id = "3333499508" },
-	{ name = "10. Samba Dance", id = "6862001787" },
-	{ name = "11. Breakdance", id = "5915648917" },
-	{ name = "12. Fast Hands", id = "4265701731" },
-	{ name = "13. Cha-Cha", id = "3695322025" },
-	{ name = "14. Top Rock", id = "3361276673" },
-	{ name = "15. Rodeo Dance", id = "5918726674" },
-	{ name = "16. Baby Dance", id = "4265725525" },
-	{ name = "17. Rock On", id = "5915714366" },
-	{ name = "18. Air Guitar", id = "3695300085" },
-	{ name = "19. Line Dance", id = "4049037604" },
-	{ name = "20. Hero Landing", id = "5104344710" },
+-- 20 Popular Roblox Marketplace & UGC Emotes
+local UGCEmoteList = {
+	{ name = "1. Wall Lean (UGC)", id = "114388371896974" },
+	{ name = "2. Goofy Dance (UGC)", id = "120452122477461" },
+	{ name = "3. Prayer Pose (UGC)", id = "93009184159377" },
+	{ name = "4. Nervy Dance (UGC)", id = "107071154699616" },
+	{ name = "5. Good Boy Dog (UGC)", id = "100737291015384" },
+	{ name = "6. Sturdy Dance", id = "10714340543" },
+	{ name = "7. Hwaiting Pose", id = "10714360343" },
+	{ name = "8. Levitate Float", id = "10714389396" },
+	{ name = "9. Lasso Turn", id = "10714372526" },
+	{ name = "10. Hype Dance", id = "3695333486" },
+	{ name = "11. Floss Dance", id = "5917459365" },
+	{ name = "12. Shuffle Dance", id = "4349242221" },
+	{ name = "13. Stylish Dance", id = "4555808220" },
+	{ name = "14. Breakdance", id = "5915648917" },
+	{ name = "15. Cha-Cha", id = "3695322025" },
+	{ name = "16. Robot Dance", id = "3338025566" },
+	{ name = "17. Rodeo Dance", id = "5918726674" },
+	{ name = "18. Hero Landing", id = "5104344710" },
+	{ name = "19. Air Guitar", id = "3695300085" },
+	{ name = "20. Backflip", id = "15693621070" },
 }
 
-local EmoteNames = table.create(#EmoteList)
-local EmoteByName = {}
-for i, item in ipairs(EmoteList) do
-	EmoteNames[i] = item.name
-	EmoteByName[item.name] = item.id
+local UGCEmoteNames = table.create(#UGCEmoteList)
+local UGCEmoteByName = {}
+for i, item in ipairs(UGCEmoteList) do
+	UGCEmoteNames[i] = item.name
+	UGCEmoteByName[item.name] = item.id
 end
 
 -- 20 R15 Animation Bundles (Idle, Walk, Run, Jump, Fall, Climb)
@@ -325,25 +330,59 @@ local state = {
 	selectedFavLabel = nil,
 	volume = 0.5,
 	speed = 1.0,
-	selectedEmoteName = EmoteList[1].name,
-	customEmoteId = "",
-	emoteSpeed = 1.0,
-	emoteAutoRespawn = false,
-	activeEmoteId = nil,
+	-- UGC Emotes state
+	selectedUGCEmoteName = UGCEmoteList[1].name,
+	customUGCEmoteId = "",
+	ugcEmoteSpeed = 1.0,
+	ugcEmoteAutoRespawn = false,
+	activeUGCEmoteId = nil,
+	-- Animations state
 	selectedBundleName = AnimationBundles[1].name,
 	activeBundle = nil,
 	bundleAutoRespawn = true,
+	-- Head Tag state
 	headTagEnabled = true,
 	headTagLogo = "🌙",
 	headTagText = "Meow",
 	headTagAccent = Color3.fromHex("E9D5FF"),
+	headTagSyncEnabled = true,
+	-- Trolling state
+	selectedTrollTarget = nil,
+	trollOffsetDistance = 1.4,
+	-- Atmosphere customization state
+	atmosEnabled = true,
+	atmosDensity = 0.35,
+	atmosOffset = 0.25,
+	atmosGlare = 0.2,
+	atmosHaze = 1.5,
+	atmosColor = Color3.fromHex("3B2F63"),
+	atmosDecay = Color3.fromHex("17132B"),
+	clockTime = 21.5,
+	brightness = 2.0,
+	-- Anti-Voice Chat & Anti-Chat state
+	antiVoiceChat = false,
+	muteVoiceAudioStreams = true,
+	antiChatEnabled = false,
+	hideChatWindow = true,
+	hideChatInputBar = true,
+	hideBubbleChat = true,
 }
 
+local defaultLightingSnap = {
+	ClockTime = Lighting.ClockTime,
+	Brightness = Lighting.Brightness,
+}
+
+local mutedVoiceObjects = {}
+local savedChatConfigs = {}
+local savedLegacyChatStates = {}
+local currentUGCEmoteTrack = nil
+local currentUGCEmoteAnim = nil
+local UGCEmoteDropdown = nil
+
+local peerTagConfigs = {}
 local originalAnimateIds = nil
 local isApplyingBundle = false
-local currentAnimTrack = nil
-local currentAnimInstance = nil
-local EmoteDropdown = nil
 
 local fileMap = {}
 local fileLabels = {}
@@ -354,6 +393,8 @@ local favLabels = {}
 local favMap = {}
 local favDropdown = nil
 
+local trollPlayerLabels = {}
+local trollPlayerDropdown = nil
 local StatusParagraph = nil
 
 local function notify(title, content, icon)
@@ -378,26 +419,421 @@ local function updateStatus(statusText)
 	end
 end
 
--- === SMALL HEAD TAG (MOON LOGO + MEOW FRONT STYLE) ===
+-- === SHARED HEAD TAG PARSER (DECLARED BEFORE CHAT CONNECTIONS) ===
+local applyPlayerHeadTag
+
+local function handleIncomingTagPayload(senderName, rawText)
+	if type(rawText) ~= "string" then
+		return
+	end
+	local enabledFlag, logoStr, textStr, hexStr = rawText:match("^DMHT|([01])|([^|]+)|([^|]+)|([0-9a-fA-F]+)$")
+	if not enabledFlag then
+		return
+	end
+
+	local senderPlr = Players:FindFirstChild(senderName)
+	if not senderPlr or senderPlr == LocalPlayer then
+		return
+	end
+
+	local okColor, parsedColor = pcall(Color3.fromHex, hexStr)
+	peerTagConfigs[senderPlr.UserId] = {
+		enabled = (enabledFlag == "1"),
+		logo = logoStr,
+		text = textStr,
+		accent = (okColor and parsedColor) or Color3.fromHex("E9D5FF"),
+	}
+
+	if senderPlr.Character and applyPlayerHeadTag then
+		applyPlayerHeadTag(senderPlr, senderPlr.Character)
+	end
+end
+
+-- === ANTI-VOICE CHAT & ANTI-CHAT HELPERS ===
+local function isVoiceAudioObject(inst)
+	if not inst or inst == Sound then
+		return false
+	end
+	if inst:IsA("AudioPlayer") or inst:IsA("AudioDeviceInput") or inst:IsA("AudioDeviceOutput") then
+		return true
+	end
+	if inst:IsA("Sound") then
+		local n = inst.Name:lower()
+		local idStr = tostring(inst.SoundId):lower()
+		if n:find("voice") or n:find("vc") or idStr:find("voice") or idStr:find("audiochat") then
+			return true
+		end
+		if inst.Parent and (inst.Parent.Name == "VoiceChat" or inst.Parent:IsA("Head")) then
+			return true
+		end
+	end
+	return false
+end
+
+local function setVoiceVolumeOnObject(inst, shouldMute)
+	if not isVoiceAudioObject(inst) then
+		return
+	end
+	if shouldMute then
+		if mutedVoiceObjects[inst] == nil then
+			local okVol, curVol = pcall(function()
+				return inst.Volume
+			end)
+			if okVol and type(curVol) == "number" then
+				mutedVoiceObjects[inst] = curVol
+			end
+		end
+		pcall(function()
+			inst.Volume = 0
+		end)
+	else
+		local prevVol = mutedVoiceObjects[inst]
+		if prevVol ~= nil then
+			pcall(function()
+				inst.Volume = prevVol
+			end)
+			mutedVoiceObjects[inst] = nil
+		end
+	end
+end
+
+local function scanAndApplyVoiceMute(rootContainer, shouldMute)
+	if not rootContainer then
+		return
+	end
+	for _, desc in ipairs(rootContainer:GetDescendants()) do
+		setVoiceVolumeOnObject(desc, shouldMute)
+	end
+end
+
+local function applyAntiVoiceChat(silent)
+	local shouldMute = state.antiVoiceChat and state.muteVoiceAudioStreams
+
+	pcall(function()
+		local vcService = game:GetService("VoiceChatService")
+		if vcService then
+			scanAndApplyVoiceMute(vcService, shouldMute)
+		end
+	end)
+
+	scanAndApplyVoiceMute(SoundService, shouldMute)
+	scanAndApplyVoiceMute(Workspace, shouldMute)
+
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr.Character then
+			scanAndApplyVoiceMute(plr.Character, shouldMute)
+		end
+	end
+
+	if not silent then
+		notify(
+			"Anti-Voice Chat",
+			state.antiVoiceChat and "Voice chat audio muted." or "Voice chat audio unmuted.",
+			state.antiVoiceChat and "mic-off" or "mic"
+		)
+	end
+end
+
+local function applyAntiChat(silent)
+	local active = state.antiChatEnabled
+
+	pcall(function()
+		local chatWin = TextChatService:FindFirstChildOfClass("ChatWindowConfiguration")
+		if chatWin then
+			if active and state.hideChatWindow then
+				if savedChatConfigs.winVisible == nil then
+					savedChatConfigs.winVisible = chatWin.Enabled
+				end
+				chatWin.Enabled = false
+			elseif savedChatConfigs.winVisible ~= nil then
+				chatWin.Enabled = savedChatConfigs.winVisible
+				savedChatConfigs.winVisible = nil
+			end
+		end
+
+		local chatBar = TextChatService:FindFirstChildOfClass("ChatInputBarConfiguration")
+		if chatBar then
+			if active and state.hideChatInputBar then
+				if savedChatConfigs.barVisible == nil then
+					savedChatConfigs.barVisible = chatBar.Enabled
+				end
+				chatBar.Enabled = false
+			elseif savedChatConfigs.barVisible ~= nil then
+				chatBar.Enabled = savedChatConfigs.barVisible
+				savedChatConfigs.barVisible = nil
+			end
+		end
+
+		local bubbleCfg = TextChatService:FindFirstChildOfClass("BubbleChatConfiguration")
+		if bubbleCfg then
+			if active and state.hideBubbleChat then
+				if savedChatConfigs.bubbleVisible == nil then
+					savedChatConfigs.bubbleVisible = bubbleCfg.Enabled
+				end
+				bubbleCfg.Enabled = false
+			elseif savedChatConfigs.bubbleVisible ~= nil then
+				bubbleCfg.Enabled = savedChatConfigs.bubbleVisible
+				savedChatConfigs.bubbleVisible = nil
+			end
+		end
+	end)
+
+	pcall(function()
+		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Chat, not (active and state.hideChatWindow))
+	end)
+
+	local playerGui = LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui")
+	if playerGui then
+		for _, gui in ipairs(playerGui:GetChildren()) do
+			if gui:IsA("ScreenGui") and (gui.Name == "Chat" or gui.Name == "ExperienceChat") then
+				if active and state.hideChatWindow then
+					if savedLegacyChatStates[gui] == nil then
+						savedLegacyChatStates[gui] = gui.Enabled
+					end
+					gui.Enabled = false
+				elseif savedLegacyChatStates[gui] ~= nil then
+					gui.Enabled = savedLegacyChatStates[gui]
+					savedLegacyChatStates[gui] = nil
+				end
+			end
+		end
+	end
+
+	if not silent then
+		notify(
+			"Anti-Chat",
+			active and "Chat blocked & hidden." or "Chat restored.",
+			active and "message-square-off" or "message-square"
+		)
+	end
+end
+
+local function hookAudioWatcher(container)
+	if not container then
+		return
+	end
+	container.DescendantAdded:Connect(function(desc)
+		if state.antiVoiceChat and state.muteVoiceAudioStreams then
+			setVoiceVolumeOnObject(desc, true)
+		end
+	end)
+end
+
+hookAudioWatcher(SoundService)
+hookAudioWatcher(Workspace)
+pcall(function()
+	local vcService = game:GetService("VoiceChatService")
+	if vcService then
+		hookAudioWatcher(vcService)
+	end
+end)
+
+pcall(function()
+	if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+		TextChatService.OnIncomingMessage = function(message)
+			if message.TextSource then
+				handleIncomingTagPayload(message.TextSource.Name, message.Text)
+			end
+			if state.antiChatEnabled then
+				local props = Instance.new("TextChatMessageProperties")
+				props.Text = ""
+				if typeof(props.PrefixText) == "string" then
+					props.PrefixText = ""
+				end
+				pcall(function()
+					props.Visible = false
+				end)
+				return props
+			end
+			return nil
+		end
+	end
+end)
+
+pcall(function()
+	local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+	local onMsg = chatEvents and chatEvents:FindFirstChild("OnMessageDoneFiltering")
+	if onMsg and onMsg:IsA("RemoteEvent") then
+		onMsg.OnClientEvent:Connect(function(data)
+			if type(data) == "table" and data.FromSpeaker and data.Message then
+				handleIncomingTagPayload(tostring(data.FromSpeaker), tostring(data.Message))
+			end
+		end)
+	end
+end)
+
+-- === UGC EMOTE HELPERS ===
+local function stopCurrentUGCEmote(silent)
+	if currentUGCEmoteTrack then
+		pcall(function()
+			currentUGCEmoteTrack:Stop(0.15)
+			currentUGCEmoteTrack:Destroy()
+		end)
+		currentUGCEmoteTrack = nil
+	end
+	if currentUGCEmoteAnim then
+		pcall(function()
+			currentUGCEmoteAnim:Destroy()
+		end)
+		currentUGCEmoteAnim = nil
+	end
+	state.activeUGCEmoteId = nil
+	if not silent then
+		notify("UGC Emote Stopped", "Stopped active UGC emote.", "square")
+	end
+end
+
+local function playUGCEmote(rawId, label)
+	local digits = tostring(rawId or ""):match("%d+")
+	if not digits or digits == "0" then
+		notify("Invalid ID", "Enter a valid numeric UGC Animation ID.", "alert-circle")
+		return
+	end
+
+	local character = LocalPlayer and LocalPlayer.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		notify("Character Missing", "Wait for your character to spawn first.", "alert-circle")
+		return
+	end
+
+	if humanoid.RigType == Enum.HumanoidRigType.R6 then
+		notify("R15 Required", "Marketplace UGC emotes require an R15 avatar rig.", "alert-triangle")
+		return
+	end
+
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = humanoid
+	end
+
+	stopCurrentUGCEmote(true)
+
+	local anim = Instance.new("Animation")
+	anim.Name = "DarkMoonUGCEmote"
+	anim.AnimationId = "rbxassetid://" .. digits
+
+	local ok, track = pcall(function()
+		return animator:LoadAnimation(anim)
+	end)
+
+	if ok and track then
+		currentUGCEmoteAnim = anim
+		currentUGCEmoteTrack = track
+		state.activeUGCEmoteId = digits
+
+		track.Priority = Enum.AnimationPriority.Action4
+		track.Looped = true
+		track:Play(0.15)
+		track:AdjustSpeed(state.ugcEmoteSpeed)
+
+		notify("Playing UGC Emote", label or ("Emote ID: " .. digits), "sparkles")
+	else
+		anim:Destroy()
+		notify("Emote Error", "Could not load animation ID: " .. digits, "x-circle")
+	end
+end
+
+-- === ATMOSPHERE CUSTOMIZATION HELPERS ===
+local ATMOS_NAME = "DarkMoonCustomAtmosphere"
+
+local function getOrCreateAtmosphere()
+	local existingAtmos = Lighting:FindFirstChild(ATMOS_NAME)
+	if existingAtmos and existingAtmos:IsA("Atmosphere") then
+		return existingAtmos
+	end
+	local created = Instance.new("Atmosphere")
+	created.Name = ATMOS_NAME
+	created.Parent = Lighting
+	return created
+end
+
+local function applyAtmosphereSettings(silent)
+	if not state.atmosEnabled then
+		local existingAtmos = Lighting:FindFirstChild(ATMOS_NAME)
+		if existingAtmos then
+			existingAtmos:Destroy()
+		end
+		Lighting.ClockTime = defaultLightingSnap.ClockTime
+		Lighting.Brightness = defaultLightingSnap.Brightness
+		if not silent then
+			notify("Atmosphere", "Custom atmosphere disabled.", "sun")
+		end
+		return
+	end
+
+	local atmo = getOrCreateAtmosphere()
+	atmo.Density = math.clamp(tonumber(state.atmosDensity) or 0.35, 0, 1)
+	atmo.Offset = math.clamp(tonumber(state.atmosOffset) or 0.25, 0, 1)
+	atmo.Glare = math.clamp(tonumber(state.atmosGlare) or 0.2, 0, 10)
+	atmo.Haze = math.clamp(tonumber(state.atmosHaze) or 1.5, 0, 10)
+	atmo.Color = state.atmosColor
+	atmo.Decay = state.atmosDecay
+
+	Lighting.ClockTime = math.clamp(tonumber(state.clockTime) or 21.5, 0, 24)
+	Lighting.Brightness = math.clamp(tonumber(state.brightness) or 2.0, 0, 10)
+
+	if not silent then
+		notify("Atmosphere", "Updated sky & atmosphere settings.", "cloud")
+	end
+end
+
+local function applyAtmospherePreset(presetName)
+	if presetName == "Midnight Moon" then
+		state.atmosEnabled = true
+		state.atmosDensity = 0.38
+		state.atmosOffset = 0.25
+		state.atmosGlare = 0.25
+		state.atmosHaze = 2.0
+		state.atmosColor = Color3.fromHex("3B2F63")
+		state.atmosDecay = Color3.fromHex("17132B")
+		state.clockTime = 22.0
+		state.brightness = 1.6
+	elseif presetName == "Neon Dusk" then
+		state.atmosEnabled = true
+		state.atmosDensity = 0.42
+		state.atmosOffset = 0.30
+		state.atmosGlare = 0.45
+		state.atmosHaze = 2.4
+		state.atmosColor = Color3.fromHex("701A75")
+		state.atmosDecay = Color3.fromHex("1E1B4B")
+		state.clockTime = 18.5
+		state.brightness = 2.2
+	elseif presetName == "Clear Sky" then
+		state.atmosEnabled = true
+		state.atmosDensity = 0.12
+		state.atmosOffset = 0.05
+		state.atmosGlare = 0.10
+		state.atmosHaze = 0.5
+		state.atmosColor = Color3.fromHex("93C5FD")
+		state.atmosDecay = Color3.fromHex("1D4ED8")
+		state.clockTime = 13.0
+		state.brightness = 3.0
+	elseif presetName == "Default Lighting" then
+		state.atmosEnabled = false
+	end
+	applyAtmosphereSettings(false)
+end
+
+-- === SMALL HEAD TAG + SHARED SCRIPT SYNC ===
 local HEAD_TAG_NAME = "DarkMoonMeowHeadTag"
 
 local function removeHeadTag(character)
 	local head = character and character:FindFirstChild("Head")
-	local existing = head and head:FindFirstChild(HEAD_TAG_NAME)
-	if existing then
-		existing:Destroy()
+	local existingTag = head and head:FindFirstChild(HEAD_TAG_NAME)
+	if existingTag then
+		existingTag:Destroy()
 	end
 end
 
-local function applyHeadTag(character)
-	character = character or (LocalPlayer and LocalPlayer.Character)
+local function buildTagOnCharacter(character, cfg)
 	if not character then
 		return
 	end
-
 	removeHeadTag(character)
 
-	if not state.headTagEnabled then
+	if not cfg or cfg.enabled == false then
 		return
 	end
 
@@ -405,6 +841,10 @@ local function applyHeadTag(character)
 	if not head or not head:IsA("BasePart") then
 		return
 	end
+
+	local logoText = (cfg.logo and tostring(cfg.logo) ~= "") and tostring(cfg.logo) or "🌙"
+	local labelText = (cfg.text and tostring(cfg.text) ~= "") and tostring(cfg.text) or "Meow"
+	local accentColor = cfg.accent or Color3.fromHex("E9D5FF")
 
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = HEAD_TAG_NAME
@@ -430,7 +870,7 @@ local function applyHeadTag(character)
 
 	local stroke = Instance.new("UIStroke")
 	stroke.Thickness = 1.2
-	stroke.Color = state.headTagAccent
+	stroke.Color = accentColor
 	stroke.Transparency = 0.25
 	stroke.Parent = pill
 
@@ -448,8 +888,8 @@ local function applyHeadTag(character)
 	moonLabel.Size = UDim2.fromOffset(16, 18)
 	moonLabel.BackgroundTransparency = 1
 	moonLabel.Font = Enum.Font.FredokaOne
-	moonLabel.Text = state.headTagLogo
-	moonLabel.TextColor3 = state.headTagAccent
+	moonLabel.Text = logoText
+	moonLabel.TextColor3 = accentColor
 	moonLabel.TextSize = 14
 	moonLabel.Parent = pill
 
@@ -460,7 +900,7 @@ local function applyHeadTag(character)
 	meowLabel.Size = UDim2.fromOffset(0, 18)
 	meowLabel.BackgroundTransparency = 1
 	meowLabel.Font = Enum.Font.FredokaOne
-	meowLabel.Text = state.headTagText
+	meowLabel.Text = labelText
 	meowLabel.TextColor3 = Color3.fromHex("FFFFFF")
 	meowLabel.TextSize = 13
 	meowLabel.Parent = pill
@@ -472,7 +912,160 @@ local function applyHeadTag(character)
 	textStroke.Parent = meowLabel
 end
 
--- === ANIMATION BUNDLE HELPERS (FIXED & CASE-SAFE) ===
+applyPlayerHeadTag = function(plr, character)
+	if not plr then
+		return
+	end
+	character = character or plr.Character
+	if not character then
+		return
+	end
+
+	if plr == LocalPlayer then
+		buildTagOnCharacter(character, {
+			enabled = state.headTagEnabled,
+			logo = state.headTagLogo,
+			text = state.headTagText,
+			accent = state.headTagAccent,
+		})
+	else
+		local peerCfg = peerTagConfigs[plr.UserId]
+		if peerCfg then
+			buildTagOnCharacter(character, peerCfg)
+		end
+	end
+end
+
+local function broadcastHeadTagState()
+	applyPlayerHeadTag(LocalPlayer, LocalPlayer and LocalPlayer.Character)
+	if not state.headTagSyncEnabled then
+		return
+	end
+
+	local hexAccent = state.headTagAccent:ToHex()
+	local payload = string.format(
+		"DMHT|%s|%s|%s|%s",
+		state.headTagEnabled and "1" or "0",
+		tostring(state.headTagLogo):gsub("|", ""),
+		tostring(state.headTagText):gsub("|", ""),
+		hexAccent
+	)
+
+	pcall(function()
+		if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+			local channels = TextChatService:FindFirstChild("TextChannels")
+			local general = channels and (channels:FindFirstChild("RBXGeneral") or channels:GetChildren()[1])
+			if general and typeof(general.SendAsync) == "function" then
+				general:SendAsync(payload)
+				return
+			end
+		end
+		local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+		local sayMsg = chatEvents and chatEvents:FindFirstChild("SayMessageRequest")
+		if sayMsg and sayMsg:IsA("RemoteEvent") then
+			sayMsg:FireServer(payload, "All")
+		end
+	end)
+end
+
+-- === TROLLING HELPERS (KISS & HUG) ===
+local function getPlayerListLabels()
+	local labels = {}
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer then
+			local display = (plr.DisplayName and plr.DisplayName ~= "" and plr.DisplayName ~= plr.Name)
+				and (plr.DisplayName .. " (@" .. plr.Name .. ")")
+				or plr.Name
+			table.insert(labels, display)
+		end
+	end
+	table.sort(labels)
+	if #labels == 0 then
+		table.insert(labels, "No other players")
+	end
+	return labels
+end
+
+local function findTargetPlayerByLabel(label)
+	if not label or label == "No other players" then
+		return nil
+	end
+	local handleMatch = label:match("@([%w_]+)")
+	local searchName = handleMatch or label
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer and (plr.Name == searchName or plr.DisplayName == searchName or label:find(plr.Name, 1, true)) then
+			return plr
+		end
+	end
+	return nil
+end
+
+local function refreshTrollTargets(preferredLabel)
+	table.clear(trollPlayerLabels)
+	local fresh = getPlayerListLabels()
+	for _, lbl in ipairs(fresh) do
+		table.insert(trollPlayerLabels, lbl)
+	end
+
+	if trollPlayerLabels[1] == "No other players" then
+		state.selectedTrollTarget = nil
+	else
+		if preferredLabel and table.find(trollPlayerLabels, preferredLabel) then
+			state.selectedTrollTarget = preferredLabel
+		elseif not state.selectedTrollTarget or not table.find(trollPlayerLabels, state.selectedTrollTarget) then
+			state.selectedTrollTarget = trollPlayerLabels[1]
+		end
+	end
+
+	if trollPlayerDropdown and typeof(trollPlayerDropdown.Refresh) == "function" then
+		pcall(trollPlayerDropdown.Refresh, trollPlayerDropdown, trollPlayerLabels, true)
+	end
+end
+
+local function performTrollAction(actionType)
+	local targetPlr = findTargetPlayerByLabel(state.selectedTrollTarget)
+	if not targetPlr then
+		notify("No Target", "Select a player in the Trolling tab first.", "alert-circle")
+		return
+	end
+
+	local myChar = LocalPlayer and LocalPlayer.Character
+	local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+	local targetChar = targetPlr.Character
+	local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+
+	if not myRoot or not myRoot:IsA("BasePart") then
+		notify("Character Missing", "Wait for your character to spawn.", "alert-circle")
+		return
+	end
+
+	if not targetRoot or not targetRoot:IsA("BasePart") then
+		notify("Target Unavailable", targetPlr.Name .. " does not have an active character right now.", "alert-circle")
+		return
+	end
+
+	local dist = math.clamp(tonumber(state.trollOffsetDistance) or 1.4, 0.8, 4.0)
+	local targetPos = targetRoot.Position
+	local forward = targetRoot.CFrame.LookVector
+	local flatForward = Vector3.new(forward.X, 0, forward.Z)
+	if flatForward.Magnitude < 0.01 then
+		flatForward = Vector3.new(0, 0, -1)
+	else
+		flatForward = flatForward.Unit
+	end
+
+	if actionType == "kiss" then
+		local kissSpot = targetPos + (flatForward * dist)
+		myRoot.CFrame = CFrame.lookAt(kissSpot, Vector3.new(targetPos.X, kissSpot.Y, targetPos.Z))
+		notify("Kiss", "Kissed " .. targetPlr.Name .. " 💋", "heart")
+	elseif actionType == "hug" then
+		local hugSpot = targetPos + (flatForward * math.max(0.95, dist * 0.85))
+		myRoot.CFrame = CFrame.lookAt(hugSpot, Vector3.new(targetPos.X, hugSpot.Y, targetPos.Z))
+		notify("Hug", "Hugged " .. targetPlr.Name .. " 🤗", "sparkles")
+	end
+end
+
+-- === ANIMATION BUNDLE HELPERS ===
 local function findAnimFolderCaseInsensitive(animateScript, targetKey)
 	local lowerTarget = tostring(targetKey):lower()
 	for _, child in ipairs(animateScript:GetChildren()) do
@@ -573,7 +1166,7 @@ local function applyAnimationBundle(bundle, silent)
 
 	if humanoid.RigType == Enum.HumanoidRigType.R6 then
 		if not silent then
-			notify("R15 Required", "Animation bundles require an R15 avatar rig.", "alert-triangle")
+			notify("R15 Required", "Animations require an R15 avatar rig.", "alert-triangle")
 		end
 		return
 	end
@@ -598,7 +1191,7 @@ local function applyAnimationBundle(bundle, silent)
 	isApplyingBundle = false
 
 	if not silent then
-		notify("Bundle Applied", bundle.name .. " animation pack active.", "user-check")
+		notify("Animation Applied", bundle.name .. " animation pack active.", "user-check")
 	end
 end
 
@@ -628,104 +1221,67 @@ local function resetAnimationBundle()
 
 	refreshAnimateState(character)
 	isApplyingBundle = false
-	notify("Bundle Reset", "Reverted to default animations.", "rotate-ccw")
+	notify("Animation Reset", "Reverted to default animations.", "rotate-ccw")
 end
 
--- === EMOTE HELPERS ===
-local function stopCurrentEmote(silent)
-	if currentAnimTrack then
-		pcall(function()
-			currentAnimTrack:Stop(0.15)
-			currentAnimTrack:Destroy()
-		end)
-		currentAnimTrack = nil
+local function hookPlayerCharacter(plr)
+	if plr.Character then
+		applyPlayerHeadTag(plr, plr.Character)
+		if state.antiVoiceChat and state.muteVoiceAudioStreams then
+			scanAndApplyVoiceMute(plr.Character, true)
+		end
 	end
-	if currentAnimInstance then
-		pcall(function()
-			currentAnimInstance:Destroy()
-		end)
-		currentAnimInstance = nil
-	end
-	state.activeEmoteId = nil
-	if not silent then
-		notify("Emote Stopped", "Stopped active emote.", "square")
-	end
-end
+	plr.CharacterAdded:Connect(function(char)
+		if plr == LocalPlayer then
+			originalAnimateIds = nil
+			isApplyingBundle = false
+			currentUGCEmoteTrack = nil
+			currentUGCEmoteAnim = nil
+		end
+		char:WaitForChild("Head", 5)
+		if plr == LocalPlayer then
+			char:WaitForChild("Humanoid", 5)
+			char:WaitForChild("Animate", 5)
+		end
+		task.wait(0.35)
 
-local function playEmote(rawId, label)
-	local digits = tostring(rawId or ""):match("%d+")
-	if not digits or digits == "0" then
-		notify("Set Emote ID", "Enter a valid numeric Animation ID for this emote.", "alert-circle")
-		return
-	end
+		applyPlayerHeadTag(plr, char)
 
-	local character = LocalPlayer and LocalPlayer.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	if not humanoid then
-		notify("Character Missing", "Wait for your character to spawn first.", "alert-circle")
-		return
-	end
+		if state.antiVoiceChat and state.muteVoiceAudioStreams then
+			scanAndApplyVoiceMute(char, true)
+		end
 
-	if humanoid.RigType == Enum.HumanoidRigType.R6 then
-		notify("R15 Required", "Emotes require an R15 avatar rig.", "alert-triangle")
-		return
-	end
-
-	local animator = humanoid:FindFirstChildOfClass("Animator")
-	if not animator then
-		animator = Instance.new("Animator")
-		animator.Parent = humanoid
-	end
-
-	stopCurrentEmote(true)
-
-	local anim = Instance.new("Animation")
-	anim.Name = "DarkMoonCustomEmote"
-	anim.AnimationId = "rbxassetid://" .. digits
-
-	local ok, track = pcall(function()
-		return animator:LoadAnimation(anim)
+		if plr == LocalPlayer then
+			if state.bundleAutoRespawn and state.activeBundle then
+				applyAnimationBundle(state.activeBundle, true)
+			end
+			if state.ugcEmoteAutoRespawn and state.activeUGCEmoteId then
+				playUGCEmote(state.activeUGCEmoteId, state.selectedUGCEmoteName)
+			else
+				state.activeUGCEmoteId = nil
+			end
+			if state.atmosEnabled then
+				applyAtmosphereSettings(true)
+			end
+			if state.antiChatEnabled then
+				applyAntiChat(true)
+			end
+		end
 	end)
-
-	if ok and track then
-		currentAnimInstance = anim
-		currentAnimTrack = track
-		state.activeEmoteId = digits
-
-		track.Priority = Enum.AnimationPriority.Action4
-		track.Looped = true
-		track:Play(0.15)
-		track:AdjustSpeed(state.emoteSpeed)
-
-		notify("Playing Emote", label or ("Emote ID: " .. digits), "sparkles")
-	else
-		anim:Destroy()
-		notify("Emote Error", "Could not load animation ID: " .. digits, "x-circle")
-	end
 end
 
-LocalPlayer.CharacterAdded:Connect(function(char)
-	currentAnimTrack = nil
-	currentAnimInstance = nil
-	originalAnimateIds = nil
-	isApplyingBundle = false
+for _, plr in ipairs(Players:GetPlayers()) do
+	hookPlayerCharacter(plr)
+end
 
-	char:WaitForChild("Head", 5)
-	char:WaitForChild("Humanoid", 5)
-	char:WaitForChild("Animate", 5)
-	task.wait(0.35)
+Players.PlayerAdded:Connect(function(plr)
+	hookPlayerCharacter(plr)
+	refreshTrollTargets(state.selectedTrollTarget)
+end)
 
-	applyHeadTag(char)
-
-	if state.bundleAutoRespawn and state.activeBundle then
-		applyAnimationBundle(state.activeBundle, true)
-	end
-
-	if state.emoteAutoRespawn and state.activeEmoteId then
-		playEmote(state.activeEmoteId, state.selectedEmoteName)
-	else
-		state.activeEmoteId = nil
-	end
+Players.PlayerRemoving:Connect(function(plr)
+	peerTagConfigs[plr.UserId] = nil
+	refreshTrollTargets(state.selectedTrollTarget)
 end)
 
 -- === FILE & MUSIC HELPERS ===
@@ -1040,10 +1596,10 @@ end
 
 -- Build WindUI Window
 local Window = WindUI:CreateWindow({
-	Title = "DARK MOON | Music & Emotes",
+	Title = "DARK MOON | Music & Animations",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "DarkMoonMusicEmotes",
+	Folder = "DarkMoonMusicAnimations",
 	Size = UDim2.fromOffset(520, 445),
 	Transparent = true,
 	Theme = "Dark",
@@ -1063,9 +1619,12 @@ Window:EditOpenButton({
 })
 
 local PlayerTab = Window:Tab({ Title = "Player", Icon = "headphones" })
-local EmotesTab = Window:Tab({ Title = "Emotes (20)", Icon = "sparkles" })
-local BundlesTab = Window:Tab({ Title = "Anim Bundles (20)", Icon = "user-check" })
+local UGCEmotesTab = Window:Tab({ Title = "UGC Emotes (20)", Icon = "sparkles" })
+local AnimationsTab = Window:Tab({ Title = "Animations", Icon = "user-check" })
+local TrollTab = Window:Tab({ Title = "Trolling", Icon = "heart" })
 local TagTab = Window:Tab({ Title = "Head Tag", Icon = "moon" })
+local AtmosTab = Window:Tab({ Title = "Atmosphere", Icon = "cloud" })
+local AntiTab = Window:Tab({ Title = "Anti-Chat & VC", Icon = "shield" })
 local LibraryTab = Window:Tab({ Title = "My Songs", Icon = "download" })
 local FavTab = Window:Tab({ Title = "Favorites", Icon = "star" })
 local FxTab = Window:Tab({ Title = "Audio FX", Icon = "sliders" })
@@ -1228,17 +1787,17 @@ PlayerTab:Toggle({
 	end,
 })
 
--- === TAB 2: EMOTES (20 TOTAL, NO FEATURED SECTION) ===
-EmotesTab:Section({ Title = "Emote Search & Dropdown" })
+-- === TAB 2: ROBLOX MARKETPLACE UGC EMOTES (20) ===
+UGCEmotesTab:Section({ Title = "UGC Emote Search & Quick Controls" })
 
-EmotesTab:Input({
-	Title = "Search Emote",
-	Desc = "Filter emotes by name",
+UGCEmotesTab:Input({
+	Title = "Search UGC Emote",
+	Desc = "Filter 20 marketplace UGC emotes by name",
 	Placeholder = "Type emote name...",
 	Callback = function(query)
 		local q = tostring(query or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
 		local filtered = {}
-		for _, item in ipairs(EmoteList) do
+		for _, item in ipairs(UGCEmoteList) do
 			if q == "" or item.name:lower():find(q, 1, true) then
 				table.insert(filtered, item.name)
 			end
@@ -1246,116 +1805,116 @@ EmotesTab:Input({
 		if #filtered == 0 then
 			table.insert(filtered, "No matching emote")
 		end
-		if EmoteDropdown and typeof(EmoteDropdown.Refresh) == "function" then
-			pcall(EmoteDropdown.Refresh, EmoteDropdown, filtered, true)
+		if UGCEmoteDropdown and typeof(UGCEmoteDropdown.Refresh) == "function" then
+			pcall(UGCEmoteDropdown.Refresh, UGCEmoteDropdown, filtered, true)
 		end
 	end,
 })
 
-EmoteDropdown = EmotesTab:Dropdown({
-	Title = "Select Emote",
-	Values = EmoteNames,
-	Value = EmoteNames[1],
+UGCEmoteDropdown = UGCEmotesTab:Dropdown({
+	Title = "Select UGC Emote",
+	Values = UGCEmoteNames,
+	Value = UGCEmoteNames[1],
 	Callback = function(selectedEmote)
 		if not selectedEmote or selectedEmote == "No matching emote" then
 			return
 		end
-		state.selectedEmoteName = selectedEmote
-		local animId = EmoteByName[selectedEmote]
+		state.selectedUGCEmoteName = selectedEmote
+		local animId = UGCEmoteByName[selectedEmote]
 		if animId then
-			playEmote(animId, selectedEmote)
+			playUGCEmote(animId, selectedEmote)
 		end
 	end,
 })
 
-EmotesTab:Button({
-	Title = "Play Selected Emote",
+UGCEmotesTab:Button({
+	Title = "Play Selected UGC Emote",
 	Icon = "play",
 	Callback = function()
-		local animId = EmoteByName[state.selectedEmoteName]
+		local animId = UGCEmoteByName[state.selectedUGCEmoteName]
 		if animId then
-			playEmote(animId, state.selectedEmoteName)
+			playUGCEmote(animId, state.selectedUGCEmoteName)
 		end
 	end,
 })
 
-EmotesTab:Button({
-	Title = "Random Emote",
+UGCEmotesTab:Button({
+	Title = "Random UGC Emote",
 	Icon = "shuffle",
 	Callback = function()
-		local pick = EmoteList[math.random(1, #EmoteList)]
-		state.selectedEmoteName = pick.name
-		playEmote(pick.id, pick.name)
+		local pick = UGCEmoteList[math.random(1, #UGCEmoteList)]
+		state.selectedUGCEmoteName = pick.name
+		playUGCEmote(pick.id, pick.name)
 	end,
 })
 
-EmotesTab:Button({
-	Title = "Stop Emote",
+UGCEmotesTab:Button({
+	Title = "Stop UGC Emote",
 	Icon = "square",
 	Callback = function()
-		stopCurrentEmote(false)
+		stopCurrentUGCEmote(false)
 	end,
 })
 
-EmotesTab:Section({ Title = "All 20 Emotes" })
+UGCEmotesTab:Section({ Title = "Popular UGC & Marketplace Emotes (1 - 20)" })
 
-for _, emote in ipairs(EmoteList) do
-	EmotesTab:Button({
+for _, emote in ipairs(UGCEmoteList) do
+	UGCEmotesTab:Button({
 		Title = emote.name,
 		Icon = "sparkles",
 		Callback = function()
-			state.selectedEmoteName = emote.name
-			playEmote(emote.id, emote.name)
+			state.selectedUGCEmoteName = emote.name
+			playUGCEmote(emote.id, emote.name)
 		end,
 	})
 end
 
-EmotesTab:Section({ Title = "Emote Controls & Custom ID" })
+UGCEmotesTab:Section({ Title = "Emote Speed & Custom UGC ID" })
 
-EmotesTab:Slider({
+UGCEmotesTab:Slider({
 	Title = "Emote Speed",
 	Step = 0.05,
 	Value = { Min = 0.25, Max = 2.5, Default = 1.0 },
 	Callback = function(v)
-		state.emoteSpeed = v
-		if currentAnimTrack and currentAnimTrack.IsPlaying then
+		state.ugcEmoteSpeed = v
+		if currentUGCEmoteTrack and currentUGCEmoteTrack.IsPlaying then
 			pcall(function()
-				currentAnimTrack:AdjustSpeed(v)
+				currentUGCEmoteTrack:AdjustSpeed(v)
 			end)
 		end
 	end,
 })
 
-EmotesTab:Toggle({
+UGCEmotesTab:Toggle({
 	Title = "Auto-Replay After Respawn",
 	Value = false,
 	Callback = function(v)
-		state.emoteAutoRespawn = v
+		state.ugcEmoteAutoRespawn = v
 	end,
 })
 
-EmotesTab:Input({
-	Title = "Custom Animation ID",
-	Desc = "Enter any numeric Animation ID",
-	Placeholder = "Enter Animation ID...",
+UGCEmotesTab:Input({
+	Title = "Custom UGC Animation ID",
+	Desc = "Paste any numeric Marketplace Animation ID",
+	Placeholder = "114388371896974",
 	Callback = function(v)
-		state.customEmoteId = v
+		state.customUGCEmoteId = v
 	end,
 })
 
-EmotesTab:Button({
-	Title = "Play Custom Emote ID",
+UGCEmotesTab:Button({
+	Title = "Play Custom UGC ID",
 	Icon = "play-circle",
 	Callback = function()
-		playEmote(state.customEmoteId, "Custom Emote (" .. tostring(state.customEmoteId) .. ")")
+		playUGCEmote(state.customUGCEmoteId, "Custom UGC (" .. tostring(state.customUGCEmoteId) .. ")")
 	end,
 })
 
--- === TAB 3: ANIMATION BUNDLES (20) ===
-BundlesTab:Section({ Title = "Bundle Controls (R15)" })
+-- === TAB 3: ANIMATIONS ===
+AnimationsTab:Section({ Title = "Animation Controls (R15)" })
 
-BundlesTab:Dropdown({
-	Title = "Select Animation Bundle",
+AnimationsTab:Dropdown({
+	Title = "Select Animation",
 	Values = BundleNames,
 	Value = BundleNames[1],
 	Callback = function(selectedBundle)
@@ -1367,8 +1926,8 @@ BundlesTab:Dropdown({
 	end,
 })
 
-BundlesTab:Button({
-	Title = "Apply Selected Bundle",
+AnimationsTab:Button({
+	Title = "Apply Selected Animation",
 	Icon = "check-circle",
 	Callback = function()
 		local b = BundleByName[state.selectedBundleName]
@@ -1378,7 +1937,7 @@ BundlesTab:Button({
 	end,
 })
 
-BundlesTab:Button({
+AnimationsTab:Button({
 	Title = "Reset to Default Animations",
 	Icon = "rotate-ccw",
 	Callback = function()
@@ -1386,18 +1945,18 @@ BundlesTab:Button({
 	end,
 })
 
-BundlesTab:Toggle({
-	Title = "Keep Bundle After Respawn",
+AnimationsTab:Toggle({
+	Title = "Keep Animation After Respawn",
 	Value = true,
 	Callback = function(v)
 		state.bundleAutoRespawn = v
 	end,
 })
 
-BundlesTab:Section({ Title = "All 20 Animation Bundles" })
+AnimationsTab:Section({ Title = "All 20 Animations" })
 
 for _, bundle in ipairs(AnimationBundles) do
-	BundlesTab:Button({
+	AnimationsTab:Button({
 		Title = bundle.name,
 		Icon = "user-check",
 		Callback = function()
@@ -1407,7 +1966,61 @@ for _, bundle in ipairs(AnimationBundles) do
 	})
 end
 
--- === TAB 4: SMALL HEAD TAG (MOON + MEOW) ===
+-- === TAB 4: TROLLING (KISS & HUG) ===
+TrollTab:Section({ Title = "Target Player" })
+
+refreshTrollTargets()
+
+trollPlayerDropdown = TrollTab:Dropdown({
+	Title = "Select Player",
+	Values = trollPlayerLabels,
+	Value = trollPlayerLabels[1],
+	Callback = function(selectedPlr)
+		if selectedPlr and selectedPlr ~= "No other players" then
+			state.selectedTrollTarget = selectedPlr
+		end
+	end,
+})
+
+TrollTab:Button({
+	Title = "Refresh Players",
+	Icon = "refresh-cw",
+	Callback = function()
+		refreshTrollTargets(state.selectedTrollTarget)
+		notify("Players", "Updated target player list.", "check")
+	end,
+})
+
+TrollTab:Slider({
+	Title = "Distance Offset",
+	Step = 0.1,
+	Value = { Min = 0.8, Max = 3.5, Default = 1.4 },
+	Callback = function(v)
+		state.trollOffsetDistance = v
+	end,
+})
+
+TrollTab:Section({ Title = "Troll Actions" })
+
+TrollTab:Button({
+	Title = "Kiss",
+	Desc = "Step right in front of selected player facing them",
+	Icon = "heart",
+	Callback = function()
+		performTrollAction("kiss")
+	end,
+})
+
+TrollTab:Button({
+	Title = "Hug",
+	Desc = "Step up close to selected player for a hug",
+	Icon = "sparkles",
+	Callback = function()
+		performTrollAction("hug")
+	end,
+})
+
+-- === TAB 5: SMALL HEAD TAG (MOON + MEOW + SHARED SCRIPT SYNC) ===
 TagTab:Section({ Title = "Small Head Tag (Moon + Meow)" })
 
 TagTab:Toggle({
@@ -1416,8 +2029,20 @@ TagTab:Toggle({
 	Value = true,
 	Callback = function(v)
 		state.headTagEnabled = v
-		applyHeadTag()
+		broadcastHeadTagState()
 		notify("Head Tag", v and "Small Moon Meow tag enabled." or "Head tag hidden.", "moon")
+	end,
+})
+
+TagTab:Toggle({
+	Title = "Share Tag With Same-Script Users",
+	Desc = "Syncs tag state to others running this script",
+	Value = true,
+	Callback = function(v)
+		state.headTagSyncEnabled = v
+		if v then
+			broadcastHeadTagState()
+		end
 	end,
 })
 
@@ -1428,7 +2053,7 @@ TagTab:Input({
 	Callback = function(v)
 		local trimmed = tostring(v or ""):gsub("^%s+", ""):gsub("%s+$", "")
 		state.headTagLogo = (#trimmed > 0 and trimmed) or "🌙"
-		applyHeadTag()
+		broadcastHeadTagState()
 	end,
 })
 
@@ -1439,7 +2064,7 @@ TagTab:Input({
 	Callback = function(v)
 		local trimmed = tostring(v or ""):gsub("^%s+", ""):gsub("%s+$", "")
 		state.headTagText = (#trimmed > 0 and trimmed) or "Meow"
-		applyHeadTag()
+		broadcastHeadTagState()
 	end,
 })
 
@@ -1457,20 +2082,202 @@ TagTab:Dropdown({
 		else
 			state.headTagAccent = Color3.fromHex("E9D5FF")
 		end
-		applyHeadTag()
+		broadcastHeadTagState()
 	end,
 })
 
 TagTab:Button({
-	Title = "Refresh Head Tag",
+	Title = "Broadcast & Refresh Head Tag",
 	Icon = "refresh-cw",
 	Callback = function()
-		applyHeadTag()
-		notify("Head Tag", "Refreshed 🌙 Meow tag above head.", "check")
+		broadcastHeadTagState()
+		notify("Head Tag", "Refreshed & synced 🌙 Meow tag.", "check")
 	end,
 })
 
--- === TAB 5: MY SONGS (DOWNLOAD & LOCAL) ===
+-- === TAB 6: ATMOSPHERE CUSTOMIZATION ===
+AtmosTab:Section({ Title = "Atmosphere Presets" })
+
+AtmosTab:Toggle({
+	Title = "Enable Custom Atmosphere",
+	Value = true,
+	Callback = function(v)
+		state.atmosEnabled = v
+		applyAtmosphereSettings(false)
+	end,
+})
+
+AtmosTab:Dropdown({
+	Title = "Atmosphere Preset",
+	Values = { "Midnight Moon", "Neon Dusk", "Clear Sky", "Default Lighting" },
+	Value = "Midnight Moon",
+	Callback = function(preset)
+		applyAtmospherePreset(preset)
+	end,
+})
+
+AtmosTab:Dropdown({
+	Title = "Sky & Haze Tint",
+	Values = { "Midnight Violet", "Neon Magenta", "Frost Cyan", "Warm Amber" },
+	Value = "Midnight Violet",
+	Callback = function(tint)
+		if tint == "Neon Magenta" then
+			state.atmosColor = Color3.fromHex("C026D3")
+			state.atmosDecay = Color3.fromHex("311042")
+		elseif tint == "Frost Cyan" then
+			state.atmosColor = Color3.fromHex("67E8F9")
+			state.atmosDecay = Color3.fromHex("0F172A")
+		elseif tint == "Warm Amber" then
+			state.atmosColor = Color3.fromHex("FBBF24")
+			state.atmosDecay = Color3.fromHex("451A03")
+		else
+			state.atmosColor = Color3.fromHex("3B2F63")
+			state.atmosDecay = Color3.fromHex("17132B")
+		end
+		applyAtmosphereSettings(true)
+	end,
+})
+
+AtmosTab:Section({ Title = "Atmosphere & Lighting Sliders" })
+
+AtmosTab:Slider({
+	Title = "Fog Density",
+	Step = 0.02,
+	Value = { Min = 0, Max = 1, Default = 0.35 },
+	Callback = function(v)
+		state.atmosDensity = v
+		applyAtmosphereSettings(true)
+	end,
+})
+
+AtmosTab:Slider({
+	Title = "Horizon Offset",
+	Step = 0.02,
+	Value = { Min = 0, Max = 1, Default = 0.25 },
+	Callback = function(v)
+		state.atmosOffset = v
+		applyAtmosphereSettings(true)
+	end,
+})
+
+AtmosTab:Slider({
+	Title = "Sun / Moon Glare",
+	Step = 0.05,
+	Value = { Min = 0, Max = 5, Default = 0.2 },
+	Callback = function(v)
+		state.atmosGlare = v
+		applyAtmosphereSettings(true)
+	end,
+})
+
+AtmosTab:Slider({
+	Title = "Atmosphere Haze",
+	Step = 0.1,
+	Value = { Min = 0, Max = 10, Default = 1.5 },
+	Callback = function(v)
+		state.atmosHaze = v
+		applyAtmosphereSettings(true)
+	end,
+})
+
+AtmosTab:Slider({
+	Title = "Time of Day (ClockTime)",
+	Step = 0.5,
+	Value = { Min = 0, Max = 24, Default = 21.5 },
+	Callback = function(v)
+		state.clockTime = v
+		applyAtmosphereSettings(true)
+	end,
+})
+
+AtmosTab:Slider({
+	Title = "Lighting Brightness",
+	Step = 0.1,
+	Value = { Min = 0, Max = 6, Default = 2.0 },
+	Callback = function(v)
+		state.brightness = v
+		applyAtmosphereSettings(true)
+	end,
+})
+
+-- === TAB 7: ANTI-CHAT & ANTI-VOICE CHAT ===
+AntiTab:Section({ Title = "Anti-Voice Chat" })
+
+AntiTab:Toggle({
+	Title = "Enable Anti-Voice Chat",
+	Desc = "Mutes voice chat audio streams on your client",
+	Value = false,
+	Callback = function(v)
+		state.antiVoiceChat = v
+		applyAntiVoiceChat(false)
+	end,
+})
+
+AntiTab:Toggle({
+	Title = "Mute Voice Audio Streams",
+	Desc = "Zeroes volume on voice audio nodes & players",
+	Value = true,
+	Callback = function(v)
+		state.muteVoiceAudioStreams = v
+		applyAntiVoiceChat(true)
+	end,
+})
+
+AntiTab:Button({
+	Title = "Re-Scan & Mute Voice Streams",
+	Icon = "mic-off",
+	Callback = function()
+		state.antiVoiceChat = true
+		applyAntiVoiceChat(false)
+	end,
+})
+
+AntiTab:Section({ Title = "Anti-Chat" })
+
+AntiTab:Toggle({
+	Title = "Enable Anti-Chat",
+	Desc = "Hides chat & clears incoming chat text locally",
+	Value = false,
+	Callback = function(v)
+		state.antiChatEnabled = v
+		applyAntiChat(false)
+	end,
+})
+
+AntiTab:Toggle({
+	Title = "Hide Chat Window",
+	Value = true,
+	Callback = function(v)
+		state.hideChatWindow = v
+		if state.antiChatEnabled then
+			applyAntiChat(true)
+		end
+	end,
+})
+
+AntiTab:Toggle({
+	Title = "Hide Chat Input Bar",
+	Value = true,
+	Callback = function(v)
+		state.hideChatInputBar = v
+		if state.antiChatEnabled then
+			applyAntiChat(true)
+		end
+	end,
+})
+
+AntiTab:Toggle({
+	Title = "Hide Bubble Chat",
+	Value = true,
+	Callback = function(v)
+		state.hideBubbleChat = v
+		if state.antiChatEnabled then
+			applyAntiChat(true)
+		end
+	end,
+})
+
+-- === TAB 8: MY SONGS (DOWNLOAD & LOCAL) ===
 LibraryTab:Section({ Title = "Add Downloaded Song" })
 
 LibraryTab:Input({
@@ -1569,7 +2376,7 @@ LibraryTab:Button({
 	end,
 })
 
--- === TAB 6: FAVORITES ===
+-- === TAB 9: FAVORITES ===
 FavTab:Section({ Title = "Quick Favorites" })
 
 FavTab:Button({
@@ -1650,7 +2457,7 @@ FavTab:Button({
 	end,
 })
 
--- === TAB 7: AUDIO FX ===
+-- === TAB 10: AUDIO FX ===
 FxTab:Section({ Title = "One-Tap Sound Presets" })
 
 FxTab:Dropdown({
@@ -1692,10 +2499,15 @@ FxTab:Toggle({
 	end,
 })
 
--- Apply initial head tag if character is already loaded
+-- Initialize Atmosphere & Head Tag on load
+if state.atmosEnabled then
+	applyAtmosphereSettings(true)
+end
+
 if LocalPlayer and LocalPlayer.Character then
 	task.spawn(function()
-		applyHeadTag(LocalPlayer.Character)
+		applyPlayerHeadTag(LocalPlayer, LocalPlayer.Character)
+		broadcastHeadTagState()
 	end)
 end
 
