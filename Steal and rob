@@ -12,8 +12,9 @@ local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local SCRIPT_VERSION = "v19.0"
-local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v19.json"
+local SCRIPT_VERSION = "v20.0"
+local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v20.json"
+local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-cloud/yutahub/main/main.lua"
 
 -- ==========================================
 -- CHANGELOG DATA (WHAT'S NEW / WHAT'S FIXED)
@@ -21,12 +22,12 @@ local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v19.json"
 local CHANGELOG = {
 	Version = SCRIPT_VERSION,
 	WhatsNew = {
-		"Server Hop (5 Servers): Fetches & hops across up to 5 different servers automatically.",
-		"Big Automatic What's New & What's Fixed Screen with spacious layout & larger text.",
-		"Auto-Save Features: Automatically saves toggles & sliders you use and restores them on launch."
+		"Auto Execute: Automatically queues script execution across teleports & 5-server hops.",
+		"Extra-Big Front Changelog Screen: Larger modal card, bigger text, and highest front display order.",
+		"Server Hop (5 Servers): Fetches & teleports across up to 5 different servers automatically."
 	},
 	WhatsFixed = {
-		"Server Hop fallback logic so full or closed instances don't stall teleportation.",
+		"Front-most layering for floating buttons & update modal so they aren't hidden behind HUDs.",
 		"Loot & Vault ESP immediate scan on toggle + duplicate marker filtering within 2 studs.",
 		"Safe BasePart, Model, and TextLabel world position lookup + guarded Drawing logo badges."
 	}
@@ -37,7 +38,7 @@ local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubV19",
+	Folder = "PremiumYutaHubV20",
 	Size = UDim2.fromOffset(550, 530),
 	MinSize = Vector2.new(440, 320),
 	MaxSize = Vector2.new(740, 640),
@@ -89,13 +90,14 @@ local State = {
 	UnderMapLockY = true,
 	ShowFloatingUnderBtn = true,
 	ShowFloatingBaseBtn = true,
-	FloatingBtnWidth = 156,
+	FloatingBtnWidth = 164,
 	SpeedEnabled = false,
 	JumpEnabled = false,
 	BoxESP = false,
 	LootVaultESP = false,
 	LootEspLogo = true,
 	AutoSaveEnabled = true,
+	AutoExecuteEnabled = true,
 	ServerHopCount = 5,
 	NoclipStepPower = 0.95,
 	BypassScanDistance = 24,
@@ -119,6 +121,7 @@ local State = {
 	LastRejoinAttempt = 0,
 	LastServerHopAttempt = 0,
 	ServerHopBusy = false,
+	TeleportQueued = false,
 	LastAutoSaveTime = 0,
 	IgnoreUnusualUntil = 0,
 	LoadingSaved = false,
@@ -166,8 +169,38 @@ local function disconnectList(list)
 end
 
 -- ==========================================
--- AUTO-SAVE FEATURES SYSTEM
+-- AUTO-EXECUTE & AUTO-SAVE SYSTEM
 -- ==========================================
+local function getQueueTeleportFn()
+	if typeof(queue_on_teleport) == "function" then
+		return queue_on_teleport
+	end
+	if typeof(queueonteleport) == "function" then
+		return queueonteleport
+	end
+	if syn and typeof(syn.queue_on_teleport) == "function" then
+		return syn.queue_on_teleport
+	end
+	return nil
+end
+
+local function armAutoExecuteForTeleport()
+	if State.Unloaded or not State.AutoExecuteEnabled or State.TeleportQueued then return end
+	local queueFn = getQueueTeleportFn()
+	if not queueFn then return end
+
+	local payload = string.format(
+		'if not game:IsLoaded() then game.Loaded:Wait() end; pcall(function() loadstring(game:HttpGet("%s"))() end)',
+		SCRIPT_SOURCE_URL
+	)
+	local ok = pcall(function()
+		queueFn(payload)
+	end)
+	if ok then
+		State.TeleportQueued = true
+	end
+end
+
 local function hasFileIO()
 	return (typeof(writefile) == "function") and (typeof(readfile) == "function")
 end
@@ -176,6 +209,7 @@ local function buildSavePayload()
 	return {
 		LastSeenVersion = SCRIPT_VERSION,
 		AutoSaveEnabled = State.AutoSaveEnabled,
+		AutoExecuteEnabled = State.AutoExecuteEnabled,
 		Features = {
 			Noclip = State.Noclip,
 			NoclipBetaUltra = State.NoclipBetaUltra,
@@ -268,7 +302,7 @@ local function resetSavedFeatures()
 	State.ExtraSpeed = 16
 	State.JumpHeight = 14
 	State.JumpPower = 70
-	State.FloatingBtnWidth = 156
+	State.FloatingBtnWidth = 164
 
 	local defaults = {
 		Noclip = false,
@@ -281,7 +315,7 @@ local function resetSavedFeatures()
 		UnderMapLockY = true,
 		ShowFloatingUnderBtn = true,
 		ShowFloatingBaseBtn = true,
-		FloatingBtnWidth = 156,
+		FloatingBtnWidth = 164,
 		SpeedEnabled = false,
 		ExtraSpeed = 16,
 		JumpEnabled = false,
@@ -309,7 +343,7 @@ local function resetSavedFeatures()
 end
 
 -- ==========================================
--- BIG AUTOMATIC WHAT'S NEW / WHAT'S FIXED SCREEN
+-- BIG FRONT AUTOMATIC WHAT'S NEW / WHAT'S FIXED SCREEN
 -- ==========================================
 local changelogGui = nil
 
@@ -341,8 +375,8 @@ local function showChangelogScreen()
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "YutaHub_ChangelogScreen"
 	gui.ResetOnSpawn = false
-	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	gui.DisplayOrder = 60
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+	gui.DisplayOrder = 999
 	gui.Parent = PlayerGui
 	changelogGui = gui
 
@@ -350,65 +384,69 @@ local function showChangelogScreen()
 	backdrop.Name = "Backdrop"
 	backdrop.Size = UDim2.fromScale(1, 1)
 	backdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-	backdrop.BackgroundTransparency = 0.5
+	backdrop.BackgroundTransparency = 0.45
 	backdrop.BorderSizePixel = 0
+	backdrop.ZIndex = 990
 	backdrop.Parent = gui
 
 	local card = Instance.new("Frame")
 	card.Name = "ChangelogCard"
-	card.Size = UDim2.new(0.92, 0, 0.86, 0)
+	card.Size = UDim2.new(0.95, 0, 0.90, 0)
 	card.Position = UDim2.fromScale(0.5, 0.5)
 	card.AnchorPoint = Vector2.new(0.5, 0.5)
-	card.BackgroundColor3 = Color3.fromRGB(16, 18, 28)
+	card.BackgroundColor3 = Color3.fromRGB(15, 17, 27)
 	card.BorderSizePixel = 0
+	card.ZIndex = 995
 	card.Parent = gui
 
 	local sizeConstraint = Instance.new("UISizeConstraint")
-	sizeConstraint.MinSize = Vector2.new(340, 320)
-	sizeConstraint.MaxSize = Vector2.new(720, 580)
+	sizeConstraint.MinSize = Vector2.new(360, 360)
+	sizeConstraint.MaxSize = Vector2.new(860, 680)
 	sizeConstraint.Parent = card
 
 	local cardCorner = Instance.new("UICorner")
-	cardCorner.CornerRadius = UDim.new(0, 20)
+	cardCorner.CornerRadius = UDim.new(0, 22)
 	cardCorner.Parent = card
 
 	local cardStroke = Instance.new("UIStroke")
-	cardStroke.Color = Color3.fromRGB(115, 130, 255)
-	cardStroke.Thickness = 2
+	cardStroke.Color = Color3.fromRGB(125, 140, 255)
+	cardStroke.Thickness = 2.5
 	cardStroke.Parent = card
 
 	local header = Instance.new("TextLabel")
 	header.Name = "Header"
-	header.Size = UDim2.new(1, -32, 0, 48)
-	header.Position = UDim2.fromOffset(16, 14)
+	header.Size = UDim2.new(1, -36, 0, 54)
+	header.Position = UDim2.fromOffset(18, 16)
 	header.BackgroundTransparency = 1
 	header.Text = "PREMIUM YUTAHUB  •  " .. CHANGELOG.Version
-	header.TextColor3 = Color3.fromRGB(240, 245, 255)
+	header.TextColor3 = Color3.fromRGB(245, 248, 255)
 	header.Font = Enum.Font.GothamBold
-	header.TextSize = 20
+	header.TextSize = 24
 	header.TextXAlignment = Enum.TextXAlignment.Left
+	header.ZIndex = 996
 	header.Parent = card
 
 	local scroll = Instance.new("ScrollingFrame")
 	scroll.Name = "ContentScroll"
-	scroll.Size = UDim2.new(1, -32, 1, -138)
-	scroll.Position = UDim2.fromOffset(16, 68)
-	scroll.BackgroundColor3 = Color3.fromRGB(24, 27, 40)
+	scroll.Size = UDim2.new(1, -36, 1, -154)
+	scroll.Position = UDim2.fromOffset(18, 76)
+	scroll.BackgroundColor3 = Color3.fromRGB(23, 26, 40)
 	scroll.BorderSizePixel = 0
-	scroll.ScrollBarThickness = 6
+	scroll.ScrollBarThickness = 7
 	scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	scroll.ZIndex = 996
 	scroll.Parent = card
 
 	local scrollCorner = Instance.new("UICorner")
-	scrollCorner.CornerRadius = UDim.new(0, 14)
+	scrollCorner.CornerRadius = UDim.new(0, 16)
 	scrollCorner.Parent = scroll
 
 	local pad = Instance.new("UIPadding")
-	pad.PaddingTop = UDim.new(0, 14)
-	pad.PaddingBottom = UDim.new(0, 14)
-	pad.PaddingLeft = UDim.new(0, 16)
-	pad.PaddingRight = UDim.new(0, 16)
+	pad.PaddingTop = UDim.new(0, 16)
+	pad.PaddingBottom = UDim.new(0, 16)
+	pad.PaddingLeft = UDim.new(0, 18)
+	pad.PaddingRight = UDim.new(0, 18)
 	pad.Parent = scroll
 
 	local bodyLabel = Instance.new("TextLabel")
@@ -417,28 +455,31 @@ local function showChangelogScreen()
 	bodyLabel.AutomaticSize = Enum.AutomaticSize.Y
 	bodyLabel.BackgroundTransparency = 1
 	bodyLabel.Text = buildChangelogText()
-	bodyLabel.TextColor3 = Color3.fromRGB(225, 232, 250)
+	bodyLabel.TextColor3 = Color3.fromRGB(230, 236, 252)
 	bodyLabel.Font = Enum.Font.Gotham
-	bodyLabel.TextSize = 15
+	bodyLabel.TextSize = 17
+	bodyLabel.LineHeight = 1.25
 	bodyLabel.TextWrapped = true
 	bodyLabel.TextXAlignment = Enum.TextXAlignment.Left
 	bodyLabel.TextYAlignment = Enum.TextYAlignment.Top
+	bodyLabel.ZIndex = 997
 	bodyLabel.Parent = scroll
 
 	local closeBtn = Instance.new("TextButton")
 	closeBtn.Name = "CloseButton"
-	closeBtn.Size = UDim2.new(1, -32, 0, 48)
-	closeBtn.Position = UDim2.new(0, 16, 1, -60)
+	closeBtn.Size = UDim2.new(1, -36, 0, 54)
+	closeBtn.Position = UDim2.new(0, 18, 1, -68)
 	closeBtn.BackgroundColor3 = Color3.fromRGB(95, 110, 255)
 	closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	closeBtn.Text = "Got It"
 	closeBtn.Font = Enum.Font.GothamBold
-	closeBtn.TextSize = 16
+	closeBtn.TextSize = 18
 	closeBtn.AutoButtonColor = true
+	closeBtn.ZIndex = 998
 	closeBtn.Parent = card
 
 	local btnCorner = Instance.new("UICorner")
-	btnCorner.CornerRadius = UDim.new(0, 12)
+	btnCorner.CornerRadius = UDim.new(0, 14)
 	btnCorner.Parent = closeBtn
 
 	closeBtn.MouseButton1Click:Connect(function()
@@ -883,18 +924,19 @@ local function setUnderMap(enabled)
 end
 
 -- ==========================================
--- BIG FLOATING MOBILE BUTTONS (UNDER MAP & TP BASE)
+-- FRONT BIG FLOATING MOBILE BUTTONS (UNDER MAP & TP BASE)
 -- ==========================================
 local floatGui = Instance.new("ScreenGui")
 floatGui.Name = "YutaHub_FloatingUnderGui"
 floatGui.ResetOnSpawn = false
-floatGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+floatGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+floatGui.DisplayOrder = 250
 floatGui.Parent = PlayerGui
 
 local function getFloatingBtnDimensions(widthPx)
-	local w = math.clamp(math.floor(widthPx or 156), 120, 220)
-	local h = math.clamp(math.floor(w * 0.35), 44, 78)
-	local textSize = math.clamp(math.floor(h * 0.28), 14, 20)
+	local w = math.clamp(math.floor(widthPx or 164), 120, 220)
+	local h = math.clamp(math.floor(w * 0.35), 46, 78)
+	local textSize = math.clamp(math.floor(h * 0.29), 14, 20)
 	return w, h, textSize
 end
 
@@ -912,6 +954,7 @@ local function createFloatingButton(name, text, pos, bgColor, strokeColor)
 	btn.TextSize = initTextSize
 	btn.AutoButtonColor = true
 	btn.Active = true
+	btn.ZIndex = 255
 	btn.Parent = floatGui
 
 	local corner = Instance.new("UICorner")
@@ -920,7 +963,7 @@ local function createFloatingButton(name, text, pos, bgColor, strokeColor)
 
 	local stroke = Instance.new("UIStroke")
 	stroke.Color = strokeColor
-	stroke.Thickness = 1.5
+	stroke.Thickness = 1.6
 	stroke.Parent = btn
 
 	return btn, stroke
@@ -1496,7 +1539,7 @@ local function updateESPFrame()
 						end
 					end
 				elseif espBoxes[player] then
-					pcall(function() espBoxes[player].Visible = false end)
+					pcall(function() box.Visible = false end)
 				end
 			end
 		end
@@ -1585,6 +1628,9 @@ local function rejoinCurrentServer()
 		return
 	end
 
+	persistSaveNow()
+	armAutoExecuteForTeleport()
+
 	local ok = pcall(function()
 		if jobId and jobId ~= "" then
 			TeleportService:TeleportToPlaceInstance(placeId, jobId, LocalPlayer)
@@ -1658,6 +1704,7 @@ local function serverHopFive()
 
 	State.ServerHopBusy = true
 	persistSaveNow()
+	armAutoExecuteForTeleport()
 
 	task.spawn(function()
 		local targetLimit = math.clamp(math.floor(State.ServerHopCount or 5), 1, 5)
@@ -1674,7 +1721,6 @@ local function serverHopFive()
 			end
 		end
 
-		-- Fallback to general place teleport if none of the 5 instances succeeded
 		if not State.Unloaded then
 			pcall(function()
 				TeleportService:Teleport(placeId, LocalPlayer)
@@ -1740,6 +1786,13 @@ local function unloadAll()
 		Window:Destroy()
 	end)
 end
+
+table.insert(lifecycleConnections, LocalPlayer.OnTeleport:Connect(function()
+	if not State.Unloaded then
+		persistSaveNow()
+		armAutoExecuteForTeleport()
+	end
+end))
 
 table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 	if State.Unloaded then return end
@@ -1988,7 +2041,7 @@ UIRefs.FloatingBtnWidth = MovementTab:Slider({
 	Value = {
 		Min = 120,
 		Max = 220,
-		Default = 156
+		Default = 164
 	},
 	Callback = function(value)
 		applyFloatingButtonSize(value)
@@ -2162,6 +2215,21 @@ UIRefs.BoxESP = VisualsTab:Toggle({
 	end
 })
 
+UIRefs.AutoExecuteEnabled = UtilityTab:Toggle({
+	Title = "Auto Execute on Teleport",
+	Desc = "Automatically queues script after server hops & rejoins",
+	Default = true,
+	Callback = function(value)
+		State.AutoExecuteEnabled = value
+		if value then
+			armAutoExecuteForTeleport()
+		else
+			State.TeleportQueued = false
+		end
+		persistSaveNow()
+	end
+})
+
 UIRefs.AutoSaveEnabled = UtilityTab:Toggle({
 	Title = "Auto-Save Used Features",
 	Desc = "Automatically saves & restores toggles and sliders you use",
@@ -2188,7 +2256,7 @@ UtilityTab:Button({
 
 UtilityTab:Button({
 	Title = "What's New & Fixed",
-	Desc = "Open the big update log screen anytime",
+	Desc = "Open the big front update log screen anytime",
 	Callback = showChangelogScreen
 })
 
@@ -2205,7 +2273,7 @@ UtilityTab:Button({
 })
 
 -- ==========================================
--- APPLY SAVED FEATURES & AUTO-SHOW CHANGELOG
+-- APPLY SAVED FEATURES, AUTO-EXEC & CHANGELOG
 -- ==========================================
 do
 	local savedData, shouldShowChangelog = loadSavedData()
@@ -2217,6 +2285,15 @@ do
 			if UIRefs.AutoSaveEnabled and UIRefs.AutoSaveEnabled.Set then
 				pcall(function()
 					UIRefs.AutoSaveEnabled:Set(State.AutoSaveEnabled)
+				end)
+			end
+		end
+
+		if typeof(savedData.AutoExecuteEnabled) == "boolean" then
+			State.AutoExecuteEnabled = savedData.AutoExecuteEnabled
+			if UIRefs.AutoExecuteEnabled and UIRefs.AutoExecuteEnabled.Set then
+				pcall(function()
+					UIRefs.AutoExecuteEnabled:Set(State.AutoExecuteEnabled)
 				end)
 			end
 		end
@@ -2234,6 +2311,10 @@ do
 	end
 
 	State.LoadingSaved = false
+
+	if State.AutoExecuteEnabled then
+		armAutoExecuteForTeleport()
+	end
 
 	if shouldShowChangelog then
 		task.defer(function()
