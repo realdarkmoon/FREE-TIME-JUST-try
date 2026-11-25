@@ -7,9 +7,6 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local TeleportService = game:GetService("TeleportService")
-local CollectionService = game:GetService("CollectionService")
-local HttpService = game:GetService("HttpService")
-local ProximityPromptService = game:GetService("ProximityPromptService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -19,10 +16,10 @@ local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubV18",
-	Size = UDim2.fromOffset(540, 560),
+	Folder = "PremiumYutaHubV16",
+	Size = UDim2.fromOffset(550, 530),
 	MinSize = Vector2.new(440, 320),
-	MaxSize = Vector2.new(720, 670),
+	MaxSize = Vector2.new(740, 640),
 	Theme = "Dark",
 	Transparent = true,
 	Resizable = true,
@@ -33,6 +30,11 @@ local Window = WindUI:CreateWindow({
 local MovementTab = Window:Tab({
 	Title = "Movement",
 	Icon = "move"
+})
+
+local HeistTab = Window:Tab({
+	Title = "Break & Steal",
+	Icon = "gem"
 })
 
 local ProtectionTab = Window:Tab({
@@ -58,8 +60,6 @@ local State = {
 	NoclipBetaUltra = true,
 	WallMicroStep = true,
 	AutoWallBypass = false,
-	AutoInstantGrab = false,
-	InstantHoldZeroAll = true,
 	AntiRagdoll = false,
 	AntiKnockback = false,
 	AntiUnusualMovement = false,
@@ -67,13 +67,15 @@ local State = {
 	UnderMap = false,
 	UnderMapLockY = true,
 	ShowFloatingUnderBtn = true,
+	ShowFloatingBaseBtn = true,
+	FloatingBtnWidth = 156,
 	SpeedEnabled = false,
 	JumpEnabled = false,
 	BoxESP = false,
 	LootVaultESP = false,
+	LootEspLogo = true,
 	NoclipStepPower = 0.95,
 	BypassScanDistance = 24,
-	InstantGrabRadius = 40,
 	UnderMapOffset = 12,
 	ExtraSpeed = 16,
 	JumpHeight = 14,
@@ -84,16 +86,14 @@ local State = {
 	MaxUnusualSpeed = 95,
 	MaxUnusualSnapDist = 35,
 	SavedCFrame = nil,
-	BaseCFrame = nil,
+	SavedBaseCFrame = nil,
 	UnderAnchorY = nil,
 	LastCleanCFrame = nil,
 	LastBypassTime = 0,
 	LastWallProbeTime = 0,
 	LastRagdollSweepTime = 0,
 	LastLootScanTime = 0,
-	LastPromptZeroTime = 0,
-	LastAutoGrabTime = 0,
-	LastServerHopAttempt = 0,
+	LastRejoinAttempt = 0,
 	IgnoreUnusualUntil = 0,
 	SyncingToggle = false,
 	Unloaded = false
@@ -113,14 +113,6 @@ sharedRayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 local sharedOverlapParams = OverlapParams.new()
 sharedOverlapParams.FilterType = Enum.RaycastFilterType.Exclude
-
--- Forward declarations
-local underPlatform = nil
-local underMapToggleRef = nil
-local refreshFloatingButtonVisual = nil
-local syncUnderMapToggleUI = nil
-local ensureUnderPlatform = nil
-local returnFromUnderMap = nil
 
 local function markMovementIntent(duration)
 	State.IgnoreUnusualUntil = math.max(State.IgnoreUnusualUntil, os.clock() + (duration or 0.45))
@@ -218,9 +210,29 @@ local function isPositionClear(pos)
 	return true
 end
 
-local function safeTeleportToPosition(targetPos, flatLookDir)
+-- ==========================================
+-- BREAK & STEAL BASE TELEPORT HELPERS
+-- ==========================================
+local underPlatform = Instance.new("Part")
+underPlatform.Name = "YutaHub_UnderPlatform"
+underPlatform.Size = Vector3.new(24, 1, 24)
+underPlatform.Anchored = true
+underPlatform.CanCollide = true
+underPlatform.CanTouch = false
+underPlatform.Transparency = 0.75
+underPlatform.Material = Enum.Material.SmoothPlastic
+underPlatform.Parent = nil
+
+local function saveCurrentBaseSpot()
 	local root = Cached.Root
-	if not root or not isValidVector3(targetPos) then return false end
+	if not root then return false end
+	State.SavedBaseCFrame = root.CFrame
+	return true
+end
+
+local function teleportToSavedBase()
+	local root = Cached.Root
+	if not root or not State.SavedBaseCFrame then return false end
 
 	if State.UnderMap then
 		State.UnderMap = false
@@ -228,20 +240,19 @@ local function safeTeleportToPosition(targetPos, flatLookDir)
 		if underPlatform then
 			underPlatform.Parent = nil
 		end
-		if syncUnderMapToggleUI then
-			syncUnderMapToggleUI(false)
-		end
 	end
 
 	markMovementIntent(0.75)
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 
-	local finalPos = targetPos + Vector3.new(0, 2.5, 0)
-	if flatLookDir and isValidVector3(flatLookDir) and flatLookDir.Magnitude > 0.001 then
-		root.CFrame = CFrame.new(finalPos, finalPos + flatLookDir.Unit)
+	local targetPos = State.SavedBaseCFrame.Position + Vector3.new(0, 2.5, 0)
+	local look = State.SavedBaseCFrame.LookVector
+	local flatLook = Vector3.new(look.X, 0, look.Z)
+	if flatLook.Magnitude > 0.001 then
+		root.CFrame = CFrame.new(targetPos, targetPos + flatLook.Unit)
 	else
-		root.CFrame = CFrame.new(finalPos)
+		root.CFrame = CFrame.new(targetPos)
 	end
 	State.LastCleanCFrame = root.CFrame
 	return true
@@ -412,390 +423,12 @@ local function executeHardWallBypass(forceScan)
 end
 
 -- ==========================================
--- INSTANT GRAB SYSTEM (ZERO HOLD + MULTI-TRIGGER)
--- ==========================================
-local function getPromptWorldPos(prompt)
-	local parent = prompt.Parent
-	if not parent then return nil end
-	if parent:IsA("BasePart") then
-		return parent.Position
-	elseif parent:IsA("Attachment") then
-		return parent.WorldPosition
-	elseif parent:IsA("Model") then
-		if parent.PrimaryPart then
-			return parent.PrimaryPart.Position
-		end
-		local part = parent:FindFirstChildWhichIsA("BasePart", true)
-		return part and part.Position or nil
-	end
-	return nil
-end
-
-local function prepPromptZeroHold(prompt, expandReach)
-	if not prompt or not prompt.Parent then return end
-	pcall(function()
-		if prompt.HoldDuration > 0 then
-			prompt.HoldDuration = 0
-		end
-		if prompt.RequiresLineOfSight then
-			prompt.RequiresLineOfSight = false
-		end
-		if expandReach then
-			local desiredDist = math.max(prompt.MaxActivationDistance, State.InstantGrabRadius + 12)
-			if prompt.MaxActivationDistance < desiredDist then
-				prompt.MaxActivationDistance = desiredDist
-			end
-		end
-	end)
-end
-
-local function sweepZeroHoldPrompts()
-	if not State.InstantHoldZeroAll or State.Unloaded then return end
-	for _, desc in ipairs(Workspace:GetDescendants()) do
-		if desc:IsA("ProximityPrompt") then
-			prepPromptZeroHold(desc, false)
-		end
-	end
-end
-
-local function firePromptNow(prompt)
-	if not prompt or not prompt.Parent or not prompt.Enabled then return false end
-	prepPromptZeroHold(prompt, true)
-
-	local fired = false
-	if typeof(fireproximityprompt) == "function" then
-		local ok = pcall(function()
-			fireproximityprompt(prompt)
-		end)
-		if ok then
-			fired = true
-		end
-	end
-
-	pcall(function()
-		prompt:InputHoldBegin()
-	end)
-
-	task.delay(0.04, function()
-		if prompt and prompt.Parent then
-			pcall(function()
-				prompt:InputHoldEnd()
-			end)
-		end
-	end)
-
-	return true or fired
-end
-
-local function executeInstantGrab()
-	local char = Cached.Char
-	local root = Cached.Root
-	if not char or not root then return 0 end
-
-	local grabbedCount = 0
-	local maxDist = math.max(5, State.InstantGrabRadius)
-
-	for _, desc in ipairs(Workspace:GetDescendants()) do
-		if desc:IsA("ProximityPrompt") and desc.Enabled and not desc:IsDescendantOf(char) then
-			local pPos = getPromptWorldPos(desc)
-			if not pPos or (pPos - root.Position).Magnitude <= maxDist then
-				if firePromptNow(desc) then
-					grabbedCount += 1
-					if grabbedCount >= 24 then
-						break
-					end
-				end
-			end
-		end
-	end
-
-	if typeof(firetouchinterest) == "function" then
-		local parts = Workspace:GetPartBoundsInRadius(root.Position, math.min(maxDist, 24), sharedOverlapParams)
-		local touchCount = 0
-		for _, part in ipairs(parts) do
-			if touchCount >= 14 then break end
-			if part:IsA("BasePart") and part.CanTouch and not part:IsDescendantOf(char) then
-				pcall(function()
-					firetouchinterest(root, part, 0)
-					firetouchinterest(root, part, 1)
-				end)
-				touchCount += 1
-				grabbedCount += 1
-			end
-		end
-	end
-
-	return grabbedCount
-end
-
--- ==========================================
--- LOOT / VAULT DETECTION & SCORING ENGINE
--- ==========================================
-local TIER_WEIGHTS = {
-	mythic = 110,
-	divine = 105,
-	secret = 100,
-	legendary = 90,
-	diamond = 85,
-	vault = 80,
-	emerald = 65,
-	ruby = 60,
-	safe = 55,
-	gold = 50,
-	gem = 45,
-	cash = 35,
-	money = 35,
-	loot = 30,
-	steal = 28,
-	item = 25,
-	crate = 20,
-	chest = 20,
-	bag = 18
-}
-
-local function isPlayerCharacterDescendant(obj)
-	for _, plr in ipairs(Players:GetPlayers()) do
-		if plr.Character and obj:IsDescendantOf(plr.Character) then
-			return true
-		end
-	end
-	return false
-end
-
-local function collectTextClues(obj)
-	local chunks = { obj.Name:lower() }
-
-	for _, tag in ipairs(CollectionService:GetTags(obj)) do
-		table.insert(chunks, tostring(tag):lower())
-	end
-
-	for attrName, attrVal in pairs(obj:GetAttributes()) do
-		table.insert(chunks, tostring(attrName):lower() .. " " .. tostring(attrVal):lower())
-	end
-
-	local childLimit = 0
-	for _, child in ipairs(obj:GetDescendants()) do
-		childLimit += 1
-		if childLimit > 25 then break end
-		if child:IsA("TextLabel") or child:IsA("TextButton") then
-			table.insert(chunks, tostring(child.Text):lower())
-		elseif child:IsA("StringValue") or child:IsA("NumberValue") or child:IsA("IntValue") then
-			table.insert(chunks, child.Name:lower() .. " " .. tostring(child.Value):lower())
-		elseif child:IsA("ProximityPrompt") then
-			table.insert(chunks, tostring(child.ActionText):lower() .. " " .. tostring(child.ObjectText):lower())
-		end
-	end
-
-	return table.concat(chunks, " ")
-end
-
-local function scoreLootCandidate(obj)
-	if not obj or not obj.Parent then return 0, nil end
-	if obj:IsA("Folder") or obj:IsA("Configuration") or obj:IsA("WorldModel") then
-		return 0, nil
-	end
-	if isPlayerCharacterDescendant(obj) then
-		return 0, nil
-	end
-
-	local clues = collectTextClues(obj)
-	local score = 0
-
-	for key, weight in pairs(TIER_WEIGHTS) do
-		if clues:find(key, 1, true) then
-			score = math.max(score, weight)
-		end
-	end
-
-	local rateMatch = clues:match("%$?%s*(%d+%.?%d*)%s*k%s*/%s*s")
-	if rateMatch then
-		local rateNum = tonumber(rateMatch)
-		if rateNum and rateNum > 0 then
-			score += math.min(rateNum * 12, 160)
-		end
-	end
-
-	for attrName, attrVal in pairs(obj:GetAttributes()) do
-		local aLower = tostring(attrName):lower()
-		if aLower:find("value") or aLower:find("price") or aLower:find("reward") or aLower:find("cash") or aLower:find("money") or aLower:find("rate") or aLower:find("income") then
-			local num = tonumber(attrVal)
-			if num and num > 0 then
-				score += math.min(num / 50, 150)
-			end
-		elseif aLower:find("rarity") or aLower:find("tier") then
-			local vLower = tostring(attrVal):lower()
-			for key, weight in pairs(TIER_WEIGHTS) do
-				if vLower:find(key, 1, true) then
-					score = math.max(score, weight + 20)
-				end
-			end
-		end
-	end
-
-	if score <= 0 then
-		return 0, nil
-	end
-
-	local displayName = obj.Name
-	for _, child in ipairs(obj:GetDescendants()) do
-		if child:IsA("TextLabel") and child.Text and child.Text ~= "" then
-			local trimmed = child.Text:gsub("^%s+", ""):gsub("%s+$", "")
-			if #trimmed > 0 and #trimmed <= 32 and not trimmed:lower():find("spawns in") then
-				displayName = trimmed
-				break
-			end
-		end
-	end
-
-	return score, displayName
-end
-
-local function getTargetWorldPosition(obj)
-	if not obj or not obj.Parent then return nil end
-	if obj:IsA("BasePart") then
-		return obj.Position
-	elseif obj:IsA("Attachment") then
-		return obj.WorldPosition
-	elseif obj:IsA("Model") then
-		if obj.PrimaryPart then
-			return obj.PrimaryPart.Position
-		end
-		local part = obj:FindFirstChildWhichIsA("BasePart", true)
-		return part and part.Position or nil
-	elseif obj:IsA("BillboardGui") or obj:IsA("GuiObject") then
-		local adornee = obj:IsA("BillboardGui") and obj.Adornee or nil
-		if adornee and adornee:IsA("BasePart") then
-			return adornee.Position
-		end
-		local parent = obj.Parent
-		if parent and parent:IsA("BasePart") then
-			return parent.Position
-		elseif parent and parent:IsA("Model") then
-			local part = parent.PrimaryPart or parent:FindFirstChildWhichIsA("BasePart", true)
-			return part and part.Position or nil
-		end
-	end
-	return nil
-end
-
-local function resolveAnchorInstance(obj)
-	if not obj or not obj.Parent then return nil end
-	if obj:IsA("BasePart") or obj:IsA("Model") or obj:IsA("Attachment") then
-		return obj
-	end
-	if obj:IsA("BillboardGui") and obj.Adornee and (obj.Adornee:IsA("BasePart") or obj.Adornee:IsA("Model")) then
-		return obj.Adornee
-	end
-	local parent = obj.Parent
-	if parent and (parent:IsA("BasePart") or parent:IsA("Model") or parent:IsA("Attachment")) then
-		return parent
-	end
-	return obj
-end
-
-local function teleportToBestLootOrVault()
-	local char = Cached.Char
-	local root = Cached.Root
-	if not char or not root then return false end
-
-	local bestPos = nil
-	local bestScore = -1
-
-	for _, desc in ipairs(Workspace:GetDescendants()) do
-		if desc:IsA("Model") or desc:IsA("BasePart") or desc:IsA("BillboardGui") then
-			local baseScore = scoreLootCandidate(desc)
-			if baseScore > 0 then
-				local pos = getTargetWorldPosition(desc)
-				if pos and isValidVector3(pos) then
-					local dist = (pos - root.Position).Magnitude
-					local totalScore = baseScore - (dist * 0.05)
-					if totalScore > bestScore then
-						bestScore = totalScore
-						bestPos = pos
-					end
-				end
-			end
-		end
-	end
-
-	if bestPos then
-		return safeTeleportToPosition(bestPos, getMoveDirectionFlat())
-	end
-
-	return false
-end
-
-local function findOtherPlayerBasePosition(targetPlayer)
-	if not targetPlayer then return nil end
-
-	local pNameLower = targetPlayer.Name:lower()
-	local dNameLower = targetPlayer.DisplayName:lower()
-
-	for _, desc in ipairs(Workspace:GetDescendants()) do
-		if desc:IsA("Model") or desc:IsA("Folder") then
-			local n = desc.Name:lower()
-			local matchesPlayer = (pNameLower ~= "" and n:find(pNameLower, 1, true))
-				or (#dNameLower >= 3 and n:find(dNameLower, 1, true))
-			local ownerAttr = tostring(desc:GetAttribute("Owner") or desc:GetAttribute("Player") or desc:GetAttribute("UserId") or ""):lower()
-			local isBaseLike = n:find("base", 1, true)
-				or n:find("plot", 1, true)
-				or n:find("tycoon", 1, true)
-				or n:find("home", 1, true)
-				or n:find("hideout", 1, true)
-
-			if matchesPlayer or (isBaseLike and (ownerAttr:find(pNameLower, 1, true) or ownerAttr == tostring(targetPlayer.UserId))) then
-				local pos = getTargetWorldPosition(desc)
-				if pos then
-					return pos
-				end
-			end
-		end
-	end
-
-	local tChar = targetPlayer.Character
-	local tRoot = tChar and (
-		tChar:FindFirstChild("HumanoidRootPart")
-		or tChar:FindFirstChild("Torso")
-		or tChar:FindFirstChild("UpperTorso")
-	) or nil
-
-	return tRoot and tRoot.Position or nil
-end
-
-local function teleportToOtherPlayerBase()
-	local root = Cached.Root
-	if not root then return false end
-
-	for _, plr in ipairs(Players:GetPlayers()) do
-		if plr ~= LocalPlayer then
-			local basePos = findOtherPlayerBasePosition(plr)
-			if basePos and isValidVector3(basePos) then
-				local behindOffset = Vector3.new(0, 1.5, -3.5)
-				return safeTeleportToPosition(basePos + behindOffset, getMoveDirectionFlat())
-			end
-		end
-	end
-
-	return false
-end
-
--- ==========================================
 -- BUG-RESISTANT UNDER MAP & RETURN SYSTEM
 -- ==========================================
-ensureUnderPlatform = function()
-	if not underPlatform or not underPlatform.Parent then
-		underPlatform = Instance.new("Part")
-		underPlatform.Name = "YutaHub_UnderPlatform"
-		underPlatform.Size = Vector3.new(24, 1, 24)
-		underPlatform.Anchored = true
-		underPlatform.CanCollide = true
-		underPlatform.CanTouch = false
-		underPlatform.Transparency = 0.75
-		underPlatform.Material = Enum.Material.SmoothPlastic
-	end
-end
+local underMapToggleRef = nil
+local refreshFloatingButtonVisual = nil
 
-syncUnderMapToggleUI = function(value)
+local function syncUnderMapToggleUI(value)
 	if underMapToggleRef and underMapToggleRef.Set then
 		State.SyncingToggle = true
 		pcall(function()
@@ -805,6 +438,19 @@ syncUnderMapToggleUI = function(value)
 	end
 	if refreshFloatingButtonVisual then
 		refreshFloatingButtonVisual()
+	end
+end
+
+local function ensureUnderPlatform()
+	if not underPlatform or not underPlatform.Parent then
+		underPlatform = Instance.new("Part")
+		underPlatform.Name = "YutaHub_UnderPlatform"
+		underPlatform.Size = Vector3.new(24, 1, 24)
+		underPlatform.Anchored = true
+		underPlatform.CanCollide = true
+		underPlatform.CanTouch = false
+		underPlatform.Transparency = 0.75
+		underPlatform.Material = Enum.Material.SmoothPlastic
 	end
 end
 
@@ -835,7 +481,7 @@ local function updateUnderMapLoop(root)
 	underPlatform.CFrame = CFrame.new(root.Position.X, targetY - 3.5, root.Position.Z)
 end
 
-returnFromUnderMap = function()
+local function returnFromUnderMap()
 	local root = Cached.Root
 	State.UnderMap = false
 	State.UnderAnchorY = nil
@@ -922,23 +568,7 @@ local function setUnderMap(enabled)
 end
 
 -- ==========================================
--- SAVE / TELEPORT TO BASE (BREAK & STEAL)
--- ==========================================
-local function saveCurrentBaseSpot()
-	local root = Cached.Root
-	if not root then return false end
-	State.BaseCFrame = root.CFrame
-	return true
-end
-
-local function teleportToSavedBase()
-	local root = Cached.Root
-	if not root or not State.BaseCFrame then return false end
-	return safeTeleportToPosition(State.BaseCFrame.Position, State.BaseCFrame.LookVector)
-end
-
--- ==========================================
--- FLOATING MOBILE BUTTON (UNDER MAP / RETURN)
+-- BIG FLOATING MOBILE BUTTONS (UNDER MAP & TP BASE)
 -- ==========================================
 local floatGui = Instance.new("ScreenGui")
 floatGui.Name = "YutaHub_FloatingUnderGui"
@@ -946,68 +576,118 @@ floatGui.ResetOnSpawn = false
 floatGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 floatGui.Parent = PlayerGui
 
-local floatBtn = Instance.new("TextButton")
-floatBtn.Name = "UnderMapFloatButton"
-floatBtn.Size = UDim2.fromOffset(118, 42)
-floatBtn.Position = UDim2.new(1, -134, 0.55, 0)
-floatBtn.BackgroundColor3 = Color3.fromRGB(22, 24, 34)
-floatBtn.TextColor3 = Color3.fromRGB(235, 240, 255)
-floatBtn.Text = "Under Map"
-floatBtn.Font = Enum.Font.GothamBold
-floatBtn.TextSize = 13
-floatBtn.AutoButtonColor = true
-floatBtn.Active = true
+local function getFloatingBtnDimensions(widthPx)
+	local w = math.clamp(math.floor(widthPx or 156), 120, 220)
+	local h = math.clamp(math.floor(w * 0.35), 44, 78)
+	local textSize = math.clamp(math.floor(h * 0.28), 14, 20)
+	return w, h, textSize
+end
+
+local initW, initH, initTextSize = getFloatingBtnDimensions(State.FloatingBtnWidth)
+
+local function createFloatingButton(name, text, pos, bgColor, strokeColor)
+	local btn = Instance.new("TextButton")
+	btn.Name = name
+	btn.Size = UDim2.fromOffset(initW, initH)
+	btn.Position = pos
+	btn.BackgroundColor3 = bgColor
+	btn.TextColor3 = Color3.fromRGB(235, 240, 255)
+	btn.Text = text
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = initTextSize
+	btn.AutoButtonColor = true
+	btn.Active = true
+	btn.Parent = floatGui
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 14)
+	corner.Parent = btn
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = strokeColor
+	stroke.Thickness = 1.5
+	stroke.Parent = btn
+
+	return btn, stroke
+end
+
+local floatBtn, floatStroke = createFloatingButton(
+	"UnderMapFloatButton",
+	"Under Map",
+	UDim2.new(1, -(initW + 18), 0.50, 0),
+	Color3.fromRGB(22, 24, 34),
+	Color3.fromRGB(115, 130, 255)
+)
 floatBtn.Visible = State.ShowFloatingUnderBtn
-floatBtn.Parent = floatGui
 
-local floatCorner = Instance.new("UICorner")
-floatCorner.CornerRadius = UDim.new(0, 12)
-floatCorner.Parent = floatBtn
+local baseFloatBtn = createFloatingButton(
+	"TpBaseFloatButton",
+	"TP Base",
+	UDim2.new(1, -(initW + 18), 0.50, initH + 10),
+	Color3.fromRGB(22, 34, 38),
+	Color3.fromRGB(70, 220, 200)
+)
+baseFloatBtn.Visible = State.ShowFloatingBaseBtn
 
-local floatStroke = Instance.new("UIStroke")
-floatStroke.Color = Color3.fromRGB(115, 130, 255)
-floatStroke.Thickness = 1.2
-floatStroke.Parent = floatBtn
-
-refreshFloatingButtonVisual = function()
-	if not floatBtn or not floatBtn.Parent then return end
-	floatBtn.Visible = State.ShowFloatingUnderBtn and (not State.Unloaded)
-	if State.UnderMap then
-		floatBtn.Text = "Return Surface"
-		floatBtn.BackgroundColor3 = Color3.fromRGB(48, 28, 66)
-		floatStroke.Color = Color3.fromRGB(255, 110, 165)
-	else
-		floatBtn.Text = "Under Map"
-		floatBtn.BackgroundColor3 = Color3.fromRGB(22, 24, 34)
-		floatStroke.Color = Color3.fromRGB(115, 130, 255)
+local function applyFloatingButtonSize(widthPx)
+	State.FloatingBtnWidth = widthPx
+	local w, h, textSize = getFloatingBtnDimensions(widthPx)
+	if floatBtn and floatBtn.Parent then
+		floatBtn.Size = UDim2.fromOffset(w, h)
+		floatBtn.TextSize = textSize
+	end
+	if baseFloatBtn and baseFloatBtn.Parent then
+		baseFloatBtn.Size = UDim2.fromOffset(w, h)
+		baseFloatBtn.TextSize = textSize
 	end
 end
 
-do
+refreshFloatingButtonVisual = function()
+	if not State.Unloaded then
+		applyFloatingButtonSize(State.FloatingBtnWidth)
+	end
+	if floatBtn and floatBtn.Parent then
+		floatBtn.Visible = State.ShowFloatingUnderBtn and (not State.Unloaded)
+		if State.UnderMap then
+			floatBtn.Text = "Return Surface"
+			floatBtn.BackgroundColor3 = Color3.fromRGB(48, 28, 66)
+			floatStroke.Color = Color3.fromRGB(255, 110, 165)
+		else
+			floatBtn.Text = "Under Map"
+			floatBtn.BackgroundColor3 = Color3.fromRGB(22, 24, 34)
+			floatStroke.Color = Color3.fromRGB(115, 130, 255)
+		end
+	end
+	if baseFloatBtn and baseFloatBtn.Parent then
+		baseFloatBtn.Visible = State.ShowFloatingBaseBtn and (not State.Unloaded)
+	end
+end
+
+local function bindDraggableButton(btn, onTap)
 	local dragging = false
 	local dragInput = nil
 	local dragStart = Vector2.zero
 	local startPos = UDim2.new()
 	local movedEnough = false
 
-	floatBtn.InputBegan:Connect(function(input)
+	btn.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
 			dragInput = input
 			dragStart = Vector2.new(input.Position.X, input.Position.Y)
-			startPos = floatBtn.Position
+			startPos = btn.Position
 			movedEnough = false
 		end
 	end)
 
-	floatBtn.InputChanged:Connect(function(input)
+	btn.InputChanged:Connect(function(input)
 		if input == dragInput and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
 			local delta = Vector2.new(input.Position.X, input.Position.Y) - dragStart
 			if delta.Magnitude > 6 then
 				movedEnough = true
 			end
 			if dragging and movedEnough then
-				floatBtn.Position = UDim2.new(
+				btn.Position = UDim2.new(
 					startPos.X.Scale,
 					startPos.X.Offset + delta.X,
 					startPos.Y.Scale,
@@ -1017,18 +697,13 @@ do
 		end
 	end)
 
-	floatBtn.InputEnded:Connect(function(input)
+	btn.InputEnded:Connect(function(input)
 		if input == dragInput then
 			local wasTap = not movedEnough
 			dragging = false
 			dragInput = nil
 			if wasTap and not State.Unloaded then
-				if State.UnderMap then
-					returnFromUnderMap()
-				else
-					setUnderMap(true)
-					syncUnderMapToggleUI(true)
-				end
+				onTap()
 			end
 		end
 	end)
@@ -1040,6 +715,25 @@ do
 		end
 	end)
 end
+
+bindDraggableButton(floatBtn, function()
+	if State.UnderMap then
+		returnFromUnderMap()
+	else
+		setUnderMap(true)
+		syncUnderMapToggleUI(true)
+	end
+end)
+
+bindDraggableButton(baseFloatBtn, function()
+	if not State.SavedBaseCFrame then
+		saveCurrentBaseSpot()
+	end
+	teleportToSavedBase()
+	if refreshFloatingButtonVisual then
+		refreshFloatingButtonVisual()
+	end
+end)
 
 -- ==========================================
 -- ANTI-UNUSUAL MOVEMENT, RAGDOLL & KNOCKBACK
@@ -1229,148 +923,144 @@ local function applyJumpBoost(enabled)
 end
 
 -- ==========================================
--- BOX ESP & LOOT / VAULT ESP (DRAWING API)
+-- BOX ESP & LOOT/VAULT ESP WITH LOGO (DRAWING API)
 -- ==========================================
 local espBoxes = {}
-local lootEntries = {}
-local drawingAvailable = (typeof(Drawing) == "table" and typeof(Drawing.new) == "function")
+local lootMarkers = {}
 
-local function createDrawingObj(objType, props)
-	if not drawingAvailable then return nil end
-	local ok, obj = pcall(function()
-		local d = Drawing.new(objType)
-		for k, v in pairs(props) do
-			d[k] = v
-		end
-		return d
-	end)
-	return ok and obj or nil
+local function createBox(color, thickness, filled)
+	local box = Drawing.new("Square")
+	box.Visible = false
+	box.Color = color or Color3.fromRGB(255, 85, 85)
+	box.Thickness = thickness or 1.5
+	box.Filled = filled or false
+	box.Transparency = 1
+	return box
 end
 
-local function safeRemoveDrawing(d)
-	if d then
-		pcall(function()
-			d:Remove()
-		end)
-	end
-end
-
-local function createBox()
-	return createDrawingObj("Square", {
-		Visible = false,
-		Color = Color3.fromRGB(255, 85, 85),
-		Thickness = 1.5,
-		Filled = false,
-		Transparency = 1
-	})
+local function createLabel(color, size)
+	local lbl = Drawing.new("Text")
+	lbl.Visible = false
+	lbl.Color = color or Color3.fromRGB(90, 225, 255)
+	lbl.Size = size or 13
+	lbl.Center = true
+	lbl.Outline = true
+	lbl.Transparency = 1
+	return lbl
 end
 
 local function hideAllBoxes()
 	for _, box in pairs(espBoxes) do
-		if box then
-			pcall(function() box.Visible = false end)
+		box.Visible = false
+	end
+end
+
+local function clearLootMarkers()
+	for _, entry in ipairs(lootMarkers) do
+		if entry.Logo then
+			pcall(function() entry.Logo:Remove() end)
+		end
+		if entry.Dot then
+			pcall(function() entry.Dot:Remove() end)
+		end
+		if entry.Label then
+			pcall(function() entry.Label:Remove() end)
 		end
 	end
-end
-
-local function hideAllLootESP()
-	for _, entry in ipairs(lootEntries) do
-		if entry.box then pcall(function() entry.box.Visible = false end) end
-		if entry.label then pcall(function() entry.label.Visible = false end) end
-	end
-end
-
-local function clearLootEntries()
-	for i = #lootEntries, 1, -1 do
-		local entry = lootEntries[i]
-		safeRemoveDrawing(entry.box)
-		safeRemoveDrawing(entry.label)
-		table.remove(lootEntries, i)
-	end
-end
-
-local function rescanLootAndVaults()
-	clearLootEntries()
-	if not State.LootVaultESP or State.Unloaded then return end
-
-	local seenAnchors = {}
-	local candidates = {}
-
-	for _, desc in ipairs(Workspace:GetDescendants()) do
-		if #candidates >= 80 then break end
-		if desc:IsA("Model") or desc:IsA("BasePart") or desc:IsA("BillboardGui") then
-			local score, labelText = scoreLootCandidate(desc)
-			local anchor = resolveAnchorInstance(desc)
-			if score > 0 and anchor and not seenAnchors[anchor] then
-				local pos = getTargetWorldPosition(anchor)
-				if pos and isValidVector3(pos) then
-					seenAnchors[anchor] = true
-					table.insert(candidates, {
-						anchor = anchor,
-						score = score,
-						labelText = labelText or anchor.Name
-					})
-				end
-			end
-		end
-	end
-
-	table.sort(candidates, function(a, b)
-		return a.score > b.score
-	end)
-
-	local maxEntries = math.min(#candidates, 40)
-	for i = 1, maxEntries do
-		local c = candidates[i]
-		local box = createDrawingObj("Square", {
-			Visible = false,
-			Color = Color3.fromRGB(80, 220, 255),
-			Thickness = 1.4,
-			Filled = false,
-			Transparency = 1
-		})
-		local label = createDrawingObj("Text", {
-			Visible = false,
-			Color = Color3.fromRGB(165, 240, 255),
-			Size = 13,
-			Center = true,
-			Outline = true,
-			Text = c.labelText
-		})
-		table.insert(lootEntries, {
-			target = c.anchor,
-			baseText = c.labelText,
-			box = box,
-			label = label
-		})
-	end
+	table.clear(lootMarkers)
 end
 
 local function removePlayerESP(player)
 	local box = espBoxes[player]
 	if box then
-		safeRemoveDrawing(box)
+		pcall(function()
+			box:Remove()
+		end)
 		espBoxes[player] = nil
 	end
 end
 
+local lootKeywords = { "vault", "diamond", "loot", "cash", "money", "safe", "gold", "gem" }
+
+local function classifyLootOrVault(nameStr)
+	local lower = nameStr:lower()
+	for _, kw in ipairs(lootKeywords) do
+		if lower:find(kw, 1, true) then
+			local isVault = (kw == "vault" or kw == "safe")
+			return true, isVault
+		end
+	end
+	return false, false
+end
+
+local function createLogoBadge(isVault)
+	local accent = isVault and Color3.fromRGB(255, 195, 65) or Color3.fromRGB(80, 225, 255)
+	local logo = createBox(accent, 2, true)
+	pcall(function()
+		logo.Rotation = 45
+	end)
+	local dot = createBox(accent, 1.5, false)
+	local label = createLabel(accent, 13)
+	return logo, dot, label
+end
+
+local function scanLootAndVaults()
+	clearLootMarkers()
+	local count = 0
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if count >= 24 then break end
+		if desc and desc.Name then
+			local matched, isVault = classifyLootOrVault(desc.Name)
+			if matched then
+				local worldPos = nil
+				if desc:IsA("BasePart") then
+					worldPos = desc.Position
+				elseif desc:IsA("Model") then
+					worldPos = desc:GetPivot().Position
+				end
+				if worldPos then
+					count += 1
+					local logo, dot, label = createLogoBadge(isVault)
+					table.insert(lootMarkers, {
+						Pos = worldPos,
+						Name = desc.Name,
+						IsVault = isVault,
+						Logo = logo,
+						Dot = dot,
+						Label = label
+					})
+				end
+			end
+		end
+	end
+end
+
+local function setEntryVisible(entry, visible)
+	if entry.Logo then entry.Logo.Visible = visible end
+	if entry.Dot then entry.Dot.Visible = visible end
+	if entry.Label then entry.Label.Visible = visible end
+end
+
 local function updateESPFrame()
-	if State.Unloaded or not drawingAvailable then
+	if State.Unloaded then
 		hideAllBoxes()
-		hideAllLootESP()
+		clearLootMarkers()
 		return
 	end
 
 	local activeCam = Workspace.CurrentCamera
 	if not activeCam then
 		hideAllBoxes()
-		hideAllLootESP()
 		return
 	end
 
-	if not State.BoxESP then
-		hideAllBoxes()
-	else
+	if State.BoxESP then
+		for player, box in pairs(espBoxes) do
+			if not player or not player.Parent then
+				removePlayerESP(player)
+			end
+		end
+
 		for _, player in ipairs(Players:GetPlayers()) do
 			if player ~= LocalPlayer then
 				local char = player.Character
@@ -1384,143 +1074,80 @@ local function updateESPFrame()
 				if root and humanoid and humanoid.Health > 0 then
 					local box = espBoxes[player]
 					if not box then
-						box = createBox()
+						box = createBox(Color3.fromRGB(255, 85, 85), 1.5, false)
 						espBoxes[player] = box
 					end
 
-					if box then
-						local rootPos, onScreen = activeCam:WorldToViewportPoint(root.Position)
-						if onScreen and rootPos.Z > 0 then
-							local topPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, 2.6, 0)).Position)
-							local bottomPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, -3.1, 0)).Position)
+					local rootPos, onScreen = activeCam:WorldToViewportPoint(root.Position)
+					if onScreen and rootPos.Z > 0 then
+						local topPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, 2.6, 0)).Position)
+						local bottomPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, -3.1, 0)).Position)
 
-							local height = math.abs(topPos.Y - bottomPos.Y)
-							local width = math.clamp(height * 0.6, 12, 250)
+						local height = math.abs(topPos.Y - bottomPos.Y)
+						local width = math.clamp(height * 0.6, 12, 250)
 
-							box.Size = Vector2.new(width, math.clamp(height, 18, 400))
-							box.Position = Vector2.new(rootPos.X - box.Size.X / 2, topPos.Y)
-							box.Visible = true
-						else
-							box.Visible = false
-						end
+						box.Size = Vector2.new(width, math.clamp(height, 18, 400))
+						box.Position = Vector2.new(rootPos.X - box.Size.X / 2, topPos.Y)
+						box.Visible = true
+					else
+						box.Visible = false
 					end
 				elseif espBoxes[player] then
-					pcall(function() espBoxes[player].Visible = false end)
+					espBoxes[player].Visible = false
 				end
 			end
 		end
-	end
-
-	if not State.LootVaultESP then
-		hideAllLootESP()
 	else
+		hideAllBoxes()
+	end
+
+	if State.LootVaultESP then
 		local now = os.clock()
-		if (now - State.LastLootScanTime) >= 4.0 then
+		if (now - State.LastLootScanTime) >= 1.5 or #lootMarkers == 0 then
 			State.LastLootScanTime = now
-			rescanLootAndVaults()
+			scanLootAndVaults()
 		end
 
-		local myRoot = Cached.Root
-		for _, entry in ipairs(lootEntries) do
-			local pos = getTargetWorldPosition(entry.target)
-			if pos and entry.box and entry.label then
-				local screenPos, onScreen = activeCam:WorldToViewportPoint(pos)
-				if onScreen and screenPos.Z > 0 then
-					local scale = math.clamp(220 / math.max(screenPos.Z, 1), 12, 48)
-					entry.box.Size = Vector2.new(scale, scale)
-					entry.box.Position = Vector2.new(screenPos.X - scale / 2, screenPos.Y - scale / 2)
-					entry.box.Visible = true
+		for _, entry in ipairs(lootMarkers) do
+			local screenPos, onScreen = activeCam:WorldToViewportPoint(entry.Pos)
+			if onScreen and screenPos.Z > 0 and entry.Dot and entry.Label then
+				entry.Dot.Size = Vector2.new(12, 12)
+				entry.Dot.Position = Vector2.new(screenPos.X - 6, screenPos.Y - 6)
+				entry.Dot.Visible = true
 
-					local distText = ""
-					if myRoot then
-						distText = string.format(" [%dm]", math.floor((pos - myRoot.Position).Magnitude))
-					end
-					entry.label.Text = entry.baseText .. distText
-					entry.label.Position = Vector2.new(screenPos.X, screenPos.Y - scale / 2 - 16)
-					entry.label.Visible = true
+				local dist = Cached.Root and math.floor((Cached.Root.Position - entry.Pos).Magnitude) or 0
+				local badgePrefix = entry.IsVault and "[VAULT]" or "[LOOT]"
+
+				if State.LootEspLogo and entry.Logo then
+					entry.Logo.Size = Vector2.new(10, 10)
+					entry.Logo.Position = Vector2.new(screenPos.X - 5, screenPos.Y - 34)
+					entry.Logo.Visible = true
+					entry.Label.Text = string.format("%s %s [%dm]", badgePrefix, entry.Name, dist)
+					entry.Label.Position = Vector2.new(screenPos.X, screenPos.Y - 21)
 				else
-					entry.box.Visible = false
-					entry.label.Visible = false
+					if entry.Logo then entry.Logo.Visible = false end
+					entry.Label.Text = string.format("%s [%dm]", entry.Name, dist)
+					entry.Label.Position = Vector2.new(screenPos.X, screenPos.Y - 19)
 				end
+				entry.Label.Visible = true
 			else
-				if entry.box then pcall(function() entry.box.Visible = false end) end
-				if entry.label then pcall(function() entry.label.Visible = false end) end
+				setEntryVisible(entry, false)
 			end
 		end
+	elseif #lootMarkers > 0 then
+		clearLootMarkers()
 	end
 end
 
 -- ==========================================
--- SERVER HOP & REJOIN SYSTEM
+-- REJOIN SERVER SYSTEM
 -- ==========================================
-local function hopToDifferentServer()
-	local now = os.clock()
-	if (now - State.LastServerHopAttempt) < 2.5 then
-		return false
-	end
-	State.LastServerHopAttempt = now
-
-	local placeId = game.PlaceId
-	local currentJobId = tostring(game.JobId or "")
-	if not placeId or placeId <= 0 then
-		return false
-	end
-
-	local url = string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Desc&limit=100", placeId)
-	local rawJson = nil
-
-	local okHttp, result = pcall(function()
-		if typeof(game.HttpGet) == "function" then
-			return game:HttpGet(url)
-		end
-		return HttpService:GetAsync(url)
-	end)
-
-	if okHttp and typeof(result) == "string" and #result > 0 then
-		rawJson = result
-	end
-
-	if rawJson then
-		local okDecode, decoded = pcall(function()
-			return HttpService:JSONDecode(rawJson)
-		end)
-
-		if okDecode and typeof(decoded) == "table" and typeof(decoded.data) == "table" then
-			local candidates = {}
-			for _, srv in ipairs(decoded.data) do
-				if typeof(srv) == "table" and typeof(srv.id) == "string" and srv.id ~= "" and srv.id ~= currentJobId then
-					local playing = tonumber(srv.playing) or 0
-					local maxPlayers = tonumber(srv.maxPlayers) or 0
-					if maxPlayers > 0 and playing < maxPlayers then
-						table.insert(candidates, srv.id)
-					end
-				end
-			end
-
-			if #candidates > 0 then
-				local chosenId = candidates[math.random(1, #candidates)]
-				local tpOk = pcall(function()
-					TeleportService:TeleportToPlaceInstance(placeId, chosenId, LocalPlayer)
-				end)
-				if tpOk then
-					return true
-				end
-			end
-		end
-	end
-
-	local fallbackOk = pcall(function()
-		TeleportService:Teleport(placeId, LocalPlayer)
-	end)
-	return fallbackOk
-end
-
 local function rejoinCurrentServer()
 	local now = os.clock()
-	if (now - State.LastServerHopAttempt) < 2.0 then
+	if (now - State.LastRejoinAttempt) < 2.0 then
 		return
 	end
-	State.LastServerHopAttempt = now
+	State.LastRejoinAttempt = now
 
 	local placeId = game.PlaceId
 	local jobId = game.JobId
@@ -1557,8 +1184,6 @@ local function unloadAll()
 	State.Unloaded = true
 
 	State.AutoWallBypass = false
-	State.AutoInstantGrab = false
-	State.InstantHoldZeroAll = false
 	State.AntiUnusualMovement = false
 	State.AntiKnockback = false
 	State.SpeedEnabled = false
@@ -1578,7 +1203,7 @@ local function unloadAll()
 	for player in pairs(espBoxes) do
 		removePlayerESP(player)
 	end
-	clearLootEntries()
+	clearLootMarkers()
 
 	disconnectList(lifecycleConnections)
 
@@ -1597,15 +1222,6 @@ local function unloadAll()
 	end)
 end
 
-table.insert(lifecycleConnections, ProximityPromptService.PromptShown:Connect(function(prompt)
-	if not State.Unloaded and State.InstantHoldZeroAll and prompt then
-		prepPromptZeroHold(prompt, State.AutoInstantGrab)
-		if State.AutoInstantGrab then
-			firePromptNow(prompt)
-		end
-	end
-end))
-
 table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 	if State.Unloaded then return end
 	local char = Cached.Char
@@ -1618,16 +1234,6 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 
 	if State.AutoWallBypass and hum.MoveDirection.Magnitude > 0.1 and (now - State.LastBypassTime) > 0.22 then
 		executeHardWallBypass(false)
-	end
-
-	if State.InstantHoldZeroAll and (now - State.LastPromptZeroTime) >= 0.75 then
-		State.LastPromptZeroTime = now
-		sweepZeroHoldPrompts()
-	end
-
-	if State.AutoInstantGrab and (now - State.LastAutoGrabTime) >= 0.22 then
-		State.LastAutoGrabTime = now
-		executeInstantGrab()
 	end
 
 	if State.AntiRagdoll then
@@ -1824,13 +1430,39 @@ MovementTab:Toggle({
 
 MovementTab:Toggle({
 	Title = "Floating Under Map Button",
-	Desc = "Show draggable one-tap Under Map / Return button on screen",
+	Desc = "Show draggable big Under Map / Return button on screen",
 	Default = true,
 	Callback = function(value)
 		State.ShowFloatingUnderBtn = value
 		if refreshFloatingButtonVisual then
 			refreshFloatingButtonVisual()
 		end
+	end
+})
+
+MovementTab:Toggle({
+	Title = "Floating TP Base Button",
+	Desc = "Show draggable big TP Base button on screen",
+	Default = true,
+	Callback = function(value)
+		State.ShowFloatingBaseBtn = value
+		if refreshFloatingButtonVisual then
+			refreshFloatingButtonVisual()
+		end
+	end
+})
+
+MovementTab:Slider({
+	Title = "Floating Button Size",
+	Desc = "Adjust width (px) of the floating buttons",
+	Step = 4,
+	Value = {
+		Min = 120,
+		Max = 220,
+		Default = 156
+	},
+	Callback = function(value)
+		applyFloatingButtonSize(value)
 	end
 })
 
@@ -1848,38 +1480,6 @@ MovementTab:Button({
 	Desc = "Return safely to your saved surface spot",
 	Callback = function()
 		returnFromUnderMap()
-	end
-})
-
-MovementTab:Button({
-	Title = "Save Base Spot",
-	Desc = "Save your current position as your base return point",
-	Callback = function()
-		saveCurrentBaseSpot()
-	end
-})
-
-MovementTab:Button({
-	Title = "Teleport to Base",
-	Desc = "Return to your saved base spot after stealing loot",
-	Callback = function()
-		teleportToSavedBase()
-	end
-})
-
-MovementTab:Button({
-	Title = "TP Best Loot / Vault",
-	Desc = "Teleport to highest-tier vault, diamond, or loot object",
-	Callback = function()
-		teleportToBestLootOrVault()
-	end
-})
-
-MovementTab:Button({
-	Title = "TP Other Player Base",
-	Desc = "Teleport to another player's base/plot (or current spot)",
-	Callback = function()
-		teleportToOtherPlayerBase()
 	end
 })
 
@@ -1933,6 +1533,45 @@ MovementTab:Slider({
 	end
 })
 
+HeistTab:Button({
+	Title = "Save Base Position",
+	Desc = "Save your current base/display spot for quick return",
+	Callback = function()
+		saveCurrentBaseSpot()
+	end
+})
+
+HeistTab:Button({
+	Title = "Teleport to Base",
+	Desc = "Return to your saved base spot after a vault/roof run",
+	Callback = function()
+		teleportToSavedBase()
+	end
+})
+
+HeistTab:Toggle({
+	Title = "Loot & Vault ESP",
+	Desc = "Highlight nearby vault/loot/diamond objects & distance",
+	Default = false,
+	Callback = function(value)
+		State.LootVaultESP = value
+		if value then
+			State.LastLootScanTime = 0
+		else
+			clearLootMarkers()
+		end
+	end
+})
+
+HeistTab:Toggle({
+	Title = "Loot ESP Logo Badge",
+	Desc = "Show diamond logo emblem + [VAULT]/[LOOT] tag on markers",
+	Default = true,
+	Callback = function(value)
+		State.LootEspLogo = value
+	end
+})
+
 ProtectionTab:Toggle({
 	Title = "Anti-Unusual Movement",
 	Desc = "Stops abnormal velocity/spin bursts & odd movement states",
@@ -1979,79 +1618,6 @@ VisualsTab:Toggle({
 	Callback = function(value)
 		State.BoxESP = value
 	end
-})
-
-VisualsTab:Toggle({
-	Title = "Loot / Vault ESP",
-	Desc = "Highlights vault, diamond, safe & loot objects with distance",
-	Default = false,
-	Callback = function(value)
-		State.LootVaultESP = value
-		State.LastLootScanTime = 0
-		if value then
-			rescanLootAndVaults()
-		else
-			hideAllLootESP()
-		end
-	end
-})
-
-VisualsTab:Button({
-	Title = "Rescan Loot / Vaults Now",
-	Desc = "Force an immediate scan for vaults & loot items",
-	Callback = function()
-		State.LastLootScanTime = os.clock()
-		rescanLootAndVaults()
-	end
-})
-
-UtilityTab:Slider({
-	Title = "Instant Grab Radius",
-	Desc = "Max stud range to grab nearby prompts/loot",
-	Step = 1,
-	Value = {
-		Min = 8,
-		Max = 65,
-		Default = 40
-	},
-	Callback = function(value)
-		State.InstantGrabRadius = value
-	end
-})
-
-UtilityTab:Toggle({
-	Title = "Zero Hold Time Prompts",
-	Desc = "Sets HoldDuration = 0 & disables line-of-sight block on prompts",
-	Default = true,
-	Callback = function(value)
-		State.InstantHoldZeroAll = value
-		if value then
-			sweepZeroHoldPrompts()
-		end
-	end
-})
-
-UtilityTab:Button({
-	Title = "Instant Grab Now",
-	Desc = "Trigger nearby prompts & loot immediately",
-	Callback = function()
-		executeInstantGrab()
-	end
-})
-
-UtilityTab:Toggle({
-	Title = "Auto Instant Grab",
-	Desc = "Automatically triggers nearby prompts/loot every 0.22s",
-	Default = false,
-	Callback = function(value)
-		State.AutoInstantGrab = value
-	end
-})
-
-UtilityTab:Button({
-	Title = "Hop to Different Server",
-	Desc = "Find an open public server with a different JobId",
-	Callback = hopToDifferentServer
 })
 
 UtilityTab:Button({
