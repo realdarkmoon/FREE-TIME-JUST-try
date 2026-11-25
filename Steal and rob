@@ -16,10 +16,10 @@ local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubV12",
-	Size = UDim2.fromOffset(540, 520),
+	Folder = "PremiumYutaHubV15",
+	Size = UDim2.fromOffset(540, 550),
 	MinSize = Vector2.new(440, 320),
-	MaxSize = Vector2.new(720, 630),
+	MaxSize = Vector2.new(720, 660),
 	Theme = "Dark",
 	Transparent = true,
 	Resizable = true,
@@ -55,6 +55,7 @@ local State = {
 	NoclipBetaUltra = true,
 	WallMicroStep = true,
 	AutoWallBypass = false,
+	AutoInstantGrab = false,
 	AntiRagdoll = false,
 	AntiKnockback = false,
 	AntiUnusualMovement = false,
@@ -65,8 +66,10 @@ local State = {
 	SpeedEnabled = false,
 	JumpEnabled = false,
 	BoxESP = false,
+	LootVaultESP = false,
 	NoclipStepPower = 0.95,
 	BypassScanDistance = 24,
+	InstantGrabRadius = 22,
 	UnderMapOffset = 12,
 	ExtraSpeed = 16,
 	JumpHeight = 14,
@@ -77,11 +80,14 @@ local State = {
 	MaxUnusualSpeed = 95,
 	MaxUnusualSnapDist = 35,
 	SavedCFrame = nil,
+	BaseCFrame = nil,
 	UnderAnchorY = nil,
 	LastCleanCFrame = nil,
 	LastBypassTime = 0,
 	LastWallProbeTime = 0,
 	LastRagdollSweepTime = 0,
+	LastLootScanTime = 0,
+	LastAutoGrabTime = 0,
 	LastRejoinAttempt = 0,
 	IgnoreUnusualUntil = 0,
 	SyncingToggle = false,
@@ -196,6 +202,35 @@ local function isPositionClear(pos)
 			return false
 		end
 	end
+	return true
+end
+
+local function safeTeleportToPosition(targetPos, flatLookDir)
+	local root = Cached.Root
+	if not root or not isValidVector3(targetPos) then return false end
+
+	if State.UnderMap then
+		State.UnderMap = false
+		State.UnderAnchorY = nil
+		if underPlatform then
+			underPlatform.Parent = nil
+		end
+		if syncUnderMapToggleUI then
+			syncUnderMapToggleUI(false)
+		end
+	end
+
+	markMovementIntent(0.75)
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
+
+	local finalPos = targetPos + Vector3.new(0, 2.5, 0)
+	if flatLookDir and isValidVector3(flatLookDir) and flatLookDir.Magnitude > 0.001 then
+		root.CFrame = CFrame.new(finalPos, finalPos + flatLookDir.Unit)
+	else
+		root.CFrame = CFrame.new(finalPos)
+	end
+	State.LastCleanCFrame = root.CFrame
 	return true
 end
 
@@ -364,6 +399,289 @@ local function executeHardWallBypass(forceScan)
 end
 
 -- ==========================================
+-- INSTANT GRAB SYSTEM (PROXIMITY & LOOT)
+-- ==========================================
+local function getPromptWorldPos(prompt)
+	local parent = prompt.Parent
+	if not parent then return nil end
+	if parent:IsA("BasePart") then
+		return parent.Position
+	elseif parent:IsA("Attachment") then
+		return parent.WorldPosition
+	elseif parent:IsA("Model") then
+		if parent.PrimaryPart then
+			return parent.PrimaryPart.Position
+		end
+		local part = parent:FindFirstChildWhichIsA("BasePart", true)
+		return part and part.Position or nil
+	end
+	return nil
+end
+
+local function triggerSinglePromptInstant(prompt)
+	if not prompt or not prompt.Parent or not prompt.Enabled then return false end
+
+	local origHold = prompt.HoldDuration
+	local origMaxDist = prompt.MaxActivationDistance
+
+	pcall(function()
+		prompt.HoldDuration = 0
+		if prompt.MaxActivationDistance < (State.InstantGrabRadius + 6) then
+			prompt.MaxActivationDistance = State.InstantGrabRadius + 6
+		end
+	end)
+
+	local fired = false
+	pcall(function()
+		if fireproximityprompt then
+			fireproximityprompt(prompt)
+			fired = true
+		end
+	end)
+
+	if not fired then
+		pcall(function()
+			prompt:InputHoldBegin()
+			task.defer(function()
+				if prompt and prompt.Parent then
+					pcall(function()
+						prompt:InputHoldEnd()
+					end)
+				end
+			end)
+			fired = true
+		end)
+	end
+
+	task.delay(0.08, function()
+		if prompt and prompt.Parent then
+			pcall(function()
+				prompt.HoldDuration = origHold
+				prompt.MaxActivationDistance = origMaxDist
+			end)
+		end
+	end)
+
+	return fired
+end
+
+local function executeInstantGrab()
+	local char = Cached.Char
+	local root = Cached.Root
+	if not char or not root then return 0 end
+
+	local grabbedCount = 0
+	local maxDist = math.max(5, State.InstantGrabRadius)
+
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if desc:IsA("ProximityPrompt") and desc.Enabled then
+			if not desc:IsDescendantOf(char) then
+				local pPos = getPromptWorldPos(desc)
+				if pPos and (pPos - root.Position).Magnitude <= maxDist then
+					if triggerSinglePromptInstant(desc) then
+						grabbedCount += 1
+						if grabbedCount >= 12 then
+							break
+						end
+					end
+				end
+			end
+		end
+	end
+
+	if firetouchinterest then
+		local parts = Workspace:GetPartBoundsInRadius(root.Position, math.min(maxDist, 18), sharedOverlapParams)
+		local touchCount = 0
+		for _, part in ipairs(parts) do
+			if touchCount >= 10 then break end
+			if part:IsA("BasePart") and part.CanTouch and not part:IsDescendantOf(char) then
+				local n = part.Name:lower()
+				if n:find("loot") or n:find("diamond") or n:find("vault") or n:find("cash") or n:find("gem") or n:find("pickup") then
+					pcall(function()
+						firetouchinterest(root, part, 0)
+						firetouchinterest(root, part, 1)
+					end)
+					touchCount += 1
+					grabbedCount += 1
+				end
+			end
+		end
+	end
+
+	return grabbedCount
+end
+
+-- ==========================================
+-- BEST LOOT / VAULT & OTHER PLAYER BASE TP
+-- ==========================================
+local TIER_WEIGHTS = {
+	mythic = 100,
+	divine = 95,
+	secret = 90,
+	legendary = 80,
+	diamond = 75,
+	vault = 65,
+	emerald = 55,
+	ruby = 50,
+	safe = 45,
+	gold = 40,
+	gem = 35,
+	cash = 25,
+	money = 25,
+	loot = 20,
+	crate = 15,
+	chest = 15
+}
+
+local function scoreLootObject(obj)
+	local nameLower = obj.Name:lower()
+	local score = 0
+
+	for key, weight in pairs(TIER_WEIGHTS) do
+		if nameLower:find(key, 1, true) then
+			score = math.max(score, weight)
+		end
+	end
+
+	for attrName, attrVal in pairs(obj:GetAttributes()) do
+		local aLower = tostring(attrName):lower()
+		if aLower:find("value") or aLower:find("price") or aLower:find("reward") or aLower:find("cash") or aLower:find("money") then
+			local num = tonumber(attrVal)
+			if num and num > 0 then
+				score += math.min(num / 100, 120)
+			end
+		elseif aLower:find("rarity") or aLower:find("tier") then
+			local vLower = tostring(attrVal):lower()
+			for key, weight in pairs(TIER_WEIGHTS) do
+				if vLower:find(key, 1, true) then
+					score = math.max(score, weight + 15)
+				end
+			end
+		end
+	end
+
+	return score
+end
+
+local function teleportToBestLootOrVault()
+	local char = Cached.Char
+	local root = Cached.Root
+	if not char or not root then return false end
+
+	local bestPos = nil
+	local bestScore = -1
+
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if (desc:IsA("Model") or desc:IsA("BasePart")) and not desc:IsDescendantOf(char) then
+			local isPlayerChar = false
+			for _, plr in ipairs(Players:GetPlayers()) do
+				if plr.Character and desc:IsDescendantOf(plr.Character) then
+					isPlayerChar = true
+					break
+				end
+			end
+
+			if not isPlayerChar then
+				local baseScore = scoreLootObject(desc)
+				if baseScore > 0 then
+					local pos = nil
+					if desc:IsA("BasePart") then
+						pos = desc.Position
+					elseif desc:IsA("Model") then
+						if desc.PrimaryPart then
+							pos = desc.PrimaryPart.Position
+						else
+							local p = desc:FindFirstChildWhichIsA("BasePart", true)
+							pos = p and p.Position or nil
+						end
+					end
+
+					if pos and isValidVector3(pos) then
+						local dist = (pos - root.Position).Magnitude
+						local totalScore = baseScore - (dist * 0.08)
+						if totalScore > bestScore then
+							bestScore = totalScore
+							bestPos = pos
+						end
+					end
+				end
+			end
+		end
+	end
+
+	if bestPos then
+		return safeTeleportToPosition(bestPos, getMoveDirectionFlat())
+	end
+
+	return false
+end
+
+local function findOtherPlayerBasePosition(targetPlayer)
+	if not targetPlayer then return nil end
+
+	local pNameLower = targetPlayer.Name:lower()
+	local dNameLower = targetPlayer.DisplayName:lower()
+
+	-- 1. Check Workspace models/folders named after the player or their base/plot
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if desc:IsA("Model") or desc:IsA("Folder") then
+			local n = desc.Name:lower()
+			local matchesPlayer = (pNameLower ~= "" and n:find(pNameLower, 1, true))
+				or (#dNameLower >= 3 and n:find(dNameLower, 1, true))
+			local isBaseLike = n:find("base", 1, true)
+				or n:find("plot", 1, true)
+				or n:find("tycoon", 1, true)
+				or n:find("home", 1, true)
+				or n:find("hideout", 1, true)
+
+			if matchesPlayer or (isBaseLike and tostring(desc:GetAttribute("Owner") or desc:GetAttribute("Player") or ""):lower():find(pNameLower, 1, true)) then
+				if desc:IsA("Model") then
+					if desc.PrimaryPart then
+						return desc.PrimaryPart.Position
+					end
+					local part = desc:FindFirstChildWhichIsA("BasePart", true)
+					if part then
+						return part.Position
+					end
+				elseif desc:IsA("Folder") then
+					local part = desc:FindFirstChildWhichIsA("BasePart", true)
+					if part then
+						return part.Position
+					end
+				end
+			end
+		end
+	end
+
+	-- 2. Fallback to the player's current character root if no named base model exists
+	local tChar = targetPlayer.Character
+	local tRoot = tChar and (
+		tChar:FindFirstChild("HumanoidRootPart")
+		or tChar:FindFirstChild("Torso")
+		or tChar:FindFirstChild("UpperTorso")
+	) or nil
+
+	return tRoot and tRoot.Position or nil
+end
+
+local function teleportToOtherPlayerBase()
+	local root = Cached.Root
+	if not root then return false end
+
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer then
+			local basePos = findOtherPlayerBasePosition(plr)
+			if basePos and isValidVector3(basePos) then
+				local behindOffset = Vector3.new(0, 1.5, -3.5)
+				return safeTeleportToPosition(basePos + behindOffset, getMoveDirectionFlat())
+			end
+		end
+	end
+
+	return false
+end
+
+-- ==========================================
 -- BUG-RESISTANT UNDER MAP & RETURN SYSTEM
 -- ==========================================
 local underPlatform = Instance.new("Part")
@@ -516,6 +834,44 @@ local function setUnderMap(enabled)
 	else
 		returnFromUnderMap()
 	end
+end
+
+-- ==========================================
+-- SAVE / TELEPORT TO BASE (BREAK & STEAL)
+-- ==========================================
+local function saveCurrentBaseSpot()
+	local root = Cached.Root
+	if not root then return false end
+	State.BaseCFrame = root.CFrame
+	return true
+end
+
+local function teleportToSavedBase()
+	local root = Cached.Root
+	if not root or not State.BaseCFrame then return false end
+
+	if State.UnderMap then
+		State.UnderMap = false
+		State.UnderAnchorY = nil
+		if underPlatform then
+			underPlatform.Parent = nil
+		end
+		syncUnderMapToggleUI(false)
+	end
+
+	markMovementIntent(0.65)
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
+	local dest = State.BaseCFrame.Position + Vector3.new(0, 2.5, 0)
+	local look = State.BaseCFrame.LookVector
+	local flatLook = Vector3.new(look.X, 0, look.Z)
+	if flatLook.Magnitude > 0.001 then
+		root.CFrame = CFrame.new(dest, dest + flatLook.Unit)
+	else
+		root.CFrame = CFrame.new(dest)
+	end
+	State.LastCleanCFrame = root.CFrame
+	return true
 end
 
 -- ==========================================
@@ -810,9 +1166,94 @@ local function applyJumpBoost(enabled)
 end
 
 -- ==========================================
--- BOX ESP (DRAWING API)
+-- BOX ESP & LOOT / VAULT ESP (DRAWING API)
 -- ==========================================
 local espBoxes = {}
+local lootEntries = {}
+
+local LOOT_KEYWORDS = {
+	"vault", "safe", "diamond", "gold", "gem", "emerald",
+	"ruby", "loot", "cash", "money", "bag", "crate", "chest"
+}
+
+local function isLootOrVaultObject(obj)
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr.Character and obj:IsDescendantOf(plr.Character) then
+			return false
+		end
+	end
+
+	local nameLower = obj.Name:lower()
+	for _, kw in ipairs(LOOT_KEYWORDS) do
+		if nameLower:find(kw, 1, true) then
+			return true
+		end
+	end
+	return false
+end
+
+local function getTargetWorldPosition(obj)
+	if not obj or not obj.Parent then return nil end
+	if obj:IsA("BasePart") then
+		return obj.Position
+	elseif obj:IsA("Model") then
+		if obj.PrimaryPart then
+			return obj.PrimaryPart.Position
+		end
+		local part = obj:FindFirstChildWhichIsA("BasePart", true)
+		return part and part.Position or nil
+	end
+	return nil
+end
+
+local function clearLootEntries()
+	for i = #lootEntries, 1, -1 do
+		local entry = lootEntries[i]
+		if entry.box then
+			pcall(function() entry.box:Remove() end)
+		end
+		if entry.label then
+			pcall(function() entry.label:Remove() end)
+		end
+		table.remove(lootEntries, i)
+	end
+end
+
+local function rescanLootAndVaults()
+	clearLootEntries()
+	if not State.LootVaultESP or State.Unloaded then return end
+
+	local count = 0
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if count >= 40 then break end
+		if (desc:IsA("Model") or desc:IsA("BasePart")) and isLootOrVaultObject(desc) then
+			local pos = getTargetWorldPosition(desc)
+			if pos then
+				local box = Drawing.new("Square")
+				box.Visible = false
+				box.Color = Color3.fromRGB(80, 220, 255)
+				box.Thickness = 1.4
+				box.Filled = false
+				box.Transparency = 1
+
+				local label = Drawing.new("Text")
+				label.Visible = false
+				label.Color = Color3.fromRGB(165, 240, 255)
+				label.Size = 13
+				label.Center = true
+				label.Outline = true
+				label.Text = desc.Name
+
+				table.insert(lootEntries, {
+					target = desc,
+					box = box,
+					label = label
+				})
+				count += 1
+			end
+		end
+	end
+end
 
 local function createBox()
 	local box = Drawing.new("Square")
@@ -830,6 +1271,13 @@ local function hideAllBoxes()
 	end
 end
 
+local function hideAllLootESP()
+	for _, entry in ipairs(lootEntries) do
+		if entry.box then entry.box.Visible = false end
+		if entry.label then entry.label.Visible = false end
+	end
+end
+
 local function removePlayerESP(player)
 	local box = espBoxes[player]
 	if box then
@@ -841,50 +1289,94 @@ local function removePlayerESP(player)
 end
 
 local function updateESPFrame()
-	if not State.BoxESP or State.Unloaded then
+	if State.Unloaded then
 		hideAllBoxes()
+		hideAllLootESP()
 		return
 	end
 
 	local activeCam = Workspace.CurrentCamera
 	if not activeCam then
 		hideAllBoxes()
+		hideAllLootESP()
 		return
 	end
 
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player ~= LocalPlayer then
-			local char = player.Character
-			local root = char and (
-				char:FindFirstChild("HumanoidRootPart")
-				or char:FindFirstChild("Torso")
-				or char:FindFirstChild("UpperTorso")
-			)
-			local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+	if not State.BoxESP then
+		hideAllBoxes()
+	else
+		for _, player in ipairs(Players:GetPlayers()) do
+			if player ~= LocalPlayer then
+				local char = player.Character
+				local root = char and (
+					char:FindFirstChild("HumanoidRootPart")
+					or char:FindFirstChild("Torso")
+					or char:FindFirstChild("UpperTorso")
+				)
+				local humanoid = char and char:FindFirstChildOfClass("Humanoid")
 
-			if root and humanoid and humanoid.Health > 0 then
-				local box = espBoxes[player]
-				if not box then
-					box = createBox()
-					espBoxes[player] = box
+				if root and humanoid and humanoid.Health > 0 then
+					local box = espBoxes[player]
+					if not box then
+						box = createBox()
+						espBoxes[player] = box
+					end
+
+					local rootPos, onScreen = activeCam:WorldToViewportPoint(root.Position)
+					if onScreen and rootPos.Z > 0 then
+						local topPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, 2.6, 0)).Position)
+						local bottomPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, -3.1, 0)).Position)
+
+						local height = math.abs(topPos.Y - bottomPos.Y)
+						local width = math.clamp(height * 0.6, 12, 250)
+
+						box.Size = Vector2.new(width, math.clamp(height, 18, 400))
+						box.Position = Vector2.new(rootPos.X - box.Size.X / 2, topPos.Y)
+						box.Visible = true
+					else
+						box.Visible = false
+					end
+				elseif espBoxes[player] then
+					espBoxes[player].Visible = false
 				end
+			end
+		end
+	end
 
-				local rootPos, onScreen = activeCam:WorldToViewportPoint(root.Position)
-				if onScreen and rootPos.Z > 0 then
-					local topPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, 2.6, 0)).Position)
-					local bottomPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, -3.1, 0)).Position)
+	if not State.LootVaultESP then
+		hideAllLootESP()
+	else
+		local now = os.clock()
+		if (now - State.LastLootScanTime) >= 4.0 then
+			State.LastLootScanTime = now
+			rescanLootAndVaults()
+		end
 
-					local height = math.abs(topPos.Y - bottomPos.Y)
-					local width = math.clamp(height * 0.6, 12, 250)
+		local myRoot = Cached.Root
+		for _, entry in ipairs(lootEntries) do
+			local pos = getTargetWorldPosition(entry.target)
+			if pos then
+				local screenPos, onScreen = activeCam:WorldToViewportPoint(pos)
+				if onScreen and screenPos.Z > 0 then
+					local scale = math.clamp(220 / math.max(screenPos.Z, 1), 12, 48)
+					entry.box.Size = Vector2.new(scale, scale)
+					entry.box.Position = Vector2.new(screenPos.X - scale / 2, screenPos.Y - scale / 2)
+					entry.box.Visible = true
 
-					box.Size = Vector2.new(width, math.clamp(height, 18, 400))
-					box.Position = Vector2.new(rootPos.X - box.Size.X / 2, topPos.Y)
-					box.Visible = true
+					local distText = ""
+					if myRoot then
+						distText = string.format(" [%dm]", math.floor((pos - myRoot.Position).Magnitude))
+					end
+					entry.label.Text = entry.target.Name .. distText
+					entry.label.Position = Vector2.new(screenPos.X, screenPos.Y - scale / 2 - 16)
+					entry.label.Visible = true
 				else
-					box.Visible = false
+					entry.box.Visible = false
+					entry.label.Visible = false
 				end
-			elseif espBoxes[player] then
-				espBoxes[player].Visible = false
+			else
+				entry.box.Visible = false
+				entry.label.Visible = false
 			end
 		end
 	end
@@ -935,10 +1427,12 @@ local function unloadAll()
 	State.Unloaded = true
 
 	State.AutoWallBypass = false
+	State.AutoInstantGrab = false
 	State.AntiUnusualMovement = false
 	State.AntiKnockback = false
 	State.SpeedEnabled = false
 	State.BoxESP = false
+	State.LootVaultESP = false
 
 	setNoclip(false)
 	setAntiRagdoll(false)
@@ -953,6 +1447,7 @@ local function unloadAll()
 	for player in pairs(espBoxes) do
 		removePlayerESP(player)
 	end
+	clearLootEntries()
 
 	disconnectList(lifecycleConnections)
 
@@ -983,6 +1478,11 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 
 	if State.AutoWallBypass and hum.MoveDirection.Magnitude > 0.1 and (now - State.LastBypassTime) > 0.22 then
 		executeHardWallBypass(false)
+	end
+
+	if State.AutoInstantGrab and (now - State.LastAutoGrabTime) >= 0.25 then
+		State.LastAutoGrabTime = now
+		executeInstantGrab()
 	end
 
 	if State.AntiRagdoll then
@@ -1206,6 +1706,38 @@ MovementTab:Button({
 	end
 })
 
+MovementTab:Button({
+	Title = "Save Base Spot",
+	Desc = "Save your current position as your base return point",
+	Callback = function()
+		saveCurrentBaseSpot()
+	end
+})
+
+MovementTab:Button({
+	Title = "Teleport to Base",
+	Desc = "Return to your saved base spot after stealing loot",
+	Callback = function()
+		teleportToSavedBase()
+	end
+})
+
+MovementTab:Button({
+	Title = "TP Best Loot / Vault",
+	Desc = "Teleport to highest-tier vault, diamond, or loot object",
+	Callback = function()
+		teleportToBestLootOrVault()
+	end
+})
+
+MovementTab:Button({
+	Title = "TP Other Player Base",
+	Desc = "Teleport to another player's base/plot (or current spot)",
+	Callback = function()
+		teleportToOtherPlayerBase()
+	end
+})
+
 MovementTab:Toggle({
 	Title = "Speed Boost",
 	Desc = "Smooth step movement boost while walking",
@@ -1301,6 +1833,61 @@ VisualsTab:Toggle({
 	Default = false,
 	Callback = function(value)
 		State.BoxESP = value
+	end
+})
+
+VisualsTab:Toggle({
+	Title = "Loot / Vault ESP",
+	Desc = "Highlights vault, diamond, safe & loot objects with distance",
+	Default = false,
+	Callback = function(value)
+		State.LootVaultESP = value
+		State.LastLootScanTime = 0
+		if value then
+			rescanLootAndVaults()
+		else
+			hideAllLootESP()
+		end
+	end
+})
+
+VisualsTab:Button({
+	Title = "Rescan Loot / Vaults Now",
+	Desc = "Force an immediate scan for vaults & loot items",
+	Callback = function()
+		State.LastLootScanTime = os.clock()
+		rescanLootAndVaults()
+	end
+})
+
+UtilityTab:Slider({
+	Title = "Instant Grab Radius",
+	Desc = "Max stud range to grab nearby prompts/loot",
+	Step = 1,
+	Value = {
+		Min = 8,
+		Max = 45,
+		Default = 22
+	},
+	Callback = function(value)
+		State.InstantGrabRadius = value
+	end
+})
+
+UtilityTab:Button({
+	Title = "Instant Grab Now",
+	Desc = "Zero hold time & grab nearby prompts/loot immediately",
+	Callback = function()
+		executeInstantGrab()
+	end
+})
+
+UtilityTab:Toggle({
+	Title = "Auto Instant Grab",
+	Desc = "Automatically triggers nearby prompts/loot every 0.25s",
+	Default = false,
+	Callback = function(value)
+		State.AutoInstantGrab = value
 	end
 })
 
