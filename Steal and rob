@@ -13,8 +13,8 @@ local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local SCRIPT_VERSION = "v31.0"
-local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v31.json"
+local SCRIPT_VERSION = "v32.0"
+local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v32.json"
 local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-cloud/yutahub/main/main.lua"
 
 -- ==========================================
@@ -23,14 +23,14 @@ local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-
 local CHANGELOG = {
 	Version = SCRIPT_VERSION,
 	WhatsNew = {
-		"Potato / Low-Detail Map Toggle: Cuts shadows, lighting overhead, & complex materials for laggy phones.",
-		"Air Platform Up / Down Controls: Step your mid-air platform up or down smoothly.",
-		"Heavy Mobile Lag Preset & FPS Pacer: Default 45 FPS cap + frame pacer + Optimize Mobile Lag enabled."
+		"Up to 500 FPS Cap Support: Target FPS slider now supports 25–500 FPS.",
+		"CPU & Mobile Lag Optimizer: Throttled scans and lighter loops to cut CPU load and stutter.",
+		"Potato / Low-Detail Map Toggle: Cuts shadows, lighting overhead, and complex materials."
 	},
 	WhatsFixed = {
-		"Added clean state restoration for Potato / Low-Detail Map on toggle off and script unload.",
-		"Eliminated heavy per-frame loops and frequent descendant scans to reduce mobile lag.",
-		"Fixed Air Platform height adjustments, Under Map void safety, and Noclip corner snagging."
+		"Removed Air Platform feature, part, and height controls cleanly.",
+		"Fixed FPS pacing so high FPS targets never stall RenderStepped on mobile.",
+		"Cleaned up save/load state, Under Map void safety, and Noclip edge-sliding."
 	}
 }
 
@@ -39,7 +39,7 @@ local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubV31",
+	Folder = "PremiumYutaHubV32",
 	Size = UDim2.fromOffset(550, 530),
 	MinSize = Vector2.new(440, 320),
 	MaxSize = Vector2.new(740, 640),
@@ -90,7 +90,6 @@ local State = {
 	AntiKnockback = false,
 	AntiUnusualMovement = false,
 	SnapBackOnUnusual = true,
-	AirPlatform = false,
 	UnderMap = false,
 	UnderMapLockY = true,
 	UnderMapClearPlatform = false,
@@ -107,7 +106,7 @@ local State = {
 	UltraMobileLag = true,
 	PotatoMapMode = false,
 	FpsCapEnabled = true,
-	TargetFps = 45,
+	TargetFps = 120,
 	ServerHopLowPopMode = false,
 	AutoSaveEnabled = true,
 	AutoExecuteEnabled = true,
@@ -127,7 +126,6 @@ local State = {
 	MaxUnusualSnapDist = 35,
 	SavedCFrame = nil,
 	SavedBaseCFrame = nil,
-	AirPlatformY = nil,
 	UnderAnchorY = nil,
 	LastCleanCFrame = nil,
 	LastBypassTime = 0,
@@ -201,7 +199,7 @@ local function disconnectList(list)
 end
 
 -- ==========================================
--- ZERO-FRAME-DROP MOBILE FPS CAP, LAG & POTATO MAP OPTIMIZER
+-- FPS CAP (UP TO 500), CPU & MOBILE LAG OPTIMIZER
 -- ==========================================
 local function getSetFpsCapFn()
 	if typeof(setfpscap) == "function" then
@@ -224,25 +222,28 @@ local function applyTargetFpsCap(forceNow)
 	local capFn = getSetFpsCapFn()
 	if not capFn then return end
 
-	local target = State.FpsCapEnabled and math.clamp(math.floor(State.TargetFps or 45), 25, 120) or 0
+	local target = State.FpsCapEnabled and math.clamp(math.floor(State.TargetFps or 120), 25, 500) or 0
 	pcall(function()
 		capFn(target)
 	end)
 end
 
 local function paceMobileFrame()
-	if State.Unloaded or not State.FpsCapEnabled then
+	if State.Unloaded then
 		State.LastFrameClock = os.clock()
 		return
 	end
-	local targetFps = math.clamp(math.floor(State.TargetFps or 45), 25, 120)
-	local minFrameTime = 1 / targetFps
-	local now = os.clock()
-	local elapsed = now - (State.LastFrameClock > 0 and State.LastFrameClock or now)
-	if elapsed < minFrameTime then
-		local remaining = minFrameTime - elapsed
-		if remaining > 0.002 and remaining < 0.04 then
-			task.wait(remaining)
+	local targetFps = math.clamp(math.floor(State.TargetFps or 120), 25, 500)
+	-- Only sleep-pace when capped at low FPS (<= 60) to protect low-end mobile thermals; never stall high-FPS targets
+	if State.FpsCapEnabled and targetFps <= 60 then
+		local minFrameTime = 1 / targetFps
+		local now = os.clock()
+		local elapsed = now - (State.LastFrameClock > 0 and State.LastFrameClock or now)
+		if elapsed < minFrameTime then
+			local remaining = minFrameTime - elapsed
+			if remaining > 0.002 and remaining < 0.035 then
+				task.wait(remaining)
+			end
 		end
 	end
 	State.LastFrameClock = os.clock()
@@ -259,7 +260,7 @@ local function getUserGameSettingsSafe()
 end
 
 local function applyMobileFxTrimPass(limitCount)
-	local maxTrim = limitCount or 24
+	local maxTrim = limitCount or 20
 	local trimmed = 0
 
 	for _, desc in ipairs(Workspace:GetDescendants()) do
@@ -364,16 +365,16 @@ local function setOptimizeMobileLag(enabled)
 	end
 
 	State.LastMobileFxSweepTime = os.clock()
-	applyMobileFxTrimPass(State.UltraMobileLag and 48 or 28)
+	applyMobileFxTrimPass(State.UltraMobileLag and 32 or 24)
 end
 
 local function applyPotatoMapPass(limitCount)
-	local maxItems = limitCount or 40
+	local maxItems = limitCount or 32
 	local modified = 0
 
 	for _, desc in ipairs(Workspace:GetDescendants()) do
 		if modified >= maxItems then break end
-		if desc:IsA("BasePart") and desc.Name ~= "YutaHub_UnderPlatform" and desc.Name ~= "YutaHub_AirPlatform" then
+		if desc:IsA("BasePart") and desc.Name ~= "YutaHub_UnderPlatform" then
 			if Cached.PotatoOrigParts[desc] == nil then
 				Cached.PotatoOrigParts[desc] = {
 					Material = desc.Material,
@@ -450,7 +451,7 @@ local function setPotatoMapMode(enabled)
 	end)
 
 	State.LastPotatoSweepTime = os.clock()
-	applyPotatoMapPass(50)
+	applyPotatoMapPass(36)
 end
 
 -- ==========================================
@@ -589,7 +590,6 @@ local function buildSavePayload()
 			NoclipStepPower = State.NoclipStepPower,
 			AutoWallBypass = State.AutoWallBypass,
 			BypassScanDistance = State.BypassScanDistance,
-			AirPlatform = State.AirPlatform,
 			UnderMapOffset = State.UnderMapOffset,
 			UnderMapLockY = State.UnderMapLockY,
 			UnderMapClearPlatform = State.UnderMapClearPlatform,
@@ -687,7 +687,7 @@ local function resetSavedFeatures()
 	State.JumpHeight = 14
 	State.JumpPower = 70
 	State.MaxSafeFallSpeed = 38
-	State.TargetFps = 45
+	State.TargetFps = 120
 	State.FloatingBtnWidth = 164
 
 	local defaults = {
@@ -698,7 +698,6 @@ local function resetSavedFeatures()
 		NoclipStepPower = 1.25,
 		AutoWallBypass = false,
 		BypassScanDistance = 26,
-		AirPlatform = false,
 		UnderMapOffset = 12,
 		UnderMapLockY = true,
 		UnderMapClearPlatform = false,
@@ -715,7 +714,7 @@ local function resetSavedFeatures()
 		UltraMobileLag = true,
 		PotatoMapMode = false,
 		FpsCapEnabled = true,
-		TargetFps = 45,
+		TargetFps = 120,
 		AntiFallDamage = false,
 		MaxSafeFallSpeed = 38,
 		VoidSafetyNet = true,
@@ -974,116 +973,8 @@ local function isPositionClear(pos)
 end
 
 -- ==========================================
--- AIR PLATFORM, UNDER MAP & BASE TELEPORT SYSTEM
+-- UNDER MAP & BASE TELEPORT SYSTEM
 -- ==========================================
-local airPlatform = Instance.new("Part")
-airPlatform.Name = "YutaHub_AirPlatform"
-airPlatform.Size = Vector3.new(18, 1, 18)
-airPlatform.Anchored = true
-airPlatform.CanCollide = true
-airPlatform.CanTouch = false
-airPlatform.Transparency = 0.65
-airPlatform.Color = Color3.fromRGB(110, 145, 255)
-airPlatform.Material = Enum.Material.SmoothPlastic
-airPlatform.Parent = nil
-
-local function ensureAirPlatform()
-	if not airPlatform or not airPlatform.Parent then
-		airPlatform = Instance.new("Part")
-		airPlatform.Name = "YutaHub_AirPlatform"
-		airPlatform.Size = Vector3.new(18, 1, 18)
-		airPlatform.Anchored = true
-		airPlatform.CanCollide = true
-		airPlatform.CanTouch = false
-		airPlatform.Transparency = 0.65
-		airPlatform.Color = Color3.fromRGB(110, 145, 255)
-		airPlatform.Material = Enum.Material.SmoothPlastic
-	end
-end
-
-local function hideAirPlatform()
-	State.AirPlatformY = nil
-	if airPlatform then
-		airPlatform.Parent = nil
-	end
-end
-
-local function setAirPlatform(enabled)
-	State.AirPlatform = enabled
-	if not enabled or State.Unloaded then
-		hideAirPlatform()
-		return
-	end
-
-	local root = Cached.Root
-	if root and isValidVector3(root.Position) then
-		State.AirPlatformY = root.Position.Y - 3.5
-		ensureAirPlatform()
-		airPlatform.Parent = Workspace
-		airPlatform.CFrame = CFrame.new(root.Position.X, State.AirPlatformY, root.Position.Z)
-	end
-end
-
-local function stepAirPlatformHeight(deltaY)
-	if State.Unloaded then return false end
-	if not State.AirPlatform then
-		setAirPlatform(true)
-		if UIRefs.AirPlatform and UIRefs.AirPlatform.Set then
-			State.SyncingToggle = true
-			pcall(function()
-				UIRefs.AirPlatform:Set(true)
-			end)
-			State.SyncingToggle = false
-		end
-	end
-
-	local root = Cached.Root
-	if not root or not isValidVector3(root.Position) then return false end
-
-	if State.AirPlatformY == nil then
-		State.AirPlatformY = root.Position.Y - 3.5
-	end
-	State.AirPlatformY = math.clamp(State.AirPlatformY + (deltaY or 0), -200, 1500)
-
-	ensureAirPlatform()
-	airPlatform.Parent = Workspace
-	airPlatform.CFrame = CFrame.new(root.Position.X, State.AirPlatformY, root.Position.Z)
-
-	markMovementIntent(0.9)
-	local destCF = CFrame.new(root.Position.X, State.AirPlatformY + 3.5, root.Position.Z) * root.CFrame.Rotation
-	root.AssemblyLinearVelocity = Vector3.zero
-	root.AssemblyAngularVelocity = Vector3.zero
-	root.CFrame = destCF
-	if not State.UnderMap then
-		State.LastCleanCFrame = destCF
-	end
-	return true
-end
-
-local function updateAirPlatformLoop(hum, root)
-	if not State.AirPlatform or State.UnderMap or State.Unloaded or not root or not isValidVector3(root.Position) then
-		if airPlatform and airPlatform.Parent and State.UnderMap then
-			airPlatform.Parent = nil
-		end
-		return
-	end
-
-	ensureAirPlatform()
-	if State.AirPlatformY == nil then
-		State.AirPlatformY = root.Position.Y - 3.5
-	end
-
-	local v = root.AssemblyLinearVelocity
-	local fallingFast = isValidVector3(v) and v.Y < -2
-	local abovePlatform = root.Position.Y > (State.AirPlatformY + 2.5)
-	if hum and hum.Jump and not fallingFast and abovePlatform then
-		State.AirPlatformY = root.Position.Y - 3.5
-	end
-
-	airPlatform.Parent = Workspace
-	airPlatform.CFrame = CFrame.new(root.Position.X, State.AirPlatformY, root.Position.Z)
-end
-
 local underPlatform = Instance.new("Part")
 underPlatform.Name = "YutaHub_UnderPlatform"
 underPlatform.Size = Vector3.new(36, 1, 36)
@@ -1195,13 +1086,6 @@ local function teleportToSavedBase()
 
 	applyTeleportCFrame(char, hum, root, destCF)
 
-	if State.AirPlatform then
-		State.AirPlatformY = destCF.Position.Y - 3.5
-		ensureAirPlatform()
-		airPlatform.Parent = Workspace
-		airPlatform.CFrame = CFrame.new(destCF.Position.X, State.AirPlatformY, destCF.Position.Z)
-	end
-
 	task.delay(0.08, function()
 		if State.Unloaded then return end
 		local curChar = Cached.Char
@@ -1300,7 +1184,7 @@ local function applyStrongNoclipFrame()
 
 	if State.WallMicroStep and hum and root and hum.MoveDirection.Magnitude > 0.06 then
 		local now = os.clock()
-		local probeInterval = State.UltraMobileLag and 0.032 or (State.NoclipBetaUltra and 0.018 or 0.025)
+		local probeInterval = State.UltraMobileLag and 0.036 or (State.NoclipBetaUltra and 0.02 or 0.025)
 		if (now - State.LastWallProbeTime) >= probeInterval then
 			State.LastWallProbeTime = now
 			local flatDir = getMoveDirectionFlat()
@@ -1355,7 +1239,7 @@ local function setNoclip(enabled)
 		end
 		applyStrongNoclipFrame()
 
-		if not State.UltraMobileLag then
+		if not State.UltraMobileLag and not State.OptimizeMobileLag then
 			if RunService.PreSimulation then
 				table.insert(noclipConnections, RunService.PreSimulation:Connect(applyStrongNoclipFrame))
 			end
@@ -1534,9 +1418,6 @@ local function setUnderMap(enabled)
 		end
 
 		State.UnderMap = true
-		if airPlatform then
-			airPlatform.Parent = nil
-		end
 		markMovementIntent(0.95)
 
 		local look = root.CFrame.LookVector
@@ -1972,7 +1853,7 @@ local function applyAntiUnusualMovement(hum, root, dt)
 		end)
 	end
 
-	local skipSnapCheck = State.UnderMap or State.AirPlatform or (now < State.IgnoreUnusualUntil)
+	local skipSnapCheck = State.UnderMap or (now < State.IgnoreUnusualUntil)
 	if not skipSnapCheck and State.LastCleanCFrame then
 		local expectedMaxStep = math.max(State.MaxUnusualSnapDist, ((hum.WalkSpeed + (State.SpeedEnabled and State.ExtraSpeed or 0)) * dt) + 18)
 		local distMoved = (root.Position - State.LastCleanCFrame.Position).Magnitude
@@ -2477,7 +2358,6 @@ local function unloadAll()
 	State.OptimizeMobileLag = false
 	State.UltraMobileLag = false
 	State.PotatoMapMode = false
-	State.AirPlatform = false
 
 	restorePotatoMapMode()
 	restoreMobileLagOptimization()
@@ -2503,8 +2383,6 @@ local function unloadAll()
 		underPlatform.Parent = nil
 	end
 
-	hideAirPlatform()
-
 	for player in pairs(espBoxes) do
 		removePlayerESP(player)
 	end
@@ -2513,11 +2391,6 @@ local function unloadAll()
 	end
 
 	disconnectList(lifecycleConnections)
-
-	if airPlatform then
-		airPlatform:Destroy()
-		airPlatform = nil
-	end
 
 	if underPlatform then
 		underPlatform:Destroy()
@@ -2555,24 +2428,24 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 		applyTargetFpsCap(false)
 	end
 
-	if State.AutoClaimIndex and (now - State.LastClaimScanTime) >= (State.UltraMobileLag and 0.85 or 0.55) then
+	if State.AutoClaimIndex and (now - State.LastClaimScanTime) >= (State.UltraMobileLag and 1.0 or 0.6) then
 		State.LastClaimScanTime = now
 		runAutoClaimIndexPass()
 	end
 
-	if State.OptimizeMobileLag and (now - State.LastMobileFxSweepTime) >= (State.UltraMobileLag and 8.0 or 6.0) then
+	if State.OptimizeMobileLag and (now - State.LastMobileFxSweepTime) >= (State.UltraMobileLag and 10.0 or 7.0) then
 		State.LastMobileFxSweepTime = now
-		applyMobileFxTrimPass(State.UltraMobileLag and 20 or 32)
+		applyMobileFxTrimPass(State.UltraMobileLag and 16 or 24)
 	end
 
-	if State.PotatoMapMode and (now - State.LastPotatoSweepTime) >= 9.0 then
+	if State.PotatoMapMode and (now - State.LastPotatoSweepTime) >= 10.0 then
 		State.LastPotatoSweepTime = now
-		applyPotatoMapPass(36)
+		applyPotatoMapPass(28)
 	end
 
 	applyVoidSafetyNet(char, hum, root, now)
 
-	if State.AutoWallBypass and hum.MoveDirection.Magnitude > 0.1 and (now - State.LastBypassTime) > 0.22 then
+	if State.AutoWallBypass and hum.MoveDirection.Magnitude > 0.1 and (now - State.LastBypassTime) > 0.24 then
 		executeHardWallBypass(false)
 	end
 
@@ -2581,7 +2454,7 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 	end
 
 	if State.AntiRagdoll then
-		local doFullSweep = (now - State.LastRagdollSweepTime) >= (State.UltraMobileLag and 0.25 or 0.15)
+		local doFullSweep = (now - State.LastRagdollSweepTime) >= (State.UltraMobileLag and 0.30 or 0.18)
 		if doFullSweep then
 			State.LastRagdollSweepTime = now
 		end
@@ -2613,8 +2486,6 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 
 	if State.UnderMap then
 		updateUnderMapLoop(root)
-	else
-		updateAirPlatformLoop(hum, root)
 	end
 
 	if State.JumpEnabled then
@@ -2634,7 +2505,9 @@ end))
 
 table.insert(lifecycleConnections, RunService.RenderStepped:Connect(function()
 	if State.Unloaded then return end
-	updateESPFrame()
+	if State.BoxESP then
+		updateESPFrame()
+	end
 	paceMobileFrame()
 end))
 
@@ -2645,14 +2518,10 @@ table.insert(lifecycleConnections, LocalPlayer.CharacterAdded:Connect(function(c
 	table.clear(Cached.OrigProps)
 	State.UnderMap = false
 	State.UnderAnchorY = nil
-	State.AirPlatformY = nil
 	State.SavedCFrame = nil
 	State.LastCleanCFrame = nil
 	if underPlatform then
 		underPlatform.Parent = nil
-	end
-	if airPlatform then
-		airPlatform.Parent = nil
 	end
 	syncUnderMapToggleUI(false)
 
@@ -2668,12 +2537,6 @@ table.insert(lifecycleConnections, LocalPlayer.CharacterAdded:Connect(function(c
 
 	if Cached.Root then
 		State.LastCleanCFrame = Cached.Root.CFrame
-		if State.AirPlatform then
-			State.AirPlatformY = Cached.Root.Position.Y - 3.5
-			ensureAirPlatform()
-			airPlatform.Parent = Workspace
-			airPlatform.CFrame = CFrame.new(Cached.Root.Position.X, State.AirPlatformY, Cached.Root.Position.Z)
-		end
 	end
 	if State.FpsCapEnabled then
 		applyTargetFpsCap(true)
@@ -2783,33 +2646,6 @@ MovementTab:Button({
 	Desc = "Scan & phase to clear ground past thick walls immediately",
 	Callback = function()
 		executeHardWallBypass(true)
-	end
-})
-
-UIRefs.AirPlatform = MovementTab:Toggle({
-	Title = "Air Platform",
-	Desc = "Creates a steady mid-air platform under you & follows smoothly",
-	Default = false,
-	Callback = function(value)
-		if State.SyncingToggle then return end
-		setAirPlatform(value)
-		markFeatureUsed()
-	end
-})
-
-MovementTab:Button({
-	Title = "Air Platform Up (+4)",
-	Desc = "Raise your mid-air platform & character up by 4 studs",
-	Callback = function()
-		stepAirPlatformHeight(4)
-	end
-})
-
-MovementTab:Button({
-	Title = "Air Platform Down (-4)",
-	Desc = "Lower your mid-air platform & character down by 4 studs",
-	Callback = function()
-		stepAirPlatformHeight(-4)
 	end
 })
 
@@ -3110,6 +2946,9 @@ UIRefs.BoxESP = VisualsTab:Toggle({
 	Default = false,
 	Callback = function(value)
 		State.BoxESP = value
+		if not value then
+			hideAllBoxes()
+		end
 		markFeatureUsed()
 	end
 })
@@ -3132,8 +2971,8 @@ UIRefs.PlayerInfoESP = VisualsTab:Toggle({
 })
 
 UIRefs.FpsCapEnabled = UtilityTab:Toggle({
-	Title = "Mobile FPS Cap (Zero Frame Drop)",
-	Desc = "Keeps steady FPS pacing on mobile to prevent thermal & frame spikes",
+	Title = "FPS Cap Controller (Up to 500)",
+	Desc = "Applies your target FPS cap (25–500 FPS) cleanly",
 	Default = true,
 	Callback = function(value)
 		State.FpsCapEnabled = value
@@ -3144,12 +2983,12 @@ UIRefs.FpsCapEnabled = UtilityTab:Toggle({
 
 UIRefs.TargetFps = UtilityTab:Slider({
 	Title = "Target FPS Cap",
-	Desc = "Steady FPS target (25–120 FPS, default 45 for mobile)",
+	Desc = "Target FPS (25–500 FPS, default 120)",
 	Step = 5,
 	Value = {
 		Min = 25,
-		Max = 120,
-		Default = 45
+		Max = 500,
+		Default = 120
 	},
 	Callback = function(value)
 		State.TargetFps = value
@@ -3160,7 +2999,7 @@ UIRefs.TargetFps = UtilityTab:Slider({
 
 UIRefs.OptimizeMobileLag = UtilityTab:Toggle({
 	Title = "Optimize Mobile Lag",
-	Desc = "Lowers graphics quality & trims heavy FX with low-overhead pacing",
+	Desc = "Lowers graphics quality & trims heavy FX with low CPU load",
 	Default = true,
 	Callback = function(value)
 		setOptimizeMobileLag(value)
@@ -3169,8 +3008,8 @@ UIRefs.OptimizeMobileLag = UtilityTab:Toggle({
 })
 
 UIRefs.UltraMobileLag = UtilityTab:Toggle({
-	Title = "Ultra Mobile Lag Boost",
-	Desc = "Extra loop throttling & lighter noclip pacing for heavy mobile lag",
+	Title = "Ultra CPU & Lag Boost",
+	Desc = "Throttles background scans & keeps loops light on CPU/mobile",
 	Default = true,
 	Callback = function(value)
 		State.UltraMobileLag = value
@@ -3183,7 +3022,7 @@ UIRefs.UltraMobileLag = UtilityTab:Toggle({
 
 UIRefs.PotatoMapMode = UtilityTab:Toggle({
 	Title = "Potato / Low-Detail Map",
-	Desc = "Disables shadows & simplifies part materials to ease lag on mobile",
+	Desc = "Disables shadows & simplifies part materials to ease lag",
 	Default = false,
 	Callback = function(value)
 		setPotatoMapMode(value)
