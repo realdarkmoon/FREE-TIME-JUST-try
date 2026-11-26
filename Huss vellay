@@ -1,0 +1,529 @@
+-- Load WindUI
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Create Window
+local Window = WindUI:CreateWindow({
+	Title = "HUSS VALLEY HUB",
+	Icon = "moon",
+	Author = "biyxznd",
+	Folder = "HussValleyFixedV3",
+	Size = UDim2.fromOffset(500, 460),
+	MinSize = Vector2.new(400, 300),
+	MaxSize = Vector2.new(720, 600),
+	Theme = "Dark",
+	Transparent = true,
+	Resizable = true,
+	ToggleKey = Enum.KeyCode.RightShift
+})
+
+-- Tabs
+local TeleportTab = Window:Tab({
+	Title = "Teleport",
+	Icon = "navigation"
+})
+
+local MovementTab = Window:Tab({
+	Title = "Movement",
+	Icon = "move"
+})
+
+local UtilityTab = Window:Tab({
+	Title = "Utility",
+	Icon = "settings"
+})
+
+-- ==========================================
+-- STATE & CHARACTER CACHE
+-- ==========================================
+local State = {
+	SavedCFrame = nil,
+	StepStuds = 16,
+	HoldFrames = 6,
+	SpeedEnabled = false,
+	ExtraSpeed = 12,
+	JumpEnabled = false,
+	JumpPower = 65,
+	DefaultJumpPower = 50,
+	ShowFloatButtons = true,
+	TpRunning = false,
+	LastTpTime = 0,
+	Unloaded = false
+}
+
+local Cached = {
+	Char = nil,
+	Hum = nil,
+	Root = nil
+}
+
+local connections = {}
+
+local function isValidPos(v)
+	return typeof(v) == "Vector3" and v.X == v.X and v.Y == v.Y and v.Z == v.Z
+end
+
+local function refreshChar(char)
+	Cached.Char = char
+	Cached.Hum = char and char:FindFirstChildOfClass("Humanoid") or nil
+	Cached.Root = char and (
+		char:FindFirstChild("HumanoidRootPart")
+		or char:FindFirstChild("Torso")
+		or char:FindFirstChild("UpperTorso")
+	) or nil
+
+	if Cached.Hum then
+		if Cached.Hum.UseJumpPower then
+			State.DefaultJumpPower = Cached.Hum.JumpPower
+		else
+			State.DefaultJumpPower = Cached.Hum.JumpHeight
+		end
+	end
+end
+
+if LocalPlayer.Character then
+	refreshChar(LocalPlayer.Character)
+end
+
+table.insert(connections, LocalPlayer.CharacterAdded:Connect(function(char)
+	if State.Unloaded then return end
+	refreshChar(char)
+	if not Cached.Hum or not Cached.Root then
+		char:WaitForChild("Humanoid", 5)
+		char:WaitForChild("HumanoidRootPart", 5)
+		refreshChar(char)
+	end
+	if State.JumpEnabled and Cached.Hum then
+		if Cached.Hum.UseJumpPower then
+			Cached.Hum.JumpPower = State.JumpPower
+		else
+			Cached.Hum.JumpHeight = State.JumpPower / 5
+		end
+	end
+end))
+
+-- ==========================================
+-- ANTI-PULLBACK TELEPORT ENGINE
+-- ==========================================
+local function clearCharacterTethers(char, hum, root)
+	if hum then
+		hum.Sit = false
+		hum.PlatformStand = false
+		pcall(function()
+			hum:ChangeState(Enum.HumanoidStateType.Running)
+		end)
+	end
+
+	if root then
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+	end
+
+	if char then
+		for _, desc in ipairs(char:GetDescendants()) do
+			if desc:IsA("Seat") or desc:IsA("VehicleSeat") then
+				desc.Disabled = true
+			elseif desc:IsA("WeldConstraint") or desc:IsA("RigidConstraint") then
+				if desc.Part0 ~= desc.Part1 then
+					pcall(function()
+						desc:Destroy()
+					end)
+				end
+			elseif desc:IsA("BodyVelocity") or desc:IsA("BodyPosition") or desc:IsA("BodyGyro")
+				or desc:IsA("LinearVelocity") or desc:IsA("AlignPosition") or desc:IsA("VectorForce") then
+				pcall(function()
+					desc:Destroy()
+				end)
+			end
+		end
+	end
+end
+
+local function stepCharacterToward(char, hum, root, nextPos, flatLook, velHint)
+	clearCharacterTethers(char, hum, root)
+	local targetCF = flatLook.Magnitude > 0.001
+		and CFrame.new(nextPos, nextPos + flatLook.Unit)
+		or CFrame.new(nextPos)
+
+	root.CFrame = targetCF
+	pcall(function()
+		char:PivotTo(targetCF)
+	end)
+
+	if isValidPos(velHint) then
+		root.AssemblyLinearVelocity = velHint
+	end
+end
+
+local function teleportToCFrame(targetCF)
+	if State.Unloaded or State.TpRunning or typeof(targetCF) ~= "CFrame" then
+		return false
+	end
+	if not isValidPos(targetCF.Position) then
+		return false
+	end
+
+	local now = os.clock()
+	if (now - State.LastTpTime) < 0.15 then
+		return false
+	end
+	State.LastTpTime = now
+
+	local char = Cached.Char
+	local hum = Cached.Hum
+	local root = Cached.Root
+	if not char or not root then
+		return false
+	end
+
+	local goalPos = targetCF.Position + Vector3.new(0, 3.0, 0)
+	local look = targetCF.LookVector
+	local flatLook = Vector3.new(look.X, 0, look.Z)
+
+	State.TpRunning = true
+	task.spawn(function()
+		local startPos = root.Position
+		local dist = (goalPos - startPos).Magnitude
+		local stepSize = math.max(8, tonumber(State.StepStuds) or 16)
+		local steps = math.clamp(math.ceil(dist / stepSize), 1, 30)
+
+		for i = 1, steps do
+			if State.Unloaded or not Cached.Char or not Cached.Hum or not Cached.Root or Cached.Hum.Health <= 0 then
+				break
+			end
+			local alpha = i / steps
+			local curPos = startPos:Lerp(goalPos, alpha)
+			local dir = (goalPos - curPos)
+			local vel = dir.Magnitude > 0.1 and (dir.Unit * math.min(dir.Magnitude * 8, 65)) or Vector3.zero
+			stepCharacterToward(Cached.Char, Cached.Hum, Cached.Root, curPos, flatLook, vel)
+			RunService.Heartbeat:Wait()
+		end
+
+		-- Re-assert final position for a few frames so server sync accepts it
+		local holdCount = math.clamp(tonumber(State.HoldFrames) or 6, 1, 15)
+		for _ = 1, holdCount do
+			if State.Unloaded or not Cached.Char or not Cached.Hum or not Cached.Root or Cached.Hum.Health <= 0 then
+				break
+			end
+			stepCharacterToward(Cached.Char, Cached.Hum, Cached.Root, goalPos, flatLook, Vector3.zero)
+			RunService.Heartbeat:Wait()
+		end
+
+		State.TpRunning = false
+	end)
+
+	return true
+end
+
+local function saveCurrentSpot()
+	local root = Cached.Root
+	if not root or not isValidPos(root.Position) then return false end
+	State.SavedCFrame = root.CFrame
+	return true
+end
+
+local function teleportSavedSpot()
+	if not State.SavedCFrame then
+		if not saveCurrentSpot() then return false end
+	end
+	return teleportToCFrame(State.SavedCFrame)
+end
+
+local function teleportNearestPlayer()
+	local root = Cached.Root
+	if not root or not isValidPos(root.Position) then return false end
+
+	local bestRoot = nil
+	local bestDist = math.huge
+
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer and plr.Character then
+			local otherRoot = plr.Character:FindFirstChild("HumanoidRootPart")
+				or plr.Character:FindFirstChild("Torso")
+				or plr.Character:FindFirstChild("UpperTorso")
+			if otherRoot and isValidPos(otherRoot.Position) then
+				local d = (otherRoot.Position - root.Position).Magnitude
+				if d < bestDist then
+					bestDist = d
+					bestRoot = otherRoot
+				end
+			end
+		end
+	end
+
+	if not bestRoot then return false end
+	return teleportToCFrame(bestRoot.CFrame * CFrame.new(0, 0, 3.5))
+end
+
+-- ==========================================
+-- FLOATING MOBILE BUTTONS
+-- ==========================================
+local floatGui = Instance.new("ScreenGui")
+floatGui.Name = "HussValley_FloatGuiV3"
+floatGui.ResetOnSpawn = false
+floatGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+floatGui.DisplayOrder = 250
+floatGui.Parent = PlayerGui
+
+local function makeFloatBtn(name, text, yOffset, bgColor, borderColor, onClick)
+	local btn = Instance.new("TextButton")
+	btn.Name = name
+	btn.Size = UDim2.fromOffset(154, 46)
+	btn.Position = UDim2.new(1, -172, 0.50, yOffset)
+	btn.BackgroundColor3 = bgColor
+	btn.TextColor3 = Color3.fromRGB(240, 244, 255)
+	btn.Text = text
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 14
+	btn.AutoButtonColor = true
+	btn.Active = true
+	btn.Visible = State.ShowFloatButtons
+	btn.ZIndex = 260
+	btn.Parent = floatGui
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 12)
+	corner.Parent = btn
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = borderColor
+	stroke.Thickness = 1.5
+	stroke.Parent = btn
+
+	local dragging = false
+	local dragInput = nil
+	local dragStart = Vector2.zero
+	local startPos = UDim2.new()
+	local moved = false
+
+	btn.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragInput = input
+			dragStart = Vector2.new(input.Position.X, input.Position.Y)
+			startPos = btn.Position
+			moved = false
+		end
+	end)
+
+	btn.InputChanged:Connect(function(input)
+		if input == dragInput and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local delta = Vector2.new(input.Position.X, input.Position.Y) - dragStart
+			if delta.Magnitude > 6 then
+				moved = true
+			end
+			if dragging and moved then
+				btn.Position = UDim2.new(
+					startPos.X.Scale,
+					startPos.X.Offset + delta.X,
+					startPos.Y.Scale,
+					startPos.Y.Offset + delta.Y
+				)
+			end
+		end
+	end)
+
+	btn.InputEnded:Connect(function(input)
+		if input == dragInput then
+			local wasTap = not moved
+			dragging = false
+			dragInput = nil
+			if wasTap and not State.Unloaded then
+				onClick()
+			end
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input == dragInput then
+			dragging = false
+			dragInput = nil
+		end
+	end)
+
+	return btn
+end
+
+local tpSavedFloat = makeFloatBtn(
+	"TpSavedFloat",
+	"TP Saved Spot",
+	0,
+	Color3.fromRGB(22, 26, 38),
+	Color3.fromRGB(100, 180, 255),
+	teleportSavedSpot
+)
+
+local tpNearestFloat = makeFloatBtn(
+	"TpNearestFloat",
+	"TP Nearest Plr",
+	54,
+	Color3.fromRGB(22, 36, 34),
+	Color3.fromRGB(80, 225, 170),
+	teleportNearestPlayer
+)
+
+-- ==========================================
+-- HEARTBEAT LOOP
+-- ==========================================
+table.insert(connections, RunService.Heartbeat:Connect(function(dt)
+	if State.Unloaded or State.TpRunning then return end
+	local hum = Cached.Hum
+	local root = Cached.Root
+	if not hum or not root or hum.Health <= 0 then return end
+
+	if State.SpeedEnabled and hum.MoveDirection.Magnitude > 0.05 then
+		local flatDir = Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z)
+		if flatDir.Magnitude > 0.001 then
+			root.CFrame = root.CFrame + (flatDir.Unit * State.ExtraSpeed * math.min(dt, 0.05))
+		end
+	end
+
+	if State.JumpEnabled then
+		if hum.UseJumpPower then
+			if hum.JumpPower ~= State.JumpPower then
+				hum.JumpPower = State.JumpPower
+			end
+		else
+			local h = State.JumpPower / 5
+			if hum.JumpHeight ~= h then
+				hum.JumpHeight = h
+			end
+		end
+	end
+end))
+
+-- ==========================================
+-- UI CONTROLS
+-- ==========================================
+TeleportTab:Slider({
+	Title = "Step Distance",
+	Desc = "Studs moved per step during teleport",
+	Step = 2,
+	Value = { Min = 8, Max = 40, Default = 16 },
+	Callback = function(v)
+		State.StepStuds = v
+	end
+})
+
+TeleportTab:Slider({
+	Title = "Anchor Frames",
+	Desc = "Frames held at destination to resist pullback",
+	Step = 1,
+	Value = { Min = 1, Max = 15, Default = 6 },
+	Callback = function(v)
+		State.HoldFrames = v
+	end
+})
+
+TeleportTab:Button({
+	Title = "Save Current Spot",
+	Desc = "Save your current position",
+	Callback = saveCurrentSpot
+})
+
+TeleportTab:Button({
+	Title = "Teleport to Saved Spot",
+	Desc = "Teleport back to your saved position",
+	Callback = teleportSavedSpot
+})
+
+TeleportTab:Button({
+	Title = "Teleport to Nearest Player",
+	Desc = "Teleport next to the closest player in the server",
+	Callback = teleportNearestPlayer
+})
+
+TeleportTab:Toggle({
+	Title = "Floating Teleport Buttons",
+	Desc = "Show draggable TP Saved & TP Nearest buttons",
+	Default = true,
+	Callback = function(v)
+		State.ShowFloatButtons = v
+		local show = v and (not State.Unloaded)
+		if tpSavedFloat then tpSavedFloat.Visible = show end
+		if tpNearestFloat then tpNearestFloat.Visible = show end
+	end
+})
+
+MovementTab:Toggle({
+	Title = "Speed Boost",
+	Desc = "Smooth movement boost",
+	Default = false,
+	Callback = function(v)
+		State.SpeedEnabled = v
+	end
+})
+
+MovementTab:Slider({
+	Title = "Bonus Speed",
+	Desc = "Extra movement speed",
+	Step = 1,
+	Value = { Min = 4, Max = 50, Default = 12 },
+	Callback = function(v)
+		State.ExtraSpeed = v
+	end
+})
+
+MovementTab:Toggle({
+	Title = "Jump Boost",
+	Desc = "Boost character jump",
+	Default = false,
+	Callback = function(v)
+		State.JumpEnabled = v
+		if Cached.Hum then
+			if v then
+				if Cached.Hum.UseJumpPower then
+					Cached.Hum.JumpPower = State.JumpPower
+				else
+					Cached.Hum.JumpHeight = State.JumpPower / 5
+				end
+			else
+				if Cached.Hum.UseJumpPower then
+					Cached.Hum.JumpPower = State.DefaultJumpPower
+				else
+					Cached.Hum.JumpHeight = State.DefaultJumpPower
+				end
+			end
+		end
+	end
+})
+
+MovementTab:Slider({
+	Title = "Jump Power",
+	Desc = "Adjust jump strength",
+	Step = 5,
+	Value = { Min = 50, Max = 150, Default = 65 },
+	Callback = function(v)
+		State.JumpPower = v
+	end
+})
+
+UtilityTab:Button({
+	Title = "Unload Script",
+	Desc = "Clean up connections & close UI",
+	Callback = function()
+		if State.Unloaded then return end
+		State.Unloaded = true
+		State.TpRunning = false
+		State.SpeedEnabled = false
+		State.JumpEnabled = false
+		for _, conn in ipairs(connections) do
+			if conn and conn.Connected then
+				conn:Disconnect()
+			end
+		end
+		table.clear(connections)
+		if floatGui then
+			floatGui:Destroy()
+			floatGui = nil
+		end
+		pcall(function() Window:Destroy() end)
+	end
+})
