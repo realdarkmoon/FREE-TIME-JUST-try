@@ -1,1428 +1,1335 @@
--- Safe WindUI Loader
-local okUI, WindUI = pcall(function()
-	return loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
-end)
-
-if not okUI or not WindUI then
-	return
-end
-
--- Services
+-- Murder Mystery 2 Hub + Neon Lock Screen + CS2 Skeleton ESP + Aimbot & Silent Aim + Grab Gun
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local TeleportService = game:GetService("TeleportService")
-local Lighting = game:GetService("Lighting")
 
 local LocalPlayer = Players.LocalPlayer
-if not LocalPlayer then
-	return
-end
-
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- Anime Boy Icon Helper (with safe fallback)
-local function resolveAnimeBoyIcon()
-	local candidate = "rbxassetid://13847189445"
-	local ok = pcall(function()
-		return typeof(candidate) == "string" and #candidate > 0
-	end)
-	return ok and candidate or "moon"
-end
-
--- Create Window
-local Window = WindUI:CreateWindow({
-	Title = "DARK MOON",
-	Icon = resolveAnimeBoyIcon(),
+local CONFIG = {
+	HubTitle = "DARK MOON // MM2",
 	Author = "biyxznd",
-	Folder = "DarkMoon_HussValley_v11",
-	Size = UDim2.fromOffset(550, 540),
-	MinSize = Vector2.new(420, 320),
-	MaxSize = Vector2.new(780, 660),
-	Theme = "Dark",
-	Transparent = true,
-	Resizable = true,
-	ToggleKey = Enum.KeyCode.RightShift
-})
+	AccessKey = "YUTA2026",
+	DiscordLink = "https://discord.gg/QxRKp9wNeE",
+	GunScanInterval = 0.65,
+	FOVPresets = { 90, 125, 170, 220 },
+	SmoothPresets = { 0.12, 0.22, 0.38, 0.65 }
+}
 
-local windowVisible = true
-local function toggleWindowVisibility()
-	windowVisible = not windowVisible
-	pcall(function()
-		if windowVisible then
-			if typeof(Window.Open) == "function" then
-				Window:Open()
-			elseif typeof(Window.Show) == "function" then
-				Window:Show()
-			end
-		else
-			if typeof(Window.Close) == "function" then
-				Window:Close()
-			elseif typeof(Window.Hide) == "function" then
-				Window:Hide()
-			elseif typeof(Window.Toggle) == "function" then
-				Window:Toggle()
-			end
-		end
-	end)
-end
-
--- Tabs
-local BypassTab = Window:Tab({
-	Title = "Server & Remote",
-	Icon = "shield-check"
-})
-
-local TeleportTab = Window:Tab({
-	Title = "Teleport",
-	Icon = "navigation"
-})
-
-local MovementTab = Window:Tab({
-	Title = "Movement",
-	Icon = "move"
-})
-
-local VisualsTab = Window:Tab({
-	Title = "Visuals",
-	Icon = "eye"
-})
-
-local UtilityTab = Window:Tab({
-	Title = "Utility",
-	Icon = "settings"
-})
-
--- ==========================================
--- STATE & CACHED REFERENCES
--- ==========================================
 local State = {
-	-- Server & Remote Bypass
-	ServerSystemBypass = true,
-	RemoteSystemBypass = true,
-	RemoteSyncGuard = true,
-	BypassVelocitySync = true,
-	BypassStateLock = true,
-	BypassSeatClear = true,
-	AntiPullbackGuard = true,
-	PullbackThreshold = 42,
-	AutoWallBypass = false,
-	BypassScanDist = 22,
-	DetectedRemotesCount = 0,
-	-- Teleport
-	SavedCFrame = nil,
-	StepStuds = 16,
-	HoldFrames = 6,
-	ShowFloatButtons = true,
-	-- Movement & Under Map
-	UnderMapEnabled = false,
-	UnderMapDepth = 14,
-	UnderMapLockY = true,
-	NoclipEnabled = false,
-	SpeedEnabled = false,
-	ExtraSpeed = 12,
-	JumpEnabled = false,
-	JumpPower = 65,
-	DefaultJumpPower = 50,
-	-- Visuals
-	PlayerESPEnabled = false,
-	ESPBoxes = true,
-	ESPDistance = true,
-	ESPTracers = false,
-	FullbrightEnabled = false,
-	-- Internal Timers & Guards
-	TpRunning = false,
-	LastTpTime = 0,
-	LastBypassTime = 0,
-	LastRejoinTime = 0,
-	LastCleanSweep = 0,
-	LastRemoteScan = 0,
-	UnderAnchorY = nil,
-	SavedSurfaceCFrame = nil,
-	LastCleanCFrame = nil,
-	IgnoreGuardUntil = 0,
-	Unloaded = false
+	Unlocked = false,
+	Unlocking = false,
+	RoleESP = false,
+	GunESP = false,
+	SkeletonESP = false,
+	HeadDotESP = true,
+	BoxESP = false,
+	AimbotEnabled = false,
+	SilentAimEnabled = false,
+	ShowFOV = true,
+	FOVIndex = 2,
+	SmoothIndex = 2,
+	FOVRadius = 125,
+	AimSmoothness = 0.22,
+	HubVisible = true,
+	Unloaded = false,
+	LastGunScan = 0,
+	CachedGunPart = nil,
+	CurrentTarget = nil,
+	CurrentAimPos = nil
 }
 
-local Cached = {
-	Char = nil,
-	Hum = nil,
-	Root = nil,
-	Parts = {},
-	OrigCollide = {},
-	Remotes = {},
-	OrigLighting = {
-		Brightness = Lighting.Brightness,
-		ClockTime = Lighting.ClockTime,
-		FogEnd = Lighting.FogEnd,
-		GlobalShadows = Lighting.GlobalShadows
-	}
-}
-
-local connections = {}
-
-local rayParams = RaycastParams.new()
-rayParams.FilterType = Enum.RaycastFilterType.Exclude
-
-local overlapParams = OverlapParams.new()
-overlapParams.FilterType = Enum.RaycastFilterType.Exclude
-
-local function isValidPos(v)
-	return typeof(v) == "Vector3" and v.X == v.X and v.Y == v.Y and v.Z == v.Z
-end
-
-local function markIntent(sec)
-	State.IgnoreGuardUntil = math.max(State.IgnoreGuardUntil, os.clock() + (sec or 0.75))
-end
-
--- ==========================================
--- SAFE REMOTE SYSTEM BYPASS & SCANNER
--- ==========================================
-local function scanRemotesSafe()
-	table.clear(Cached.Remotes)
-	local count = 0
-	local roots = { ReplicatedStorage, Workspace }
-
-	for _, rootObj in ipairs(roots) do
-		local ok, descList = pcall(function()
-			return rootObj:GetDescendants()
-		end)
-		if ok and typeof(descList) == "table" then
-			for _, obj in ipairs(descList) do
-				if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
-					count += 1
-					if #Cached.Remotes < 120 then
-						table.insert(Cached.Remotes, obj)
-					end
-				end
-			end
-		end
-	end
-
-	State.DetectedRemotesCount = count
-	State.LastRemoteScan = os.clock()
-	return count
-end
-
-local function safeFireRemote(remote, ...)
-	if State.Unloaded or not State.RemoteSystemBypass then return false end
-	if typeof(remote) ~= "Instance" or not remote.Parent then return false end
-
-	local args = { ... }
-	local ok = false
-
-	if remote:IsA("RemoteEvent") then
-		ok = pcall(function()
-			remote:FireServer(table.unpack(args))
-		end)
-	elseif remote:IsA("RemoteFunction") then
-		ok = pcall(function()
-			remote:InvokeServer(table.unpack(args))
-		end)
-	end
-
-	return ok
-end
-
-local function pulseMovementRemotes(actionName, cf)
-	if not State.ServerSystemBypass or not State.RemoteSystemBypass or State.Unloaded then
-		return
-	end
-	if #Cached.Remotes == 0 and (os.clock() - State.LastRemoteScan) > 10 then
-		scanRemotesSafe()
-	end
-
-	local keywords = { "move", "pos", "cframe", "tp", "teleport", "sync", "state", "anti", "check", "hit" }
-	local fired = 0
-
-	for _, rem in ipairs(Cached.Remotes) do
-		if fired >= 6 then break end
-		if rem and rem.Parent and rem:IsA("RemoteEvent") then
-			local lower = rem.Name:lower()
-			for _, kw in ipairs(keywords) do
-				if lower:find(kw, 1, true) then
-					safeFireRemote(rem, actionName, cf)
-					fired += 1
-					break
-				end
-			end
-		end
-	end
-end
-
--- ==========================================
--- UNDER MAP SAFETY PLATFORM
--- ==========================================
-local underPlatform = Instance.new("Part")
-underPlatform.Name = "DarkMoon_UnderPlatform"
-underPlatform.Size = Vector3.new(28, 1, 28)
-underPlatform.Anchored = true
-underPlatform.CanCollide = true
-underPlatform.CanTouch = false
-underPlatform.Transparency = 0.75
-underPlatform.Material = Enum.Material.SmoothPlastic
-underPlatform.Parent = nil
-
-local function ensurePlatform()
-	if not underPlatform or not underPlatform.Parent then
-		underPlatform = Instance.new("Part")
-		underPlatform.Name = "DarkMoon_UnderPlatform"
-		underPlatform.Size = Vector3.new(28, 1, 28)
-		underPlatform.Anchored = true
-		underPlatform.CanCollide = true
-		underPlatform.CanTouch = false
-		underPlatform.Transparency = 0.75
-		underPlatform.Material = Enum.Material.SmoothPlastic
-	end
-end
-
--- ==========================================
--- SERVER & STATE BYPASS HELPERS
--- ==========================================
-local function enforceStateLock(hum)
-	if not hum or not State.ServerSystemBypass or not State.BypassStateLock then return end
-	local st = hum:GetState()
-	if st == Enum.HumanoidStateType.Ragdoll
-		or st == Enum.HumanoidStateType.FallingDown
-		or st == Enum.HumanoidStateType.Physics
-		or st == Enum.HumanoidStateType.PlatformStanding then
-		pcall(function()
-			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-			hum:ChangeState(Enum.HumanoidStateType.Running)
-		end)
-	end
-	if State.BypassSeatClear then
-		hum.Sit = false
-	end
-	hum.PlatformStand = false
-end
-
-local function cleanCharacterTethers(char, hum, root, deepClean)
-	if hum then
-		if State.BypassSeatClear then
-			hum.Sit = false
-		end
-		hum.PlatformStand = false
-		if State.ServerSystemBypass and State.BypassStateLock then
-			enforceStateLock(hum)
-		end
-	end
-
-	if root then
-		if isValidPos(root.AssemblyLinearVelocity) then
-			root.AssemblyLinearVelocity = Vector3.zero
-		end
-		if isValidPos(root.AssemblyAngularVelocity) then
-			root.AssemblyAngularVelocity = Vector3.zero
-		end
-	end
-
-	if deepClean and char and State.ServerSystemBypass then
-		for _, desc in ipairs(char:GetDescendants()) do
-			if State.BypassSeatClear and (desc:IsA("Seat") or desc:IsA("VehicleSeat")) then
-				desc.Disabled = true
-			elseif desc:IsA("WeldConstraint") or desc:IsA("RigidConstraint") then
-				if desc.Part0 ~= desc.Part1 then
-					pcall(function()
-						desc:Destroy()
-					end)
-				end
-			elseif desc:IsA("BodyVelocity") or desc:IsA("BodyPosition") or desc:IsA("BodyGyro")
-				or desc:IsA("LinearVelocity") or desc:IsA("AlignPosition") or desc:IsA("VectorForce") then
-				pcall(function()
-					desc:Destroy()
-				end)
-			end
-		end
-	end
-end
-
--- ==========================================
--- NOCLIP & CHARACTER CACHE
--- ==========================================
-local function restoreNoclipParts()
-	for part, oldCollide in pairs(Cached.OrigCollide) do
-		if part and part.Parent and part:IsA("BasePart") then
-			pcall(function()
-				part.CanCollide = oldCollide
-			end)
-		end
-	end
-	table.clear(Cached.OrigCollide)
-end
-
-local function applyNoclipFrame()
-	if not State.NoclipEnabled or State.Unloaded then return end
-	for i = #Cached.Parts, 1, -1 do
-		local part = Cached.Parts[i]
-		if part and part.Parent and part:IsA("BasePart") then
-			if Cached.OrigCollide[part] == nil then
-				Cached.OrigCollide[part] = part.CanCollide
-			end
-			part.CanCollide = false
-		else
-			table.remove(Cached.Parts, i)
-		end
-	end
-end
-
-local function setNoclip(enabled)
-	State.NoclipEnabled = enabled
-	if enabled and not State.Unloaded then
-		applyNoclipFrame()
-	else
-		restoreNoclipParts()
-	end
-end
-
-local function refreshChar(char)
-	restoreNoclipParts()
-	table.clear(Cached.Parts)
-
-	Cached.Char = char
-	Cached.Hum = char and char:FindFirstChildOfClass("Humanoid") or nil
-	Cached.Root = char and (
-		char:FindFirstChild("HumanoidRootPart")
-		or char:FindFirstChild("Torso")
-		or char:FindFirstChild("UpperTorso")
-	) or nil
-
-	rayParams.FilterDescendantsInstances = char and { char } or {}
-	overlapParams.FilterDescendantsInstances = char and { char } or {}
-
-	if char then
-		for _, desc in ipairs(char:GetDescendants()) do
-			if desc:IsA("BasePart") then
-				table.insert(Cached.Parts, desc)
-				Cached.OrigCollide[desc] = desc.CanCollide
-			end
-		end
-	end
-
-	if Cached.Hum then
-		if Cached.Hum.UseJumpPower then
-			State.DefaultJumpPower = Cached.Hum.JumpPower
-		else
-			State.DefaultJumpPower = Cached.Hum.JumpHeight
-		end
-	end
-
-	if Cached.Root and isValidPos(Cached.Root.Position) then
-		State.LastCleanCFrame = Cached.Root.CFrame
-	end
-
-	if State.NoclipEnabled then
-		applyNoclipFrame()
-	end
-end
-
-if LocalPlayer.Character then
-	refreshChar(LocalPlayer.Character)
-end
-
-pcall(scanRemotesSafe)
-
-table.insert(connections, LocalPlayer.CharacterAdded:Connect(function(char)
-	if State.Unloaded then return end
-	State.UnderMapEnabled = false
-	State.UnderAnchorY = nil
-	State.SavedSurfaceCFrame = nil
-	if underPlatform then
-		underPlatform.Parent = nil
-	end
-
-	refreshChar(char)
-	if not Cached.Hum or not Cached.Root then
-		char:WaitForChild("Humanoid", 5)
-		char:WaitForChild("HumanoidRootPart", 5)
-		refreshChar(char)
-	end
-
-	if State.JumpEnabled and Cached.Hum then
-		if Cached.Hum.UseJumpPower then
-			Cached.Hum.JumpPower = State.JumpPower
-		else
-			Cached.Hum.JumpHeight = State.JumpPower / 5
-		end
-	end
-end))
-
--- ==========================================
--- SERVER & REMOTE BYPASS STEP TELEPORT ENGINE
--- ==========================================
-local function stepCharacterToward(char, hum, root, nextPos, flatLook, velHint)
-	if not char or not root or not root.Parent then return end
-	cleanCharacterTethers(char, hum, root, State.ServerSystemBypass)
-
-	local targetCF = flatLook.Magnitude > 0.001
-		and CFrame.new(nextPos, nextPos + flatLook.Unit)
-		or CFrame.new(nextPos)
-
-	root.CFrame = targetCF
-	pcall(function()
-		char:PivotTo(targetCF)
-	end)
-
-	if State.ServerSystemBypass and State.BypassVelocitySync and isValidPos(velHint) then
-		root.AssemblyLinearVelocity = velHint
-	end
-
-	if State.RemoteSystemBypass and State.RemoteSyncGuard then
-		pulseMovementRemotes("step", targetCF)
-	end
-end
-
-local function teleportToCFrame(targetCF, customOffsetY)
-	if State.Unloaded or State.TpRunning or typeof(targetCF) ~= "CFrame" then
-		return false
-	end
-	if not isValidPos(targetCF.Position) then
-		return false
-	end
-
-	local now = os.clock()
-	if (now - State.LastTpTime) < 0.15 then
-		return false
-	end
-	State.LastTpTime = now
-
-	local char = Cached.Char
-	local hum = Cached.Hum
-	local root = Cached.Root
-	if not char or not root then
-		return false
-	end
-
-	local yOff = (typeof(customOffsetY) == "number") and customOffsetY or 3.0
-	local goalPos = targetCF.Position + Vector3.new(0, yOff, 0)
-	local look = targetCF.LookVector
-	local flatLook = Vector3.new(look.X, 0, look.Z)
-
-	markIntent(1.6)
-	State.TpRunning = true
-
-	task.spawn(function()
-		local startPos = root.Position
-		local dist = (goalPos - startPos).Magnitude
-		local stepSize = math.max(8, tonumber(State.StepStuds) or 16)
-		local steps = math.clamp(math.ceil(dist / stepSize), 1, 30)
-
-		for i = 1, steps do
-			if State.Unloaded or not Cached.Char or not Cached.Hum or not Cached.Root or Cached.Hum.Health <= 0 then
-				break
-			end
-			markIntent(1.0)
-			local alpha = i / steps
-			local curPos = startPos:Lerp(goalPos, alpha)
-			local dir = goalPos - curPos
-			local vel = dir.Magnitude > 0.1 and (dir.Unit * math.min(dir.Magnitude * 8, 60)) or Vector3.zero
-			stepCharacterToward(Cached.Char, Cached.Hum, Cached.Root, curPos, flatLook, vel)
-			RunService.Heartbeat:Wait()
-		end
-
-		local holdCount = math.clamp(tonumber(State.HoldFrames) or 6, 1, 15)
-		for _ = 1, holdCount do
-			if State.Unloaded or not Cached.Char or not Cached.Hum or not Cached.Root or Cached.Hum.Health <= 0 then
-				break
-			end
-			markIntent(1.0)
-			stepCharacterToward(Cached.Char, Cached.Hum, Cached.Root, goalPos, flatLook, Vector3.zero)
-			RunService.Heartbeat:Wait()
-		end
-
-		if not State.Unloaded and Cached.Root and isValidPos(Cached.Root.Position) then
-			State.LastCleanCFrame = Cached.Root.CFrame
-		end
-		State.TpRunning = false
-	end)
-
-	return true
-end
-
-local function saveCurrentSpot()
-	local root = Cached.Root
-	if not root or not isValidPos(root.Position) then return false end
-	State.SavedCFrame = root.CFrame
-	return true
-end
-
-local function teleportSavedSpot()
-	if not State.SavedCFrame then
-		if not saveCurrentSpot() then return false end
-	end
-	return teleportToCFrame(State.SavedCFrame, 3.0)
-end
-
-local function teleportNearestPlayer()
-	local root = Cached.Root
-	if not root or not isValidPos(root.Position) then return false end
-
-	local bestRoot = nil
-	local bestDist = math.huge
-
-	for _, plr in ipairs(Players:GetPlayers()) do
-		if plr ~= LocalPlayer and plr.Character then
-			local otherRoot = plr.Character:FindFirstChild("HumanoidRootPart")
-				or plr.Character:FindFirstChild("Torso")
-				or plr.Character:FindFirstChild("UpperTorso")
-			if otherRoot and isValidPos(otherRoot.Position) then
-				local d = (otherRoot.Position - root.Position).Magnitude
-				if d < bestDist then
-					bestDist = d
-					bestRoot = otherRoot
-				end
-			end
-		end
-	end
-
-	if not bestRoot then return false end
-	return teleportToCFrame(bestRoot.CFrame * CFrame.new(0, 0, 3.5), 2.5)
-end
-
--- ==========================================
--- UNDER MAP & RETURN SURFACE
--- ==========================================
-local refreshFloatText = nil
-
-local function setUnderMap(enabled)
-	if State.Unloaded then return end
-	local root = Cached.Root
-	if not root or not isValidPos(root.Position) then return end
-
-	if enabled then
-		if not State.UnderMapEnabled then
-			State.SavedSurfaceCFrame = root.CFrame
-		end
-		State.UnderMapEnabled = true
-		markIntent(1.5)
-		local targetY = root.Position.Y - math.max(5, tonumber(State.UnderMapDepth) or 14)
-		State.UnderAnchorY = targetY
-		ensurePlatform()
-		underPlatform.Parent = Workspace
-		underPlatform.CFrame = CFrame.new(root.Position.X, targetY - 3.5, root.Position.Z)
-
-		local look = root.CFrame.LookVector
-		local flatLook = Vector3.new(look.X, 0, look.Z)
-		local destPos = Vector3.new(root.Position.X, targetY, root.Position.Z)
-		local destCF = flatLook.Magnitude > 0.001 and CFrame.new(destPos, destPos + flatLook.Unit) or CFrame.new(destPos)
-		stepCharacterToward(Cached.Char, Cached.Hum, root, destPos, flatLook, Vector3.zero)
-		State.LastCleanCFrame = destCF
-	else
-		State.UnderMapEnabled = false
-		State.UnderAnchorY = nil
-		if underPlatform then
-			underPlatform.Parent = nil
-		end
-		if State.SavedSurfaceCFrame then
-			local destCF = State.SavedSurfaceCFrame + Vector3.new(0, 3.0, 0)
-			State.SavedSurfaceCFrame = nil
-			teleportToCFrame(destCF, 0)
-		else
-			local upPos = root.Position + Vector3.new(0, (tonumber(State.UnderMapDepth) or 14) + 5, 0)
-			teleportToCFrame(CFrame.new(upPos), 0)
-		end
-	end
-
-	if refreshFloatText then
-		refreshFloatText()
-	end
-end
-
--- ==========================================
--- WALL BYPASS & SERVER BYPASS SYSTEMS
--- ==========================================
-local function getMoveDirFlat()
-	local hum = Cached.Hum
-	local root = Cached.Root
-	if hum and hum.MoveDirection.Magnitude > 0.05 then
-		local v = Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z)
-		if v.Magnitude > 0.001 then return v.Unit end
-	end
-	if root then
-		local l = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
-		if l.Magnitude > 0.001 then return l.Unit end
-	end
-	return Vector3.new(0, 0, -1)
-end
-
-local function isClearSpot(pos)
-	local hits = Workspace:GetPartBoundsInRadius(pos, 1.6, overlapParams)
-	for _, p in ipairs(hits) do
-		if p:IsA("BasePart") and p.CanCollide and p.Transparency < 0.98 then
-			return false
-		end
-	end
-	return true
-end
-
-local function executeWallBypass(force)
-	if State.Unloaded or State.TpRunning then return false end
-	local char = Cached.Char
-	local root = Cached.Root
-	if not char or not root or not isValidPos(root.Position) then return false end
-
-	local dir = getMoveDirFlat()
-	if not force then
-		local hit = Workspace:Raycast(root.Position, dir * 3.5, rayParams)
-		if not hit then
-			return false
-		end
-	end
-
-	local maxScan = math.clamp(tonumber(State.BypassScanDist) or 22, 6, 50)
-	local chosen = nil
-
-	for d = 3, maxScan do
-		local probe = root.Position + (dir * d)
-		if isClearSpot(probe) then
-			local floorHit = Workspace:Raycast(probe + Vector3.new(0, 2.5, 0), Vector3.new(0, -10, 0), rayParams)
-			if floorHit and isValidPos(floorHit.Position) then
-				chosen = Vector3.new(probe.X, floorHit.Position.Y + 3.0, probe.Z)
-			else
-				chosen = probe
-			end
-			break
-		end
-	end
-
-	if not chosen then
-		chosen = root.Position + (dir * math.min(maxScan, 14))
-	end
-
-	State.LastBypassTime = os.clock()
-	return teleportToCFrame(CFrame.new(chosen, chosen + dir), 0)
-end
-
-local function applyServerBypassSystems(char, hum, root, now)
-	if not char or not hum or not root then return end
-
-	if State.ServerSystemBypass and State.BypassStateLock then
-		enforceStateLock(hum)
-	end
-
-	if State.ServerSystemBypass and State.BypassVelocitySync then
-		local maxSpd = State.SpeedEnabled and (95 + State.ExtraSpeed) or 95
-		if isValidPos(root.AssemblyLinearVelocity) and root.AssemblyLinearVelocity.Magnitude > maxSpd then
-			local dir = root.AssemblyLinearVelocity.Magnitude > 0.001 and root.AssemblyLinearVelocity.Unit or Vector3.zero
-			root.AssemblyLinearVelocity = dir * maxSpd
-		end
-		if isValidPos(root.AssemblyAngularVelocity) and root.AssemblyAngularVelocity.Magnitude > 28 then
-			root.AssemblyAngularVelocity = Vector3.zero
-		end
-	end
-
-	if State.ServerSystemBypass and (now - State.LastCleanSweep) >= 0.45 then
-		State.LastCleanSweep = now
-		cleanCharacterTethers(char, hum, root, true)
-	end
-
-	if State.AntiPullbackGuard and not State.UnderMapEnabled and not State.TpRunning and now > State.IgnoreGuardUntil then
-		if State.LastCleanCFrame and isValidPos(root.Position) then
-			local jumpDist = (root.Position - State.LastCleanCFrame.Position).Magnitude
-			if jumpDist > (tonumber(State.PullbackThreshold) or 42) then
-				stepCharacterToward(char, hum, root, State.LastCleanCFrame.Position, State.LastCleanCFrame.LookVector, Vector3.zero)
-				return
-			end
-		end
-		if isValidPos(root.Position) then
-			State.LastCleanCFrame = root.CFrame
-		end
-	elseif isValidPos(root.Position) then
-		State.LastCleanCFrame = root.CFrame
-	end
-end
-
--- ==========================================
--- VISUALS: PLAYER ESP & FULLBRIGHT
--- ==========================================
-local espEntries = {}
-local drawingAvailable = (typeof(Drawing) == "table" and typeof(Drawing.new) == "function")
-
-local function safeDrawing(kind)
-	if not drawingAvailable then return nil end
+local Connections = {}
+local roleTags = {} -- [Player] = DrawingText
+local gunMarker = nil
+local skeletonRigs = {} -- [Player] = { BoneCount, OutlineLines, CoreLines, HeadOutline, HeadCore, BoxOutline, BoxCore }
+local fovOutline = nil
+local fovCore = nil
+local panelStatusLbl = nil
+
+local drawingOk = (typeof(Drawing) == "table" and typeof(Drawing.new) == "function")
+
+local function newDrawing(kind)
+	if not drawingOk then return nil end
 	local ok, obj = pcall(function()
 		return Drawing.new(kind)
 	end)
 	return ok and obj or nil
 end
 
-local function ensureEspEntry(plr)
-	if espEntries[plr] then return espEntries[plr] end
-	local box = safeDrawing("Square")
-	local label = safeDrawing("Text")
-	local line = safeDrawing("Line")
-
-	if box then
+local function removeDrawing(obj)
+	if obj then
 		pcall(function()
-			box.Visible = false
-			box.Color = Color3.fromRGB(255, 95, 95)
-			box.Thickness = 1.5
-			box.Filled = false
-			box.Transparency = 1
+			obj:Remove()
 		end)
 	end
-	if label then
-		pcall(function()
-			label.Visible = false
-			label.Color = Color3.fromRGB(235, 245, 255)
-			label.Size = 14
-			label.Center = true
-			label.Outline = true
-			label.Transparency = 1
-		end)
-	end
-	if line then
-		pcall(function()
-			line.Visible = false
-			line.Color = Color3.fromRGB(110, 195, 255)
-			line.Thickness = 1.2
-			line.Transparency = 1
-		end)
-	end
-
-	local entry = { Box = box, Label = label, Line = line }
-	espEntries[plr] = entry
-	return entry
 end
 
-local function hideEspEntry(entry)
-	if not entry then return end
-	if entry.Box then pcall(function() entry.Box.Visible = false end) end
-	if entry.Label then pcall(function() entry.Label.Visible = false end) end
-	if entry.Line then pcall(function() entry.Line.Visible = false end) end
-end
-
-local function removeEspForPlayer(plr)
-	local entry = espEntries[plr]
-	if entry then
-		if entry.Box then pcall(function() entry.Box:Remove() end) end
-		if entry.Label then pcall(function() entry.Label:Remove() end) end
-		if entry.Line then pcall(function() entry.Line:Remove() end) end
-		espEntries[plr] = nil
+local function clearRoleTags()
+	for plr, tag in pairs(roleTags) do
+		removeDrawing(tag)
+		roleTags[plr] = nil
 	end
 end
 
-local function clearAllEsp()
-	for plr in pairs(espEntries) do
-		removeEspForPlayer(plr)
+local function clearGunMarker()
+	removeDrawing(gunMarker)
+	gunMarker = nil
+end
+
+local function clearSkeletonForPlayer(plr)
+	local rig = skeletonRigs[plr]
+	if rig then
+		if rig.OutlineLines then
+			for _, ln in ipairs(rig.OutlineLines) do
+				removeDrawing(ln)
+			end
+		end
+		if rig.CoreLines then
+			for _, ln in ipairs(rig.CoreLines) do
+				removeDrawing(ln)
+			end
+		end
+		removeDrawing(rig.HeadOutline)
+		removeDrawing(rig.HeadCore)
+		removeDrawing(rig.BoxOutline)
+		removeDrawing(rig.BoxCore)
+		skeletonRigs[plr] = nil
 	end
 end
 
-local function setFullbright(enabled)
-	State.FullbrightEnabled = enabled
-	pcall(function()
-		if enabled then
-			Lighting.Brightness = 2.5
-			Lighting.ClockTime = 14
-			Lighting.FogEnd = 100000
-			Lighting.GlobalShadows = false
-		else
-			Lighting.Brightness = Cached.OrigLighting.Brightness
-			Lighting.ClockTime = Cached.OrigLighting.ClockTime
-			Lighting.FogEnd = Cached.OrigLighting.FogEnd
-			Lighting.GlobalShadows = Cached.OrigLighting.GlobalShadows
+local function clearAllSkeletons()
+	for plr in pairs(skeletonRigs) do
+		clearSkeletonForPlayer(plr)
+	end
+end
+
+local function clearFOVCircle()
+	removeDrawing(fovOutline)
+	removeDrawing(fovCore)
+	fovOutline = nil
+	fovCore = nil
+end
+
+local function clearAllVisuals()
+	clearRoleTags()
+	clearGunMarker()
+	clearAllSkeletons()
+	clearFOVCircle()
+end
+
+local function setPanelStatus(msg, color)
+	if panelStatusLbl and not State.Unloaded then
+		panelStatusLbl.Text = tostring(msg or "")
+		panelStatusLbl.TextColor3 = color or Color3.fromRGB(145, 215, 255)
+	end
+end
+
+local function hasToolKeyword(container, keyword)
+	if not container then return false end
+	for _, item in ipairs(container:GetChildren()) do
+		if item:IsA("Tool") and string.find(string.lower(item.Name), keyword, 1, true) then
+			return true
+		end
+	end
+	return false
+end
+
+local function getPlayerRole(plr)
+	local char = plr.Character
+	local backpack = plr:FindFirstChildOfClass("Backpack")
+
+	if hasToolKeyword(char, "knife") or hasToolKeyword(backpack, "knife") then
+		return "MURDERER", Color3.fromRGB(255, 65, 95)
+	end
+
+	if hasToolKeyword(char, "gun") or hasToolKeyword(backpack, "gun")
+		or hasToolKeyword(char, "revolver") or hasToolKeyword(backpack, "revolver") then
+		return "SHERIFF", Color3.fromRGB(65, 175, 255)
+	end
+
+	return "INNOCENT", Color3.fromRGB(105, 240, 165)
+end
+
+local function localPlayerHasGun()
+	local char = LocalPlayer.Character
+	local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+	return hasToolKeyword(char, "gun") or hasToolKeyword(backpack, "gun")
+		or hasToolKeyword(char, "revolver") or hasToolKeyword(backpack, "revolver")
+end
+
+local function getLocalRoot()
+	local char = LocalPlayer.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if root and root:IsA("BasePart") then
+		return root
+	end
+	return nil
+end
+
+local function getLocalRootPos()
+	local root = getLocalRoot()
+	return root and root.Position or nil
+end
+
+local function getDroppedGunPart()
+	if State.CachedGunPart and State.CachedGunPart.Parent then
+		return State.CachedGunPart
+	end
+
+	local now = os.clock()
+	if (now - State.LastGunScan) < CONFIG.GunScanInterval then
+		return State.CachedGunPart
+	end
+	State.LastGunScan = now
+
+	for _, obj in ipairs(Workspace:GetDescendants()) do
+		if obj:IsA("BasePart") and (obj.Name == "GunDrop" or string.find(string.lower(obj.Name), "gundrop", 1, true)) then
+			State.CachedGunPart = obj
+			return obj
+		end
+	end
+
+	State.CachedGunPart = nil
+	return nil
+end
+
+local function grabDroppedGun()
+	if State.Unloaded or not State.Unlocked then return end
+	local root = getLocalRoot()
+	if not root then
+		setPanelStatus("Character not spawned yet", Color3.fromRGB(255, 195, 90))
+		return
+	end
+
+	State.LastGunScan = 0
+	local gunPart = getDroppedGunPart()
+	if not gunPart or not gunPart.Parent then
+		setPanelStatus("No dropped gun found", Color3.fromRGB(255, 110, 130))
+		return
+	end
+
+	local savedCFrame = root.CFrame
+	local targetPos = gunPart.Position + Vector3.new(0, 1.5, 0)
+
+	local ok = pcall(function()
+		root.CFrame = CFrame.new(targetPos)
+		if typeof(firetouchinterest) == "function" then
+			firetouchinterest(root, gunPart, 0)
+			firetouchinterest(root, gunPart, 1)
 		end
 	end)
+
+	if ok then
+		setPanelStatus("Pulled to dropped gun!", Color3.fromRGB(105, 240, 165))
+		task.delay(0.22, function()
+			if State.Unloaded then return end
+			local currentRoot = getLocalRoot()
+			if currentRoot and not localPlayerHasGun() then
+				pcall(function()
+					currentRoot.CFrame = savedCFrame
+				end)
+			end
+		end)
+	else
+		setPanelStatus("Grab action failed", Color3.fromRGB(255, 110, 130))
+	end
 end
 
-local function updateVisualsFrame()
-	if State.Unloaded or not State.PlayerESPEnabled or not drawingAvailable then
-		for _, entry in pairs(espEntries) do
-			hideEspEntry(entry)
+-- ==========================================
+-- TARGET SELECTION, AIMBOT & SILENT AIM
+-- ==========================================
+local function getScreenCenter(cam)
+	local vp = cam.ViewportSize
+	return Vector2.new(vp.X * 0.5, vp.Y * 0.5)
+end
+
+local function getBestAimTarget(cam)
+	if not cam then return nil, nil end
+	local center = getScreenCenter(cam)
+	local preferMurderer = localPlayerHasGun()
+
+	local bestPlr = nil
+	local bestPart = nil
+	local bestScore = math.huge
+
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer then
+			local char = plr.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			local aimPart = (char and (char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart"))) or nil
+
+			if char and hum and aimPart and aimPart:IsA("BasePart") and hum.Health > 0 then
+				local roleName = getPlayerRole(plr)
+				local screenPos, onScreen = cam:WorldToViewportPoint(aimPart.Position)
+				if onScreen and screenPos.Z > 0 then
+					local dist2D = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+					if dist2D <= State.FOVRadius then
+						local priorityBonus = (preferMurderer and roleName == "MURDERER") and -80 or 0
+						local score = dist2D + priorityBonus
+						if score < bestScore then
+							bestScore = score
+							bestPlr = plr
+							bestPart = aimPart
+						end
+					end
+				end
+			end
+		end
+	end
+
+	if bestPlr and bestPart then
+		return bestPlr, bestPart.Position
+	end
+	return nil, nil
+end
+
+local function applyCameraAimbot(cam)
+	if not State.AimbotEnabled or State.Unloaded or not State.Unlocked or not cam then return end
+	if not State.CurrentAimPos then return end
+
+	local currentCF = cam.CFrame
+	local targetCF = CFrame.lookAt(currentCF.Position, State.CurrentAimPos)
+	local alpha = math.clamp(State.AimSmoothness, 0.05, 0.85)
+	cam.CFrame = currentCF:Lerp(targetCF, alpha)
+end
+
+local originalRaycast = nil
+local raycastHookActive = false
+local originalNamecall = nil
+local namecallHookActive = false
+
+local function getSilentAimDirection(origin)
+	if not State.SilentAimEnabled or State.Unloaded or not State.Unlocked then
+		return nil
+	end
+	if typeof(origin) ~= "Vector3" or not State.CurrentAimPos then
+		return nil
+	end
+	local delta = State.CurrentAimPos - origin
+	if delta.Magnitude < 0.01 then
+		return nil
+	end
+	return delta.Unit
+end
+
+local function installSilentAimHooks()
+	if not raycastHookActive and typeof(hookfunction) == "function" and typeof(Workspace.Raycast) == "function" then
+		local ok, prev = pcall(function()
+			return hookfunction(Workspace.Raycast, function(self, origin, direction, params, ...)
+				if self == Workspace and State.SilentAimEnabled and not State.Unloaded and State.Unlocked then
+					local dirUnit = getSilentAimDirection(origin)
+					if dirUnit and typeof(direction) == "Vector3" then
+						local mag = direction.Magnitude
+						if mag > 0 then
+							return prev(self, origin, dirUnit * mag, params, ...)
+						end
+					end
+				end
+				return prev(self, origin, direction, params, ...)
+			end)
+		end)
+		if ok and typeof(prev) == "function" then
+			originalRaycast = prev
+			raycastHookActive = true
+		end
+	end
+
+	if not namecallHookActive and typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "function" then
+		local ok, prev = pcall(function()
+			return hookmetamethod(game, "__namecall", function(self, ...)
+				local method = getnamecallmethod()
+				if not State.Unloaded and State.Unlocked and State.SilentAimEnabled then
+					if method == "Raycast" and self == Workspace then
+						local args = { ... }
+						local origin = args[1]
+						local direction = args[2]
+						local dirUnit = getSilentAimDirection(origin)
+						if dirUnit and typeof(direction) == "Vector3" and direction.Magnitude > 0 then
+							args[2] = dirUnit * direction.Magnitude
+							return prev(self, table.unpack(args))
+						end
+					elseif (method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList") and self == Workspace then
+						local args = { ... }
+						local rayObj = args[1]
+						if typeof(rayObj) == "Ray" then
+							local dirUnit = getSilentAimDirection(rayObj.Origin)
+							if dirUnit then
+								local len = rayObj.Direction.Magnitude
+								args[1] = Ray.new(rayObj.Origin, dirUnit * (len > 0 and len or 200))
+								return prev(self, table.unpack(args))
+							end
+						end
+					end
+				end
+				return prev(self, ...)
+			end)
+		end)
+		if ok and typeof(prev) == "function" then
+			originalNamecall = prev
+			namecallHookActive = true
+		end
+	end
+end
+
+local function removeSilentAimHooks()
+	if raycastHookActive and originalRaycast and typeof(hookfunction) == "function" and typeof(Workspace.Raycast) == "function" then
+		pcall(function()
+			hookfunction(Workspace.Raycast, originalRaycast)
+		end)
+	end
+	raycastHookActive = false
+	originalRaycast = nil
+
+	if namecallHookActive and originalNamecall and typeof(hookmetamethod) == "function" then
+		pcall(function()
+			hookmetamethod(game, "__namecall", originalNamecall)
+		end)
+	end
+	namecallHookActive = false
+	originalNamecall = nil
+end
+
+-- ==========================================
+-- CS2-STYLE SKELETON + HEAD DOT + BOX ESP + FOV
+-- ==========================================
+local R15_BONES = {
+	{ "Head", "UpperTorso" },
+	{ "UpperTorso", "LowerTorso" },
+	{ "UpperTorso", "LeftUpperArm" },
+	{ "LeftUpperArm", "LeftLowerArm" },
+	{ "LeftLowerArm", "LeftHand" },
+	{ "UpperTorso", "RightUpperArm" },
+	{ "RightUpperArm", "RightLowerArm" },
+	{ "RightLowerArm", "RightHand" },
+	{ "LowerTorso", "LeftUpperLeg" },
+	{ "LeftUpperLeg", "LeftLowerLeg" },
+	{ "LeftLowerLeg", "LeftFoot" },
+	{ "LowerTorso", "RightUpperLeg" },
+	{ "RightUpperLeg", "RightLowerLeg" },
+	{ "RightLowerLeg", "RightFoot" }
+}
+
+local R6_BONES = {
+	{ "Head", "Torso" },
+	{ "Torso", "Left Arm" },
+	{ "Torso", "Right Arm" },
+	{ "Torso", "Left Leg" },
+	{ "Torso", "Right Leg" }
+}
+
+local function ensureFOVCircle()
+	if fovOutline and fovCore then return end
+	clearFOVCircle()
+
+	fovOutline = newDrawing("Circle")
+	if fovOutline then
+		pcall(function()
+			fovOutline.Visible = false
+			fovOutline.Color = Color3.fromRGB(6, 8, 14)
+			fovOutline.Thickness = 2.8
+			fovOutline.Filled = false
+			fovOutline.NumSides = 48
+			fovOutline.Transparency = 0.8
+		end)
+	end
+
+	fovCore = newDrawing("Circle")
+	if fovCore then
+		pcall(function()
+			fovCore.Visible = false
+			fovCore.Color = Color3.fromRGB(95, 225, 255)
+			fovCore.Thickness = 1.4
+			fovCore.Filled = false
+			fovCore.NumSides = 48
+			fovCore.Transparency = 0.95
+		end)
+	end
+end
+
+local function updateFOVCircle(cam)
+	local needFOV = State.ShowFOV and (State.AimbotEnabled or State.SilentAimEnabled)
+	if not needFOV then
+		if fovOutline then pcall(function() fovOutline.Visible = false end) end
+		if fovCore then pcall(function() fovCore.Visible = false end) end
+		return
+	end
+
+	ensureFOVCircle()
+	local center = getScreenCenter(cam)
+	local activeColor = State.CurrentTarget and Color3.fromRGB(255, 85, 115) or Color3.fromRGB(95, 225, 255)
+
+	if fovOutline then
+		pcall(function()
+			fovOutline.Position = center
+			fovOutline.Radius = State.FOVRadius + 1
+			fovOutline.Visible = true
+		end)
+	end
+	if fovCore then
+		pcall(function()
+			fovCore.Position = center
+			fovCore.Radius = State.FOVRadius
+			fovCore.Color = activeColor
+			fovCore.Visible = true
+		end)
+	end
+end
+
+local function ensureSkeletonRig(plr, boneCount)
+	local rig = skeletonRigs[plr]
+	if rig and rig.BoneCount == boneCount then
+		return rig
+	end
+
+	clearSkeletonForPlayer(plr)
+
+	local outlines = {}
+	local cores = {}
+
+	for i = 1, boneCount do
+		local bg = newDrawing("Line")
+		if bg then
+			pcall(function()
+				bg.Visible = false
+				bg.Color = Color3.fromRGB(6, 8, 14)
+				bg.Thickness = 3.2
+				bg.Transparency = 0.85
+			end)
+			outlines[i] = bg
+		end
+
+		local fg = newDrawing("Line")
+		if fg then
+			pcall(function()
+				fg.Visible = false
+				fg.Color = Color3.fromRGB(105, 240, 165)
+				fg.Thickness = 1.6
+				fg.Transparency = 1
+			end)
+			cores[i] = fg
+		end
+	end
+
+	local headOutline = newDrawing("Circle")
+	if headOutline then
+		pcall(function()
+			headOutline.Visible = false
+			headOutline.Color = Color3.fromRGB(6, 8, 14)
+			headOutline.Thickness = 2.4
+			headOutline.Filled = false
+			headOutline.NumSides = 20
+			headOutline.Transparency = 0.9
+		end)
+	end
+
+	local headCore = newDrawing("Circle")
+	if headCore then
+		pcall(function()
+			headCore.Visible = false
+			headCore.Color = Color3.fromRGB(255, 255, 255)
+			headCore.Thickness = 1.6
+			headCore.Filled = false
+			headCore.NumSides = 20
+			headCore.Transparency = 1
+		end)
+	end
+
+	local boxOutline = newDrawing("Square")
+	if boxOutline then
+		pcall(function()
+			boxOutline.Visible = false
+			boxOutline.Color = Color3.fromRGB(6, 8, 14)
+			boxOutline.Thickness = 3.0
+			boxOutline.Filled = false
+			boxOutline.Transparency = 0.85
+		end)
+	end
+
+	local boxCore = newDrawing("Square")
+	if boxCore then
+		pcall(function()
+			boxCore.Visible = false
+			boxCore.Color = Color3.fromRGB(105, 240, 165)
+			boxCore.Thickness = 1.5
+			boxCore.Filled = false
+			boxCore.Transparency = 1
+		end)
+	end
+
+	rig = {
+		BoneCount = boneCount,
+		OutlineLines = outlines,
+		CoreLines = cores,
+		HeadOutline = headOutline,
+		HeadCore = headCore,
+		BoxOutline = boxOutline,
+		BoxCore = boxCore
+	}
+	skeletonRigs[plr] = rig
+	return rig
+end
+
+local function hideSkeletonRig(rig)
+	if not rig then return end
+	if rig.OutlineLines then
+		for _, ln in ipairs(rig.OutlineLines) do
+			if ln then pcall(function() ln.Visible = false end) end
+		end
+	end
+	if rig.CoreLines then
+		for _, ln in ipairs(rig.CoreLines) do
+			if ln then pcall(function() ln.Visible = false end) end
+		end
+	end
+	if rig.HeadOutline then
+		pcall(function() rig.HeadOutline.Visible = false end)
+	end
+	if rig.HeadCore then
+		pcall(function() rig.HeadCore.Visible = false end)
+	end
+	if rig.BoxOutline then
+		pcall(function() rig.BoxOutline.Visible = false end)
+	end
+	if rig.BoxCore then
+		pcall(function() rig.BoxCore.Visible = false end)
+	end
+end
+
+local function getPartWorldPoint(char, partName)
+	local part = char:FindFirstChild(partName)
+	if part and part:IsA("BasePart") then
+		return part.Position
+	end
+	return nil
+end
+
+local function updateSkeletonESP(cam)
+	local anyVisualActive = State.SkeletonESP or State.HeadDotESP or State.BoxESP
+	if not anyVisualActive then
+		clearAllSkeletons()
+		return
+	end
+
+	for plr in pairs(skeletonRigs) do
+		if not plr or not plr.Parent then
+			clearSkeletonForPlayer(plr)
+		end
+	end
+
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer then
+			local char = plr.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+
+			if char and hum and root and root:IsA("BasePart") and hum.Health > 0 then
+				local isR15 = (hum.RigType == Enum.HumanoidRigType.R15) or (char:FindFirstChild("UpperTorso") ~= nil)
+				local bones = isR15 and R15_BONES or R6_BONES
+				local rig = ensureSkeletonRig(plr, #bones)
+				local _, roleColor = getPlayerRole(plr)
+
+				if State.SkeletonESP then
+					for idx, pair in ipairs(bones) do
+						local bg = rig.OutlineLines[idx]
+						local fg = rig.CoreLines[idx]
+						local pA = getPartWorldPoint(char, pair[1])
+						local pB = getPartWorldPoint(char, pair[2])
+
+						if bg and fg and pA and pB then
+							local sA, visA = cam:WorldToViewportPoint(pA)
+							local sB, visB = cam:WorldToViewportPoint(pB)
+
+							if (visA or visB) and sA.Z > 0 and sB.Z > 0 then
+								local vA = Vector2.new(sA.X, sA.Y)
+								local vB = Vector2.new(sB.X, sB.Y)
+								pcall(function()
+									bg.From = vA
+									bg.To = vB
+									bg.Visible = true
+
+									fg.From = vA
+									fg.To = vB
+									fg.Color = roleColor
+									fg.Visible = true
+								end)
+							else
+								pcall(function()
+									bg.Visible = false
+									fg.Visible = false
+								end)
+							end
+						elseif bg and fg then
+							pcall(function()
+								bg.Visible = false
+								fg.Visible = false
+							end)
+						end
+					end
+				else
+					for idx = 1, rig.BoneCount do
+						local bg = rig.OutlineLines[idx]
+						local fg = rig.CoreLines[idx]
+						if bg then pcall(function() bg.Visible = false end) end
+						if fg then pcall(function() fg.Visible = false end) end
+					end
+				end
+
+				local headPos = getPartWorldPoint(char, "Head")
+				if State.HeadDotESP and headPos and rig.HeadOutline and rig.HeadCore then
+					local hScreen, hVis = cam:WorldToViewportPoint(headPos)
+					if hVis and hScreen.Z > 0 then
+						local radius = math.clamp(190 / math.max(hScreen.Z, 1), 3, 12)
+						local center = Vector2.new(hScreen.X, hScreen.Y)
+						pcall(function()
+							rig.HeadOutline.Position = center
+							rig.HeadOutline.Radius = radius + 1.2
+							rig.HeadOutline.Visible = true
+
+							rig.HeadCore.Position = center
+							rig.HeadCore.Radius = radius
+							rig.HeadCore.Color = roleColor
+							rig.HeadCore.Visible = true
+						end)
+					else
+						pcall(function()
+							rig.HeadOutline.Visible = false
+							rig.HeadCore.Visible = false
+						end)
+					end
+				elseif rig.HeadOutline and rig.HeadCore then
+					pcall(function()
+						rig.HeadOutline.Visible = false
+						rig.HeadCore.Visible = false
+					end)
+				end
+
+				if State.BoxESP and rig.BoxOutline and rig.BoxCore then
+					local rootScreen, rVis = cam:WorldToViewportPoint(root.Position)
+					if rVis and rootScreen.Z > 0 then
+						local topScreen = cam:WorldToViewportPoint((root.CFrame * CFrame.new(0, 2.7, 0)).Position)
+						local botScreen = cam:WorldToViewportPoint((root.CFrame * CFrame.new(0, -3.1, 0)).Position)
+						local boxH = math.clamp(math.abs(topScreen.Y - botScreen.Y), 16, 420)
+						local boxW = math.clamp(boxH * 0.58, 10, 260)
+						local pos = Vector2.new(rootScreen.X - boxW * 0.5, topScreen.Y)
+						local sz = Vector2.new(boxW, boxH)
+
+						pcall(function()
+							rig.BoxOutline.Position = pos
+							rig.BoxOutline.Size = sz
+							rig.BoxOutline.Visible = true
+
+							rig.BoxCore.Position = pos
+							rig.BoxCore.Size = sz
+							rig.BoxCore.Color = roleColor
+							rig.BoxCore.Visible = true
+						end)
+					else
+						pcall(function()
+							rig.BoxOutline.Visible = false
+							rig.BoxCore.Visible = false
+						end)
+					end
+				elseif rig.BoxOutline and rig.BoxCore then
+					pcall(function()
+						rig.BoxOutline.Visible = false
+						rig.BoxCore.Visible = false
+					end)
+				end
+			elseif skeletonRigs[plr] then
+				hideSkeletonRig(skeletonRigs[plr])
+			end
+		end
+	end
+end
+
+local function updateRoleESP(cam, localPos)
+	if not State.RoleESP then
+		clearRoleTags()
+		return
+	end
+
+	for plr, tag in pairs(roleTags) do
+		if not plr or not plr.Parent then
+			removeDrawing(tag)
+			roleTags[plr] = nil
+		end
+	end
+
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer then
+			local char = plr.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+			local tag = roleTags[plr]
+			if not tag then
+				tag = newDrawing("Text")
+				if tag then
+					pcall(function()
+						tag.Size = 15
+						tag.Center = true
+						tag.Outline = true
+						tag.Transparency = 1
+					end)
+					roleTags[plr] = tag
+				end
+			end
+
+			if tag and root and root:IsA("BasePart") and hum and hum.Health > 0 then
+				local roleName, roleColor = getPlayerRole(plr)
+				local screenPos, onScreen = cam:WorldToViewportPoint(root.Position + Vector3.new(0, 3.2, 0))
+				local dist = localPos and math.floor((localPos - root.Position).Magnitude) or 0
+
+				pcall(function()
+					tag.Text = string.format("[%s] %s (%dm)", roleName, plr.Name, dist)
+					tag.Color = roleColor
+					tag.Position = Vector2.new(screenPos.X, screenPos.Y)
+					tag.Visible = onScreen and screenPos.Z > 0
+				end)
+			elseif tag then
+				pcall(function()
+					tag.Visible = false
+				end)
+			end
+		end
+	end
+end
+
+local function updateGunESP(cam, localPos)
+	if not State.GunESP then
+		clearGunMarker()
+		return
+	end
+
+	local gunPart = getDroppedGunPart()
+	if not gunPart then
+		if gunMarker then
+			pcall(function()
+				gunMarker.Visible = false
+			end)
 		end
 		return
 	end
 
+	if not gunMarker then
+		gunMarker = newDrawing("Text")
+		if gunMarker then
+			pcall(function()
+				gunMarker.Size = 16
+				gunMarker.Center = true
+				gunMarker.Outline = true
+				gunMarker.Color = Color3.fromRGB(255, 220, 75)
+				gunMarker.Transparency = 1
+			end)
+		end
+	end
+
+	if gunMarker then
+		local pos, onScreen = cam:WorldToViewportPoint(gunPart.Position + Vector3.new(0, 1.5, 0))
+		local dist = localPos and math.floor((localPos - gunPart.Position).Magnitude) or 0
+		pcall(function()
+			gunMarker.Text = string.format("★ DROPPED GUN [%dm]", dist)
+			gunMarker.Position = Vector2.new(pos.X, pos.Y)
+			gunMarker.Visible = onScreen and pos.Z > 0
+		end)
+	end
+end
+
+local function updateFrame()
+	if State.Unloaded or not State.Unlocked then
+		State.CurrentTarget = nil
+		State.CurrentAimPos = nil
+		clearAllVisuals()
+		return
+	end
+
 	local cam = Workspace.CurrentCamera
-	if not cam then return end
-
-	for plr, entry in pairs(espEntries) do
-		if not plr or not plr.Parent then
-			removeEspForPlayer(plr)
-		end
+	if not cam then
+		State.CurrentTarget = nil
+		State.CurrentAimPos = nil
+		clearAllVisuals()
+		return
 	end
 
-	local myPos = Cached.Root and Cached.Root.Position or cam.CFrame.Position
-	local originTracer = Vector2.new(cam.ViewportSize.X * 0.5, cam.ViewportSize.Y)
-
-	for _, plr in ipairs(Players:GetPlayers()) do
-		if plr ~= LocalPlayer then
-			local entry = ensureEspEntry(plr)
-			local char = plr.Character
-			local hum = char and char:FindFirstChildOfClass("Humanoid")
-			local root = char and (
-				char:FindFirstChild("HumanoidRootPart")
-				or char:FindFirstChild("Torso")
-				or char:FindFirstChild("UpperTorso")
-			)
-
-			if root and hum and hum.Health > 0 and isValidPos(root.Position) then
-				local rootScreen, onScreen = cam:WorldToViewportPoint(root.Position)
-				if onScreen and rootScreen.Z > 0 then
-					local topScreen = cam:WorldToViewportPoint((root.CFrame * CFrame.new(0, 2.6, 0)).Position)
-					local botScreen = cam:WorldToViewportPoint((root.CFrame * CFrame.new(0, -3.1, 0)).Position)
-					local h = math.clamp(math.abs(topScreen.Y - botScreen.Y), 18, 400)
-					local w = math.clamp(h * 0.6, 12, 250)
-					local dist = math.floor((root.Position - myPos).Magnitude)
-
-					if entry.Box then
-						pcall(function()
-							entry.Box.Size = Vector2.new(w, h)
-							entry.Box.Position = Vector2.new(rootScreen.X - (w * 0.5), topScreen.Y)
-							entry.Box.Visible = State.ESPBoxes
-						end)
-					end
-
-					if entry.Label then
-						local textOut = State.ESPDistance and string.format("%s [%dm]", plr.Name, dist) or plr.Name
-						pcall(function()
-							entry.Label.Text = textOut
-							entry.Label.Position = Vector2.new(rootScreen.X, topScreen.Y - 18)
-							entry.Label.Visible = true
-						end)
-					end
-
-					if entry.Line then
-						pcall(function()
-							entry.Line.From = originTracer
-							entry.Line.To = Vector2.new(rootScreen.X, botScreen.Y)
-							entry.Line.Visible = State.ESPTracers
-						end)
-					end
-				else
-					hideEspEntry(entry)
-				end
-			else
-				hideEspEntry(entry)
-			end
-		end
+	if State.AimbotEnabled or State.SilentAimEnabled then
+		State.CurrentTarget, State.CurrentAimPos = getBestAimTarget(cam)
+	else
+		State.CurrentTarget = nil
+		State.CurrentAimPos = nil
 	end
+
+	applyCameraAimbot(cam)
+
+	if not drawingOk then
+		clearAllVisuals()
+		return
+	end
+
+	local localPos = getLocalRootPos()
+	updateFOVCircle(cam)
+	updateSkeletonESP(cam)
+	updateRoleESP(cam, localPos)
+	updateGunESP(cam, localPos)
 end
 
 -- ==========================================
--- FLOATING MOBILE BUTTONS
+-- GUI CONSTRUCTION (NEON LOCK + MM2 PANEL)
 -- ==========================================
-local floatGui = Instance.new("ScreenGui")
-floatGui.Name = "DarkMoon_FloatGui_v11"
-floatGui.ResetOnSpawn = false
-floatGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
-floatGui.DisplayOrder = 250
-floatGui.Parent = PlayerGui
+local gui = Instance.new("ScreenGui")
+gui.Name = "DarkMoon_MM2_Gui"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+gui.DisplayOrder = 300
+gui.Parent = PlayerGui
 
-local function makeFloatBtn(name, text, yOffset, bgColor, borderColor, onClick)
+local lockFrame = Instance.new("Frame")
+lockFrame.Name = "LockBackdrop"
+lockFrame.Size = UDim2.fromScale(1, 1)
+lockFrame.BackgroundColor3 = Color3.fromRGB(6, 8, 15)
+lockFrame.BackgroundTransparency = 0.22
+lockFrame.BorderSizePixel = 0
+lockFrame.ZIndex = 310
+lockFrame.Parent = gui
+
+local lockCard = Instance.new("Frame")
+lockCard.Name = "LockCard"
+lockCard.Size = UDim2.fromOffset(336, 258)
+lockCard.Position = UDim2.fromScale(0.5, 0.5)
+lockCard.AnchorPoint = Vector2.new(0.5, 0.5)
+lockCard.BackgroundColor3 = Color3.fromRGB(14, 17, 29)
+lockCard.BorderSizePixel = 0
+lockCard.ZIndex = 315
+lockCard.Parent = lockFrame
+
+local lockCorner = Instance.new("UICorner")
+lockCorner.CornerRadius = UDim.new(0, 18)
+lockCorner.Parent = lockCard
+
+local lockStroke = Instance.new("UIStroke")
+lockStroke.Color = Color3.fromRGB(120, 225, 255)
+lockStroke.Thickness = 2.2
+lockStroke.Parent = lockCard
+
+local neonGradient = Instance.new("UIGradient")
+neonGradient.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(150, 95, 255)),
+	ColorSequenceKeypoint.new(0.5, Color3.fromRGB(70, 235, 255)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(150, 95, 255))
+})
+neonGradient.Parent = lockStroke
+
+local titleLbl = Instance.new("TextLabel")
+titleLbl.Size = UDim2.new(1, -24, 0, 32)
+titleLbl.Position = UDim2.fromOffset(12, 14)
+titleLbl.BackgroundTransparency = 1
+titleLbl.Text = "🔒 " .. CONFIG.HubTitle
+titleLbl.TextColor3 = Color3.fromRGB(242, 246, 255)
+titleLbl.Font = Enum.Font.GothamBold
+titleLbl.TextSize = 18
+titleLbl.ZIndex = 316
+titleLbl.Parent = lockCard
+
+local subLbl = Instance.new("TextLabel")
+subLbl.Size = UDim2.new(1, -24, 0, 22)
+subLbl.Position = UDim2.fromOffset(12, 46)
+subLbl.BackgroundTransparency = 1
+subLbl.Text = "by " .. CONFIG.Author .. "  •  Neon Access Gate"
+subLbl.TextColor3 = Color3.fromRGB(145, 195, 235)
+subLbl.Font = Enum.Font.Gotham
+subLbl.TextSize = 12
+subLbl.ZIndex = 316
+subLbl.Parent = lockCard
+
+local keyBox = Instance.new("TextBox")
+keyBox.Size = UDim2.new(1, -28, 0, 42)
+keyBox.Position = UDim2.fromOffset(14, 80)
+keyBox.BackgroundColor3 = Color3.fromRGB(23, 27, 44)
+keyBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+keyBox.PlaceholderText = "Enter key (e.g. YUTA2026)..."
+keyBox.PlaceholderColor3 = Color3.fromRGB(115, 128, 165)
+keyBox.Text = ""
+keyBox.ClearTextOnFocus = false
+keyBox.Font = Enum.Font.GothamMedium
+keyBox.TextSize = 14
+keyBox.ZIndex = 317
+keyBox.Parent = lockCard
+
+local boxCorner = Instance.new("UICorner")
+boxCorner.CornerRadius = UDim.new(0, 10)
+boxCorner.Parent = keyBox
+
+local boxStroke = Instance.new("UIStroke")
+boxStroke.Color = Color3.fromRGB(95, 125, 220)
+boxStroke.Thickness = 1.2
+boxStroke.Parent = keyBox
+
+local statusLbl = Instance.new("TextLabel")
+statusLbl.Size = UDim2.new(1, -28, 0, 20)
+statusLbl.Position = UDim2.fromOffset(14, 126)
+statusLbl.BackgroundTransparency = 1
+statusLbl.Text = ""
+statusLbl.TextColor3 = Color3.fromRGB(255, 95, 125)
+statusLbl.Font = Enum.Font.GothamBold
+statusLbl.TextSize = 12
+statusLbl.ZIndex = 317
+statusLbl.Parent = lockCard
+
+local unlockBtn = Instance.new("TextButton")
+unlockBtn.Size = UDim2.new(1, -28, 0, 42)
+unlockBtn.Position = UDim2.fromOffset(14, 152)
+unlockBtn.BackgroundColor3 = Color3.fromRGB(75, 165, 255)
+unlockBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+unlockBtn.Text = "UNLOCK HUB"
+unlockBtn.Font = Enum.Font.GothamBold
+unlockBtn.TextSize = 14
+unlockBtn.ZIndex = 317
+unlockBtn.Parent = lockCard
+
+local unlockCorner = Instance.new("UICorner")
+unlockCorner.CornerRadius = UDim.new(0, 10)
+unlockCorner.Parent = unlockBtn
+
+local copyBtn = Instance.new("TextButton")
+copyBtn.Size = UDim2.new(1, -28, 0, 34)
+copyBtn.Position = UDim2.fromOffset(14, 204)
+copyBtn.BackgroundColor3 = Color3.fromRGB(22, 26, 42)
+copyBtn.TextColor3 = Color3.fromRGB(130, 225, 255)
+copyBtn.Text = "Copy Discord Invite"
+copyBtn.Font = Enum.Font.GothamMedium
+copyBtn.TextSize = 12
+copyBtn.ZIndex = 317
+copyBtn.Parent = lockCard
+
+local copyCorner = Instance.new("UICorner")
+copyCorner.CornerRadius = UDim.new(0, 8)
+copyCorner.Parent = copyBtn
+
+-- Unlocked MM2 Panel
+local mainPanel = Instance.new("Frame")
+mainPanel.Name = "MM2Panel"
+mainPanel.Size = UDim2.fromOffset(258, 546)
+mainPanel.Position = UDim2.fromOffset(24, 34)
+mainPanel.BackgroundColor3 = Color3.fromRGB(14, 17, 28)
+mainPanel.Visible = false
+mainPanel.Active = true
+mainPanel.Draggable = true
+mainPanel.ZIndex = 200
+mainPanel.Parent = gui
+
+local panelCorner = Instance.new("UICorner")
+panelCorner.CornerRadius = UDim.new(0, 14)
+panelCorner.Parent = mainPanel
+
+local panelStroke = Instance.new("UIStroke")
+panelStroke.Color = Color3.fromRGB(85, 215, 255)
+panelStroke.Thickness = 1.6
+panelStroke.Parent = mainPanel
+
+local panelTitle = Instance.new("TextLabel")
+panelTitle.Size = UDim2.new(1, -16, 0, 26)
+panelTitle.Position = UDim2.fromOffset(8, 6)
+panelTitle.BackgroundTransparency = 1
+panelTitle.Text = "🌙 " .. CONFIG.HubTitle
+panelTitle.TextColor3 = Color3.fromRGB(238, 244, 255)
+panelTitle.Font = Enum.Font.GothamBold
+panelTitle.TextSize = 14
+panelTitle.TextXAlignment = Enum.TextXAlignment.Left
+panelTitle.ZIndex = 201
+panelTitle.Parent = mainPanel
+
+panelStatusLbl = Instance.new("TextLabel")
+panelStatusLbl.Size = UDim2.new(1, -16, 0, 16)
+panelStatusLbl.Position = UDim2.fromOffset(8, 30)
+panelStatusLbl.BackgroundTransparency = 1
+panelStatusLbl.Text = "Ready"
+panelStatusLbl.TextColor3 = Color3.fromRGB(145, 215, 255)
+panelStatusLbl.Font = Enum.Font.GothamMedium
+panelStatusLbl.TextSize = 11
+panelStatusLbl.TextXAlignment = Enum.TextXAlignment.Left
+panelStatusLbl.ZIndex = 201
+panelStatusLbl.Parent = mainPanel
+
+local function makeToggleBtn(text, yPos, initialActive, onToggle)
+	local active = initialActive or false
 	local btn = Instance.new("TextButton")
-	btn.Name = name
-	btn.Size = UDim2.fromOffset(154, 46)
-	btn.Position = UDim2.new(1, -172, 0.40, yOffset)
-	btn.BackgroundColor3 = bgColor
-	btn.TextColor3 = Color3.fromRGB(240, 244, 255)
-	btn.Text = text
+	btn.Size = UDim2.new(1, -16, 0, 31)
+	btn.Position = UDim2.fromOffset(8, yPos)
+	btn.BackgroundColor3 = active and Color3.fromRGB(48, 125, 210) or Color3.fromRGB(24, 28, 44)
+	btn.TextColor3 = Color3.fromRGB(215, 224, 248)
+	btn.Text = text .. (active and ": ON" or ": OFF")
 	btn.Font = Enum.Font.GothamBold
-	btn.TextSize = 14
-	btn.AutoButtonColor = true
-	btn.Active = true
-	btn.Visible = State.ShowFloatButtons
-	btn.ZIndex = 260
-	btn.Parent = floatGui
+	btn.TextSize = 12
+	btn.ZIndex = 202
+	btn.Parent = mainPanel
 
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 12)
-	corner.Parent = btn
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 8)
+	c.Parent = btn
 
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = borderColor
-	stroke.Thickness = 1.5
-	stroke.Parent = btn
-
-	local dragging = false
-	local dragInput = nil
-	local dragStart = Vector2.zero
-	local startPos = UDim2.new()
-	local moved = false
-
-	btn.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = true
-			dragInput = input
-			dragStart = Vector2.new(input.Position.X, input.Position.Y)
-			startPos = btn.Position
-			moved = false
-		end
-	end)
-
-	btn.InputChanged:Connect(function(input)
-		if input == dragInput and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-			local delta = Vector2.new(input.Position.X, input.Position.Y) - dragStart
-			if delta.Magnitude > 6 then
-				moved = true
-			end
-			if dragging and moved then
-				btn.Position = UDim2.new(
-					startPos.X.Scale,
-					startPos.X.Offset + delta.X,
-					startPos.Y.Scale,
-					startPos.Y.Offset + delta.Y
-				)
-			end
-		end
-	end)
-
-	btn.InputEnded:Connect(function(input)
-		if input == dragInput then
-			local wasTap = not moved
-			dragging = false
-			dragInput = nil
-			if wasTap and not State.Unloaded then
-				onClick()
-			end
-		end
-	end)
-
-	UserInputService.InputEnded:Connect(function(input)
-		if input == dragInput then
-			dragging = false
-			dragInput = nil
-		end
-	end)
-
-	return btn
-end
-
-local darkMoonToggleFloat = makeFloatBtn(
-	"DarkMoonToggleFloat",
-	"DARK MOON UI",
-	-54,
-	Color3.fromRGB(28, 22, 46),
-	Color3.fromRGB(165, 130, 255),
-	toggleWindowVisibility
-)
-
-local tpSavedFloat = makeFloatBtn(
-	"TpSavedFloat",
-	"TP Saved Spot",
-	0,
-	Color3.fromRGB(22, 26, 38),
-	Color3.fromRGB(100, 180, 255),
-	teleportSavedSpot
-)
-
-local tpNearestFloat = makeFloatBtn(
-	"TpNearestFloat",
-	"TP Nearest Plr",
-	54,
-	Color3.fromRGB(22, 36, 34),
-	Color3.fromRGB(80, 225, 170),
-	teleportNearestPlayer
-)
-
-local underMapFloat = makeFloatBtn(
-	"UnderMapFloat",
-	"Under Map",
-	108,
-	Color3.fromRGB(36, 24, 48),
-	Color3.fromRGB(190, 120, 255),
-	function()
-		setUnderMap(not State.UnderMapEnabled)
-	end
-)
-
-refreshFloatText = function()
-	if underMapFloat and underMapFloat.Parent then
-		underMapFloat.Text = State.UnderMapEnabled and "Return Surface" or "Under Map"
-	end
-end
-
--- ==========================================
--- LOOPS & EVENTS
--- ==========================================
-table.insert(connections, Players.PlayerRemoving:Connect(removeEspForPlayer))
-table.insert(connections, RunService.RenderStepped:Connect(updateVisualsFrame))
-
-table.insert(connections, RunService.Stepped:Connect(function()
-	if State.Unloaded then return end
-	if State.NoclipEnabled then
-		applyNoclipFrame()
-	end
-end))
-
-table.insert(connections, RunService.Heartbeat:Connect(function(dt)
-	if State.Unloaded then return end
-	local char = Cached.Char
-	local hum = Cached.Hum
-	local root = Cached.Root
-	if not char or not hum or not root or hum.Health <= 0 then return end
-
-	local clampedDt = math.min(dt, 0.05)
-	local now = os.clock()
-
-	if State.AutoWallBypass and not State.TpRunning and hum.MoveDirection.Magnitude > 0.1 and (now - State.LastBypassTime) > 0.3 then
-		executeWallBypass(false)
-	end
-
-	if State.UnderMapEnabled and not State.TpRunning and isValidPos(root.Position) then
-		markIntent(0.35)
-		local targetY = State.UnderMapLockY and State.UnderAnchorY or root.Position.Y
-		if targetY then
-			if root.Position.Y < (targetY - 1.5) then
-				local look = root.CFrame.LookVector
-				local flatLook = Vector3.new(look.X, 0, look.Z)
-				local p = Vector3.new(root.Position.X, targetY, root.Position.Z)
-				stepCharacterToward(char, hum, root, p, flatLook, Vector3.zero)
-			end
-			ensurePlatform()
-			underPlatform.Parent = Workspace
-			underPlatform.CFrame = CFrame.new(root.Position.X, targetY - 3.5, root.Position.Z)
-		end
-	end
-
-	if State.SpeedEnabled and not State.TpRunning and hum.MoveDirection.Magnitude > 0.05 then
-		local flatDir = Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z)
-		if flatDir.Magnitude > 0.001 then
-			flatDir = flatDir.Unit
-			markIntent(0.25)
-			root.CFrame = root.CFrame + (flatDir * State.ExtraSpeed * clampedDt)
-			if State.ServerSystemBypass and State.BypassVelocitySync then
-				local curV = root.AssemblyLinearVelocity
-				local targetSpd = hum.WalkSpeed + State.ExtraSpeed
-				root.AssemblyLinearVelocity = Vector3.new(flatDir.X * targetSpd, isValidPos(curV) and curV.Y or 0, flatDir.Z * targetSpd)
-			end
-		end
-	end
-
-	if State.JumpEnabled then
-		if hum.UseJumpPower then
-			if hum.JumpPower ~= State.JumpPower then
-				hum.JumpPower = State.JumpPower
-			end
-		else
-			local h = State.JumpPower / 5
-			if hum.JumpHeight ~= h then
-				hum.JumpHeight = h
-			end
-		end
-	end
-
-	applyServerBypassSystems(char, hum, root, now)
-end))
-
--- ==========================================
--- 1. SERVER & REMOTE TAB
--- ==========================================
-BypassTab:Toggle({
-	Title = "Server System Bypass",
-	Desc = "Master toggle for anti-pullback step sync, tether cleanup & state recovery",
-	Default = true,
-	Callback = function(v)
-		State.ServerSystemBypass = v
-		if v and Cached.Char and Cached.Hum and Cached.Root then
-			cleanCharacterTethers(Cached.Char, Cached.Hum, Cached.Root, true)
-		end
-	end
-})
-BypassTab:Toggle({
-	Title = "Remote System Bypass",
-	Desc = "Safely manages remote calls & movement sync across features",
-	Default = true,
-	Callback = function(v)
-		State.RemoteSystemBypass = v
-		if v then
-			pcall(scanRemotesSafe)
-		end
-	end
-})
-BypassTab:Toggle({
-	Title = "Remote Sync Guard",
-	Desc = "Sends safe movement/position sync pulses during teleports when enabled",
-	Default = true,
-	Callback = function(v) State.RemoteSyncGuard = v end
-})
-BypassTab:Button({
-	Title = "Rescan Remote System",
-	Desc = "Refresh cached RemoteEvents & RemoteFunctions safely",
-	Callback = function()
-		pcall(scanRemotesSafe)
-	end
-})
-BypassTab:Toggle({
-	Title = "Velocity & Clamp Sync",
-	Desc = "Matches velocity during steps/speed & clamps extreme knockback spikes",
-	Default = true,
-	Callback = function(v) State.BypassVelocitySync = v end
-})
-BypassTab:Toggle({
-	Title = "Ragdoll & State Lock Bypass",
-	Desc = "Recovers from Ragdoll, FallingDown, Physics & PlatformStanding states",
-	Default = true,
-	Callback = function(v) State.BypassStateLock = v end
-})
-BypassTab:Toggle({
-	Title = "Seat & Force Tether Clear",
-	Desc = "Disables seats & removes body movers or constraints pulling the character",
-	Default = true,
-	Callback = function(v) State.BypassSeatClear = v end
-})
-BypassTab:Toggle({
-	Title = "Anti-Pullback Guard",
-	Desc = "Snaps back to last clean position on unexpected position spikes",
-	Default = true,
-	Callback = function(v) State.AntiPullbackGuard = v end
-})
-BypassTab:Slider({
-	Title = "Pullback Guard Threshold",
-	Desc = "Stud jump distance that triggers pullback guard",
-	Step = 2,
-	Value = { Min = 20, Max = 90, Default = 42 },
-	Callback = function(v) State.PullbackThreshold = v end
-})
-BypassTab:Button({
-	Title = "Hard Wall Bypass Now",
-	Desc = "Phase past solid walls ahead immediately",
-	Callback = function() executeWallBypass(true) end
-})
-BypassTab:Toggle({
-	Title = "Auto Wall Bypass",
-	Desc = "Automatically bypass walls ahead while moving",
-	Default = false,
-	Callback = function(v) State.AutoWallBypass = v end
-})
-BypassTab:Slider({
-	Title = "Bypass Scan Distance",
-	Desc = "Max studs scanned past walls",
-	Step = 2,
-	Value = { Min = 8, Max = 50, Default = 22 },
-	Callback = function(v) State.BypassScanDist = v end
-})
-
--- ==========================================
--- 2. TELEPORT TAB
--- ==========================================
-TeleportTab:Button({ Title = "Save Current Spot", Desc = "Save your current position", Callback = saveCurrentSpot })
-TeleportTab:Button({ Title = "Teleport to Saved Spot", Desc = "Teleport back to your saved position", Callback = teleportSavedSpot })
-TeleportTab:Button({ Title = "Teleport to Nearest Player", Desc = "Teleport next to the closest player in the server", Callback = teleportNearestPlayer })
-TeleportTab:Slider({
-	Title = "Step Distance",
-	Desc = "Studs moved per anti-pullback step",
-	Step = 2,
-	Value = { Min = 8, Max = 40, Default = 16 },
-	Callback = function(v) State.StepStuds = v end
-})
-TeleportTab:Slider({
-	Title = "Hold Frames",
-	Desc = "Frames held at destination to stabilize position",
-	Step = 1,
-	Value = { Min = 1, Max = 15, Default = 6 },
-	Callback = function(v) State.HoldFrames = v end
-})
-TeleportTab:Toggle({
-	Title = "Floating Teleport Buttons",
-	Desc = "Show draggable DARK MOON UI, TP Saved, TP Nearest & Under Map buttons",
-	Default = true,
-	Callback = function(v)
-		State.ShowFloatButtons = v
-		local show = v and (not State.Unloaded)
-		if darkMoonToggleFloat then darkMoonToggleFloat.Visible = show end
-		if tpSavedFloat then tpSavedFloat.Visible = show end
-		if tpNearestFloat then tpNearestFloat.Visible = show end
-		if underMapFloat then underMapFloat.Visible = show end
-	end
-})
-
--- ==========================================
--- 3. MOVEMENT & UNDER MAP TAB
--- ==========================================
-MovementTab:Toggle({
-	Title = "Under Map",
-	Desc = "Drop below map onto a safety platform",
-	Default = false,
-	Callback = function(v) setUnderMap(v) end
-})
-MovementTab:Button({
-	Title = "Return to Surface",
-	Desc = "Return safely from Under Map",
-	Callback = function() setUnderMap(false) end
-})
-MovementTab:Slider({
-	Title = "Under Map Depth",
-	Desc = "Studs below current height",
-	Step = 1,
-	Value = { Min = 6, Max = 35, Default = 14 },
-	Callback = function(v) State.UnderMapDepth = v end
-})
-MovementTab:Toggle({
-	Title = "Lock Under Map Height",
-	Desc = "Keep steady Y level underground",
-	Default = true,
-	Callback = function(v)
-		State.UnderMapLockY = v
-		if v and State.UnderMapEnabled and Cached.Root then
-			State.UnderAnchorY = Cached.Root.Position.Y
-		end
-	end
-})
-MovementTab:Toggle({
-	Title = "Noclip",
-	Desc = "Walk through solid parts smoothly",
-	Default = false,
-	Callback = function(v) setNoclip(v) end
-})
-MovementTab:Toggle({
-	Title = "Speed Boost",
-	Desc = "Smooth movement boost",
-	Default = false,
-	Callback = function(v) State.SpeedEnabled = v end
-})
-MovementTab:Slider({
-	Title = "Bonus Speed",
-	Desc = "Extra movement speed",
-	Step = 1,
-	Value = { Min = 4, Max = 50, Default = 12 },
-	Callback = function(v) State.ExtraSpeed = v end
-})
-MovementTab:Toggle({
-	Title = "Jump Boost",
-	Desc = "Boost character jump",
-	Default = false,
-	Callback = function(v)
-		State.JumpEnabled = v
-		if Cached.Hum then
-			if v then
-				if Cached.Hum.UseJumpPower then Cached.Hum.JumpPower = State.JumpPower else Cached.Hum.JumpHeight = State.JumpPower / 5 end
-			else
-				if Cached.Hum.UseJumpPower then Cached.Hum.JumpPower = State.DefaultJumpPower else Cached.Hum.JumpHeight = State.DefaultJumpPower end
-			end
-		end
-	end
-})
-MovementTab:Slider({
-	Title = "Jump Power",
-	Desc = "Adjust jump boost strength",
-	Step = 5,
-	Value = { Min = 50, Max = 150, Default = 65 },
-	Callback = function(v) State.JumpPower = v end
-})
-
--- ==========================================
--- 4. VISUALS TAB
--- ==========================================
-VisualsTab:Toggle({
-	Title = "Player ESP",
-	Desc = "Show player tags & visuals",
-	Default = false,
-	Callback = function(v)
-		State.PlayerESPEnabled = v
-		if not v then
-			for _, entry in pairs(espEntries) do hideEspEntry(entry) end
-		end
-	end
-})
-VisualsTab:Toggle({
-	Title = "ESP Boxes",
-	Desc = "Toggle 2D boxes around players",
-	Default = true,
-	Callback = function(v) State.ESPBoxes = v end
-})
-VisualsTab:Toggle({
-	Title = "ESP Distance",
-	Desc = "Show distance in studs on ESP",
-	Default = true,
-	Callback = function(v) State.ESPDistance = v end
-})
-VisualsTab:Toggle({
-	Title = "ESP Tracers",
-	Desc = "Draw lines from bottom screen to players",
-	Default = false,
-	Callback = function(v) State.ESPTracers = v end
-})
-VisualsTab:Toggle({
-	Title = "Fullbright",
-	Desc = "Brighten map & remove dark fog",
-	Default = false,
-	Callback = function(v) setFullbright(v) end
-})
-
--- ==========================================
--- 5. UTILITY TAB
--- ==========================================
-UtilityTab:Button({
-	Title = "Reset Camera",
-	Desc = "Reset camera subject & type to Custom",
-	Callback = function()
-		local cam = Workspace.CurrentCamera
-		if cam and Cached.Hum then
-			cam.CameraType = Enum.CameraType.Custom
-			cam.CameraSubject = Cached.Hum
-		end
-	end
-})
-UtilityTab:Button({
-	Title = "Rejoin Server",
-	Desc = "Rejoin current server instance",
-	Callback = function()
-		if (os.clock() - State.LastRejoinTime) < 2 then return end
-		State.LastRejoinTime = os.clock()
-		local pid = game.PlaceId
-		local jid = game.JobId
-		if pid and pid > 0 then
-			pcall(function()
-				if jid and jid ~= "" then
-					TeleportService:TeleportToPlaceInstance(pid, jid, LocalPlayer)
-				else
-					TeleportService:Teleport(pid, LocalPlayer)
-				end
-			end)
-		end
-	end
-})
-UtilityTab:Button({
-	Title = "Copy Server JobId",
-	Desc = "Copy current JobId to clipboard if supported",
-	Callback = function()
-		if typeof(setclipboard) == "function" then
-			pcall(function()
-				setclipboard(tostring(game.JobId))
-			end)
-		end
-	end
-})
-UtilityTab:Button({
-	Title = "Unload Script",
-	Desc = "Cleanly disconnect loops, restore lighting/collisions & close UI",
-	Callback = function()
+	btn.MouseButton1Click:Connect(function()
 		if State.Unloaded then return end
-		State.Unloaded = true
-		State.TpRunning = false
-		State.UnderMapEnabled = false
-		State.NoclipEnabled = false
-		State.AutoWallBypass = false
-		State.AntiPullbackGuard = false
-		State.ServerSystemBypass = false
-		State.RemoteSystemBypass = false
-		State.SpeedEnabled = false
-		State.JumpEnabled = false
-		State.PlayerESPEnabled = false
+		active = not active
+		btn.Text = text .. (active and ": ON" or ": OFF")
+		btn.BackgroundColor3 = active and Color3.fromRGB(48, 125, 210) or Color3.fromRGB(24, 28, 44)
+		onToggle(active)
+	end)
+end
 
-		setFullbright(false)
-		restoreNoclipParts()
-		clearAllEsp()
-		table.clear(Cached.Remotes)
+local function makeCycleBtn(labelPrefix, yPos, initialText, onCycle)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, -16, 0, 31)
+	btn.Position = UDim2.fromOffset(8, yPos)
+	btn.BackgroundColor3 = Color3.fromRGB(28, 34, 54)
+	btn.TextColor3 = Color3.fromRGB(165, 225, 255)
+	btn.Text = labelPrefix .. ": " .. initialText
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 12
+	btn.ZIndex = 202
+	btn.Parent = mainPanel
 
-		for _, conn in ipairs(connections) do
-			if conn and conn.Connected then
-				conn:Disconnect()
-			end
-		end
-		table.clear(connections)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 8)
+	c.Parent = btn
 
-		if underPlatform then
-			underPlatform:Destroy()
-			underPlatform = nil
+	btn.MouseButton1Click:Connect(function()
+		if State.Unloaded then return end
+		local nextText = onCycle()
+		if nextText then
+			btn.Text = labelPrefix .. ": " .. tostring(nextText)
 		end
-		if floatGui then
-			floatGui:Destroy()
-			floatGui = nil
-		end
-		pcall(function() Window:Destroy() end)
+	end)
+end
+
+makeToggleBtn("Role ESP", 50, false, function(v)
+	State.RoleESP = v
+	if not v then
+		clearRoleTags()
 	end
-})
+end)
+
+makeToggleBtn("Dropped Gun ESP", 86, false, function(v)
+	State.GunESP = v
+	State.LastGunScan = 0
+	if not v then
+		clearGunMarker()
+	end
+end)
+
+makeToggleBtn("CS2 Skeleton ESP", 122, false, function(v)
+	State.SkeletonESP = v
+end)
+
+makeToggleBtn("Head Dot", 158, true, function(v)
+	State.HeadDotESP = v
+end)
+
+makeToggleBtn("2D Box", 194, false, function(v)
+	State.BoxESP = v
+end)
+
+makeToggleBtn("Aimbot", 230, false, function(v)
+	State.AimbotEnabled = v
+end)
+
+makeToggleBtn("Silent Aim", 266, false, function(v)
+	State.SilentAimEnabled = v
+	if v then
+		installSilentAimHooks()
+	end
+end)
+
+makeToggleBtn("FOV Circle", 302, true, function(v)
+	State.ShowFOV = v
+end)
+
+makeCycleBtn("FOV Size", 338, tostring(State.FOVRadius), function()
+	State.FOVIndex = (State.FOVIndex % #CONFIG.FOVPresets) + 1
+	State.FOVRadius = CONFIG.FOVPresets[State.FOVIndex]
+	return tostring(State.FOVRadius)
+end)
+
+makeCycleBtn("Smoothness", 374, tostring(State.AimSmoothness), function()
+	State.SmoothIndex = (State.SmoothIndex % #CONFIG.SmoothPresets) + 1
+	State.AimSmoothness = CONFIG.SmoothPresets[State.SmoothIndex]
+	return tostring(State.AimSmoothness)
+end)
+
+local grabGunBtn = Instance.new("TextButton")
+grabGunBtn.Size = UDim2.new(1, -16, 0, 32)
+grabGunBtn.Position = UDim2.fromOffset(8, 412)
+grabGunBtn.BackgroundColor3 = Color3.fromRGB(36, 98, 76)
+grabGunBtn.TextColor3 = Color3.fromRGB(165, 255, 215)
+grabGunBtn.Text = "Grab Dropped Gun"
+grabGunBtn.Font = Enum.Font.GothamBold
+grabGunBtn.TextSize = 12
+grabGunBtn.ZIndex = 202
+grabGunBtn.Parent = mainPanel
+
+local grabCorner = Instance.new("UICorner")
+grabCorner.CornerRadius = UDim.new(0, 8)
+grabCorner.Parent = grabGunBtn
+
+local unloadBtn = Instance.new("TextButton")
+unloadBtn.Size = UDim2.new(1, -16, 0, 32)
+unloadBtn.Position = UDim2.fromOffset(8, 504)
+unloadBtn.BackgroundColor3 = Color3.fromRGB(58, 22, 36)
+unloadBtn.TextColor3 = Color3.fromRGB(255, 145, 170)
+unloadBtn.Text = "Unload Script"
+unloadBtn.Font = Enum.Font.GothamBold
+unloadBtn.TextSize = 12
+unloadBtn.ZIndex = 202
+unloadBtn.Parent = mainPanel
+
+local ulCorner = Instance.new("UICorner")
+ulCorner.CornerRadius = UDim.new(0, 8)
+ulCorner.Parent = unloadBtn
+
+-- Floating Moon Toggle Button
+local moonBtn = Instance.new("TextButton")
+moonBtn.Name = "MoonToggle"
+moonBtn.Size = UDim2.fromOffset(54, 54)
+moonBtn.Position = UDim2.new(1, -74, 0.45, 0)
+moonBtn.BackgroundColor3 = Color3.fromRGB(16, 19, 32)
+moonBtn.TextColor3 = Color3.fromRGB(130, 230, 255)
+moonBtn.Text = "☾"
+moonBtn.Font = Enum.Font.GothamBold
+moonBtn.TextSize = 24
+moonBtn.Visible = false
+moonBtn.Active = true
+moonBtn.Draggable = true
+moonBtn.ZIndex = 240
+moonBtn.Parent = gui
+
+local moonCorner = Instance.new("UICorner")
+moonCorner.CornerRadius = UDim.new(1, 0)
+moonCorner.Parent = moonBtn
+
+local moonStroke = Instance.new("UIStroke")
+moonStroke.Color = Color3.fromRGB(95, 220, 255)
+moonStroke.Thickness = 2
+moonStroke.Parent = moonBtn
+
+-- ==========================================
+-- INTERACTIONS & LIFECYCLE
+-- ==========================================
+local function cleanupAll()
+	if State.Unloaded then return end
+	State.Unloaded = true
+	State.Unlocked = false
+	State.RoleESP = false
+	State.GunESP = false
+	State.SkeletonESP = false
+	State.HeadDotESP = false
+	State.BoxESP = false
+	State.AimbotEnabled = false
+	State.SilentAimEnabled = false
+	State.ShowFOV = false
+	State.CachedGunPart = nil
+	State.CurrentTarget = nil
+	State.CurrentAimPos = nil
+
+	removeSilentAimHooks()
+	clearAllVisuals()
+
+	for _, conn in ipairs(Connections) do
+		if conn and conn.Connected then
+			conn:Disconnect()
+		end
+	end
+	table.clear(Connections)
+
+	if gui then
+		gui:Destroy()
+	end
+end
+
+local function attemptUnlock()
+	if State.Unloaded or State.Unlocked or State.Unlocking then return end
+
+	local entered = tostring(keyBox.Text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	if entered == CONFIG.AccessKey then
+		State.Unlocking = true
+		statusLbl.TextColor3 = Color3.fromRGB(105, 240, 165)
+		statusLbl.Text = "Access granted! Opening hub..."
+		boxStroke.Color = Color3.fromRGB(105, 240, 165)
+
+		local cardTween = TweenService:Create(lockCard, TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Size = UDim2.fromOffset(362, 276),
+			BackgroundTransparency = 0.35
+		})
+		local bgTween = TweenService:Create(lockFrame, TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			BackgroundTransparency = 1
+		})
+
+		cardTween:Play()
+		bgTween:Play()
+
+		task.delay(0.26, function()
+			if State.Unloaded then return end
+			State.Unlocked = true
+			State.Unlocking = false
+			lockFrame.Visible = false
+			mainPanel.Visible = State.HubVisible
+			moonBtn.Visible = true
+		end)
+	else
+		statusLbl.TextColor3 = Color3.fromRGB(255, 95, 125)
+		statusLbl.Text = "Invalid key! Use: " .. CONFIG.AccessKey
+		boxStroke.Color = Color3.fromRGB(255, 85, 115)
+	end
+end
+
+table.insert(Connections, moonBtn.MouseButton1Click:Connect(function()
+	if State.Unlocked and not State.Unloaded then
+		State.HubVisible = not State.HubVisible
+		mainPanel.Visible = State.HubVisible
+	end
+end))
+
+table.insert(Connections, copyBtn.MouseButton1Click:Connect(function()
+	if State.Unloaded then return end
+	if typeof(setclipboard) == "function" then
+		local ok = pcall(setclipboard, CONFIG.DiscordLink)
+		if ok then
+			statusLbl.TextColor3 = Color3.fromRGB(120, 225, 255)
+			statusLbl.Text = "Discord link copied!"
+			return
+		end
+	end
+	statusLbl.TextColor3 = Color3.fromRGB(255, 195, 90)
+	statusLbl.Text = "Clipboard unavailable on this device"
+end))
+
+table.insert(Connections, grabGunBtn.MouseButton1Click:Connect(grabDroppedGun))
+table.insert(Connections, unlockBtn.MouseButton1Click:Connect(attemptUnlock))
+
+table.insert(Connections, keyBox.FocusLost:Connect(function(enterPressed)
+	if enterPressed then
+		attemptUnlock()
+	end
+end))
+
+table.insert(Connections, unloadBtn.MouseButton1Click:Connect(cleanupAll))
+
+table.insert(Connections, Players.PlayerRemoving:Connect(function(plr)
+	if roleTags[plr] then
+		removeDrawing(roleTags[plr])
+		roleTags[plr] = nil
+	end
+	clearSkeletonForPlayer(plr)
+end))
+
+table.insert(Connections, RunService.RenderStepped:Connect(function()
+	if State.Unloaded or not State.Unlocked then return end
+	if State.RoleESP or State.GunESP or State.SkeletonESP or State.HeadDotESP or State.BoxESP or State.AimbotEnabled or State.SilentAimEnabled then
+		updateFrame()
+	end
+end))
+
+table.insert(Connections, UserInputService.WindowFocused:Connect(function()
+	if State.Unloaded or not State.Unlocked then return end
+	State.LastGunScan = 0
+end))
