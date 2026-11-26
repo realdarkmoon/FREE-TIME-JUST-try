@@ -12,8 +12,8 @@ local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local SCRIPT_VERSION = "v24.0"
-local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v24.json"
+local SCRIPT_VERSION = "v25.0"
+local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v25.json"
 local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-cloud/yutahub/main/main.lua"
 
 -- ==========================================
@@ -22,14 +22,14 @@ local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-
 local CHANGELOG = {
 	Version = SCRIPT_VERSION,
 	WhatsNew = {
-		"Anti Fall Damage Toggle: Clamps high fall velocity, blocks FallingDown state, & stabilizes landing.",
-		"Instant Kick Server Toggle: Immediately kicks you out of the current server safely (Auto-Exec untouched).",
-		"Join Best Server Hop: Scores public servers by lowest ping, highest FPS, and open slots."
+		"On-Screen Instant Kick Toggle: Draggable front-screen Kick toggle button with ON/OFF state.",
+		"Upgraded Under Map v25: Void-safe depth clamping, wider 36x36 platform, & smooth height lock.",
+		"Anti Fall Damage, Join Best Server, Ultra Noclip, Auto Execute, & Auto-Save Features."
 	},
 	WhatsFixed = {
+		"Fixed Under Map dropping too deep into void kill-zones or drifting on uneven floors.",
 		"Fixed fall-impact velocity spikes and FallingDown state lockups on high drops.",
-		"Fixed wall-corner snagging and thick-wall resistance during Noclip movement.",
-		"Fixed Teleport to Base snap-back conflicts with Anti-Unusual Movement and Sit/Seat locks."
+		"Fixed wall-corner snagging during Noclip and snap-backs during Teleport to Base."
 	}
 }
 
@@ -38,7 +38,7 @@ local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubV24",
+	Folder = "PremiumYutaHubV25",
 	Size = UDim2.fromOffset(550, 530),
 	MinSize = Vector2.new(440, 320),
 	MaxSize = Vector2.new(740, 640),
@@ -92,6 +92,7 @@ local State = {
 	UnderMapLockY = true,
 	ShowFloatingUnderBtn = true,
 	ShowFloatingBaseBtn = true,
+	ShowFloatingKickBtn = true,
 	FloatingBtnWidth = 164,
 	SpeedEnabled = false,
 	JumpEnabled = false,
@@ -229,6 +230,7 @@ local function buildSavePayload()
 			UnderMapLockY = State.UnderMapLockY,
 			ShowFloatingUnderBtn = State.ShowFloatingUnderBtn,
 			ShowFloatingBaseBtn = State.ShowFloatingBaseBtn,
+			ShowFloatingKickBtn = State.ShowFloatingKickBtn,
 			FloatingBtnWidth = State.FloatingBtnWidth,
 			SpeedEnabled = State.SpeedEnabled,
 			ExtraSpeed = State.ExtraSpeed,
@@ -325,6 +327,7 @@ local function resetSavedFeatures()
 		UnderMapLockY = true,
 		ShowFloatingUnderBtn = true,
 		ShowFloatingBaseBtn = true,
+		ShowFloatingKickBtn = true,
 		FloatingBtnWidth = 164,
 		SpeedEnabled = false,
 		ExtraSpeed = 16,
@@ -589,11 +592,11 @@ end
 -- ==========================================
 local underPlatform = Instance.new("Part")
 underPlatform.Name = "YutaHub_UnderPlatform"
-underPlatform.Size = Vector3.new(24, 1, 24)
+underPlatform.Size = Vector3.new(36, 1, 36)
 underPlatform.Anchored = true
 underPlatform.CanCollide = true
 underPlatform.CanTouch = false
-underPlatform.Transparency = 0.75
+underPlatform.Transparency = 0.72
 underPlatform.Material = Enum.Material.SmoothPlastic
 underPlatform.Parent = nil
 
@@ -904,33 +907,50 @@ local function executeHardWallBypass(forceScan)
 end
 
 -- ==========================================
--- BUG-RESISTANT UNDER MAP & RETURN SYSTEM
+-- UPGRADED UNDER MAP & RETURN SYSTEM (v25)
 -- ==========================================
 local function ensureUnderPlatform()
 	if not underPlatform or not underPlatform.Parent then
 		underPlatform = Instance.new("Part")
 		underPlatform.Name = "YutaHub_UnderPlatform"
-		underPlatform.Size = Vector3.new(24, 1, 24)
+		underPlatform.Size = Vector3.new(36, 1, 36)
 		underPlatform.Anchored = true
 		underPlatform.CanCollide = true
 		underPlatform.CanTouch = false
-		underPlatform.Transparency = 0.75
+		underPlatform.Transparency = 0.72
 		underPlatform.Material = Enum.Material.SmoothPlastic
 	end
+end
+
+local function computeSafeUnderY(rootPos)
+	local desiredY = rootPos.Y - math.clamp(State.UnderMapOffset, 5, 40)
+	local downRay = Workspace:Raycast(rootPos, Vector3.new(0, -(State.UnderMapOffset + 12), 0), sharedRayParams)
+	if downRay and isValidVector3(downRay.Position) then
+		local floorY = downRay.Position.Y
+		if (rootPos.Y - floorY) > 3.5 then
+			desiredY = math.max(desiredY, floorY - 4.2)
+		end
+	end
+	return math.max(desiredY, -220)
 end
 
 local function updateUnderMapLoop(root)
 	if not State.UnderMap or not root then return end
 	ensureUnderPlatform()
-	markMovementIntent(0.2)
+	markMovementIntent(0.25)
 
 	local targetY = State.UnderMapLockY and State.UnderAnchorY or root.Position.Y
 	if not targetY then
-		targetY = root.Position.Y
+		targetY = computeSafeUnderY(root.Position)
 		State.UnderAnchorY = targetY
 	end
 
-	if root.Position.Y < (targetY - 1.5) then
+	local v = root.AssemblyLinearVelocity
+	if isValidVector3(v) and v.Y < 0 then
+		root.AssemblyLinearVelocity = Vector3.new(v.X, 0, v.Z)
+	end
+
+	if math.abs(root.Position.Y - targetY) > 1.25 then
 		local look = root.CFrame.LookVector
 		local flatLook = Vector3.new(look.X, 0, look.Z)
 		local targetPos = Vector3.new(root.Position.X, targetY, root.Position.Z)
@@ -939,7 +959,9 @@ local function updateUnderMapLoop(root)
 		else
 			root.CFrame = CFrame.new(targetPos)
 		end
-		root.AssemblyLinearVelocity = Vector3.zero
+		if isValidVector3(root.AssemblyLinearVelocity) then
+			root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
+		end
 	end
 
 	underPlatform.Parent = Workspace
@@ -953,7 +975,7 @@ local function returnFromUnderMap()
 	if underPlatform then
 		underPlatform.Parent = nil
 	end
-	markMovementIntent(0.85)
+	markMovementIntent(0.95)
 
 	if root then
 		root.AssemblyLinearVelocity = Vector3.zero
@@ -971,16 +993,16 @@ local function returnFromUnderMap()
 			State.LastCleanCFrame = root.CFrame
 			State.SavedCFrame = nil
 		else
-			local upHit = Workspace:Raycast(root.Position, Vector3.new(0, 120, 0), sharedRayParams)
+			local upHit = Workspace:Raycast(root.Position, Vector3.new(0, 140, 0), sharedRayParams)
 			if upHit then
 				local safeAbove = upHit.Position + Vector3.new(0, 4.5, 0)
 				root.CFrame = CFrame.new(safeAbove)
 			else
-				local topDownHit = Workspace:Raycast(root.Position + Vector3.new(0, 220, 0), Vector3.new(0, -320, 0), sharedRayParams)
+				local topDownHit = Workspace:Raycast(root.Position + Vector3.new(0, 240, 0), Vector3.new(0, -340, 0), sharedRayParams)
 				if topDownHit then
 					root.CFrame = CFrame.new(topDownHit.Position + Vector3.new(0, 4.0, 0))
 				else
-					root.CFrame = root.CFrame + Vector3.new(0, State.UnderMapOffset + 5, 0)
+					root.CFrame = root.CFrame + Vector3.new(0, State.UnderMapOffset + 6, 0)
 				end
 			end
 			State.LastCleanCFrame = root.CFrame
@@ -995,7 +1017,7 @@ local function setUnderMap(enabled)
 	local root = Cached.Root
 
 	if enabled and not State.Unloaded then
-		if not root then
+		if not root or not isValidVector3(root.Position) then
 			syncUnderMapToggleUI(false)
 			return
 		end
@@ -1005,16 +1027,17 @@ local function setUnderMap(enabled)
 		end
 
 		State.UnderMap = true
-		markMovementIntent(0.85)
+		markMovementIntent(0.95)
 
 		local look = root.CFrame.LookVector
 		local flatLook = Vector3.new(look.X, 0, look.Z)
-		local targetPos = Vector3.new(root.Position.X, root.Position.Y - State.UnderMapOffset, root.Position.Z)
-		State.UnderAnchorY = targetPos.Y
+		local safeY = computeSafeUnderY(root.Position)
+		State.UnderAnchorY = safeY
+		local targetPos = Vector3.new(root.Position.X, safeY, root.Position.Z)
 
 		ensureUnderPlatform()
 		underPlatform.Parent = Workspace
-		underPlatform.CFrame = CFrame.new(targetPos.X, targetPos.Y - 3.5, targetPos.Z)
+		underPlatform.CFrame = CFrame.new(targetPos.X, safeY - 3.5, targetPos.Z)
 
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
@@ -1033,7 +1056,7 @@ local function setUnderMap(enabled)
 end
 
 -- ==========================================
--- FRONT BIG FLOATING MOBILE BUTTONS (UNDER MAP & TP BASE)
+-- FRONT BIG FLOATING MOBILE BUTTONS (UNDER MAP, TP BASE & KICK)
 -- ==========================================
 local floatGui = Instance.new("ScreenGui")
 floatGui.Name = "YutaHub_FloatingUnderGui"
@@ -1096,6 +1119,15 @@ local baseFloatBtn = createFloatingButton(
 )
 baseFloatBtn.Visible = State.ShowFloatingBaseBtn
 
+local kickFloatBtn, kickStroke = createFloatingButton(
+	"InstantKickFloatButton",
+	"Kick: OFF",
+	UDim2.new(1, -(initW + 18), 0.50, (initH + 10) * 2),
+	Color3.fromRGB(40, 20, 28),
+	Color3.fromRGB(255, 85, 115)
+)
+kickFloatBtn.Visible = State.ShowFloatingKickBtn
+
 local function applyFloatingButtonSize(widthPx)
 	State.FloatingBtnWidth = widthPx
 	local w, h, textSize = getFloatingBtnDimensions(widthPx)
@@ -1106,6 +1138,10 @@ local function applyFloatingButtonSize(widthPx)
 	if baseFloatBtn and baseFloatBtn.Parent then
 		baseFloatBtn.Size = UDim2.fromOffset(w, h)
 		baseFloatBtn.TextSize = textSize
+	end
+	if kickFloatBtn and kickFloatBtn.Parent then
+		kickFloatBtn.Size = UDim2.fromOffset(w, h)
+		kickFloatBtn.TextSize = textSize
 	end
 end
 
@@ -1127,6 +1163,18 @@ refreshFloatingButtonVisual = function()
 	end
 	if baseFloatBtn and baseFloatBtn.Parent then
 		baseFloatBtn.Visible = State.ShowFloatingBaseBtn and (not State.Unloaded)
+	end
+	if kickFloatBtn and kickFloatBtn.Parent then
+		kickFloatBtn.Visible = State.ShowFloatingKickBtn and (not State.Unloaded)
+		if State.InstantKickEnabled then
+			kickFloatBtn.Text = "Kick: ON"
+			kickFloatBtn.BackgroundColor3 = Color3.fromRGB(115, 22, 42)
+			kickStroke.Color = Color3.fromRGB(255, 130, 150)
+		else
+			kickFloatBtn.Text = "Kick: OFF"
+			kickFloatBtn.BackgroundColor3 = Color3.fromRGB(40, 20, 28)
+			kickStroke.Color = Color3.fromRGB(255, 85, 115)
+		end
 	end
 end
 
@@ -1807,6 +1855,9 @@ local function setInstantKickToggleUI(value)
 		end)
 		State.SyncingToggle = false
 	end
+	if refreshFloatingButtonVisual then
+		refreshFloatingButtonVisual()
+	end
 end
 
 local function triggerInstantKickServer(reasonText)
@@ -1846,10 +1897,25 @@ end
 local function setInstantKickEnabled(enabled)
 	if State.SyncingToggle then return end
 	State.InstantKickEnabled = enabled
+	if refreshFloatingButtonVisual then
+		refreshFloatingButtonVisual()
+	end
 	if enabled and not State.Unloaded then
 		triggerInstantKickServer("PREMIUM YUTAHUB: Instant Server Kick")
 	end
 end
+
+bindDraggableButton(kickFloatBtn, function()
+	local nextState = not State.InstantKickEnabled
+	setInstantKickEnabled(nextState)
+	if UIRefs.InstantKickEnabled and UIRefs.InstantKickEnabled.Set then
+		State.SyncingToggle = true
+		pcall(function()
+			UIRefs.InstantKickEnabled:Set(nextState)
+		end)
+		State.SyncingToggle = false
+	end
+end)
 
 local function rejoinCurrentServer()
 	local now = os.clock()
@@ -2262,7 +2328,7 @@ MovementTab:Button({
 
 UIRefs.UnderMapOffset = MovementTab:Slider({
 	Title = "Under Map Depth",
-	Desc = "Studs below current position",
+	Desc = "Studs below current position (void-clamped)",
 	Step = 1,
 	Value = {
 		Min = 5,
@@ -2314,6 +2380,19 @@ UIRefs.ShowFloatingBaseBtn = MovementTab:Toggle({
 	end
 })
 
+UIRefs.ShowFloatingKickBtn = MovementTab:Toggle({
+	Title = "Floating Instant Kick Toggle",
+	Desc = "Show draggable Instant Kick toggle button on screen",
+	Default = true,
+	Callback = function(value)
+		State.ShowFloatingKickBtn = value
+		if refreshFloatingButtonVisual then
+			refreshFloatingButtonVisual()
+		end
+		markFeatureUsed()
+	end
+})
+
 UIRefs.FloatingBtnWidth = MovementTab:Slider({
 	Title = "Floating Button Size",
 	Desc = "Adjust width (px) of the floating buttons",
@@ -2331,7 +2410,7 @@ UIRefs.FloatingBtnWidth = MovementTab:Slider({
 
 underMapToggleRef = MovementTab:Toggle({
 	Title = "Under Map",
-	Desc = "Drop below the map onto a wide safety platform",
+	Desc = "Drop below the map onto a wide 36x36 safety platform",
 	Default = false,
 	Callback = function(value)
 		setUnderMap(value)
