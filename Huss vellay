@@ -1,30 +1,80 @@
--- Load WindUI
-local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+-- Safe WindUI Loader
+local okUI, WindUI = pcall(function()
+	return loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+end)
+
+if not okUI or not WindUI then
+	return
+end
 
 -- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+local TeleportService = game:GetService("TeleportService")
+local Lighting = game:GetService("Lighting")
 
 local LocalPlayer = Players.LocalPlayer
+if not LocalPlayer then
+	return
+end
+
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Anime Boy Icon Helper (with safe fallback)
+local function resolveAnimeBoyIcon()
+	local candidate = "rbxassetid://13847189445"
+	local ok = pcall(function()
+		return typeof(candidate) == "string" and #candidate > 0
+	end)
+	return ok and candidate or "moon"
+end
 
 -- Create Window
 local Window = WindUI:CreateWindow({
-	Title = "HUSS VALLEY HUB",
-	Icon = "moon",
+	Title = "DARK MOON",
+	Icon = resolveAnimeBoyIcon(),
 	Author = "biyxznd",
-	Folder = "HussValleyFixedV3",
-	Size = UDim2.fromOffset(500, 460),
-	MinSize = Vector2.new(400, 300),
-	MaxSize = Vector2.new(720, 600),
+	Folder = "DarkMoon_HussValley_v11",
+	Size = UDim2.fromOffset(550, 540),
+	MinSize = Vector2.new(420, 320),
+	MaxSize = Vector2.new(780, 660),
 	Theme = "Dark",
 	Transparent = true,
 	Resizable = true,
 	ToggleKey = Enum.KeyCode.RightShift
 })
 
+local windowVisible = true
+local function toggleWindowVisibility()
+	windowVisible = not windowVisible
+	pcall(function()
+		if windowVisible then
+			if typeof(Window.Open) == "function" then
+				Window:Open()
+			elseif typeof(Window.Show) == "function" then
+				Window:Show()
+			end
+		else
+			if typeof(Window.Close) == "function" then
+				Window:Close()
+			elseif typeof(Window.Hide) == "function" then
+				Window:Hide()
+			elseif typeof(Window.Toggle) == "function" then
+				Window:Toggle()
+			end
+		end
+	end)
+end
+
 -- Tabs
+local BypassTab = Window:Tab({
+	Title = "Server & Remote",
+	Icon = "shield-check"
+})
+
 local TeleportTab = Window:Tab({
 	Title = "Teleport",
 	Icon = "navigation"
@@ -35,100 +85,243 @@ local MovementTab = Window:Tab({
 	Icon = "move"
 })
 
+local VisualsTab = Window:Tab({
+	Title = "Visuals",
+	Icon = "eye"
+})
+
 local UtilityTab = Window:Tab({
 	Title = "Utility",
 	Icon = "settings"
 })
 
 -- ==========================================
--- STATE & CHARACTER CACHE
+-- STATE & CACHED REFERENCES
 -- ==========================================
 local State = {
+	-- Server & Remote Bypass
+	ServerSystemBypass = true,
+	RemoteSystemBypass = true,
+	RemoteSyncGuard = true,
+	BypassVelocitySync = true,
+	BypassStateLock = true,
+	BypassSeatClear = true,
+	AntiPullbackGuard = true,
+	PullbackThreshold = 42,
+	AutoWallBypass = false,
+	BypassScanDist = 22,
+	DetectedRemotesCount = 0,
+	-- Teleport
 	SavedCFrame = nil,
 	StepStuds = 16,
 	HoldFrames = 6,
+	ShowFloatButtons = true,
+	-- Movement & Under Map
+	UnderMapEnabled = false,
+	UnderMapDepth = 14,
+	UnderMapLockY = true,
+	NoclipEnabled = false,
 	SpeedEnabled = false,
 	ExtraSpeed = 12,
 	JumpEnabled = false,
 	JumpPower = 65,
 	DefaultJumpPower = 50,
-	ShowFloatButtons = true,
+	-- Visuals
+	PlayerESPEnabled = false,
+	ESPBoxes = true,
+	ESPDistance = true,
+	ESPTracers = false,
+	FullbrightEnabled = false,
+	-- Internal Timers & Guards
 	TpRunning = false,
 	LastTpTime = 0,
+	LastBypassTime = 0,
+	LastRejoinTime = 0,
+	LastCleanSweep = 0,
+	LastRemoteScan = 0,
+	UnderAnchorY = nil,
+	SavedSurfaceCFrame = nil,
+	LastCleanCFrame = nil,
+	IgnoreGuardUntil = 0,
 	Unloaded = false
 }
 
 local Cached = {
 	Char = nil,
 	Hum = nil,
-	Root = nil
+	Root = nil,
+	Parts = {},
+	OrigCollide = {},
+	Remotes = {},
+	OrigLighting = {
+		Brightness = Lighting.Brightness,
+		ClockTime = Lighting.ClockTime,
+		FogEnd = Lighting.FogEnd,
+		GlobalShadows = Lighting.GlobalShadows
+	}
 }
 
 local connections = {}
+
+local rayParams = RaycastParams.new()
+rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+local overlapParams = OverlapParams.new()
+overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 
 local function isValidPos(v)
 	return typeof(v) == "Vector3" and v.X == v.X and v.Y == v.Y and v.Z == v.Z
 end
 
-local function refreshChar(char)
-	Cached.Char = char
-	Cached.Hum = char and char:FindFirstChildOfClass("Humanoid") or nil
-	Cached.Root = char and (
-		char:FindFirstChild("HumanoidRootPart")
-		or char:FindFirstChild("Torso")
-		or char:FindFirstChild("UpperTorso")
-	) or nil
-
-	if Cached.Hum then
-		if Cached.Hum.UseJumpPower then
-			State.DefaultJumpPower = Cached.Hum.JumpPower
-		else
-			State.DefaultJumpPower = Cached.Hum.JumpHeight
-		end
-	end
+local function markIntent(sec)
+	State.IgnoreGuardUntil = math.max(State.IgnoreGuardUntil, os.clock() + (sec or 0.75))
 end
 
-if LocalPlayer.Character then
-	refreshChar(LocalPlayer.Character)
-end
+-- ==========================================
+-- SAFE REMOTE SYSTEM BYPASS & SCANNER
+-- ==========================================
+local function scanRemotesSafe()
+	table.clear(Cached.Remotes)
+	local count = 0
+	local roots = { ReplicatedStorage, Workspace }
 
-table.insert(connections, LocalPlayer.CharacterAdded:Connect(function(char)
-	if State.Unloaded then return end
-	refreshChar(char)
-	if not Cached.Hum or not Cached.Root then
-		char:WaitForChild("Humanoid", 5)
-		char:WaitForChild("HumanoidRootPart", 5)
-		refreshChar(char)
-	end
-	if State.JumpEnabled and Cached.Hum then
-		if Cached.Hum.UseJumpPower then
-			Cached.Hum.JumpPower = State.JumpPower
-		else
-			Cached.Hum.JumpHeight = State.JumpPower / 5
+	for _, rootObj in ipairs(roots) do
+		local ok, descList = pcall(function()
+			return rootObj:GetDescendants()
+		end)
+		if ok and typeof(descList) == "table" then
+			for _, obj in ipairs(descList) do
+				if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+					count += 1
+					if #Cached.Remotes < 120 then
+						table.insert(Cached.Remotes, obj)
+					end
+				end
+			end
 		end
 	end
-end))
 
--- ==========================================
--- ANTI-PULLBACK TELEPORT ENGINE
--- ==========================================
-local function clearCharacterTethers(char, hum, root)
-	if hum then
-		hum.Sit = false
-		hum.PlatformStand = false
-		pcall(function()
-			hum:ChangeState(Enum.HumanoidStateType.Running)
+	State.DetectedRemotesCount = count
+	State.LastRemoteScan = os.clock()
+	return count
+end
+
+local function safeFireRemote(remote, ...)
+	if State.Unloaded or not State.RemoteSystemBypass then return false end
+	if typeof(remote) ~= "Instance" or not remote.Parent then return false end
+
+	local args = { ... }
+	local ok = false
+
+	if remote:IsA("RemoteEvent") then
+		ok = pcall(function()
+			remote:FireServer(table.unpack(args))
+		end)
+	elseif remote:IsA("RemoteFunction") then
+		ok = pcall(function()
+			remote:InvokeServer(table.unpack(args))
 		end)
 	end
 
-	if root then
-		root.AssemblyLinearVelocity = Vector3.zero
-		root.AssemblyAngularVelocity = Vector3.zero
+	return ok
+end
+
+local function pulseMovementRemotes(actionName, cf)
+	if not State.ServerSystemBypass or not State.RemoteSystemBypass or State.Unloaded then
+		return
+	end
+	if #Cached.Remotes == 0 and (os.clock() - State.LastRemoteScan) > 10 then
+		scanRemotesSafe()
 	end
 
-	if char then
+	local keywords = { "move", "pos", "cframe", "tp", "teleport", "sync", "state", "anti", "check", "hit" }
+	local fired = 0
+
+	for _, rem in ipairs(Cached.Remotes) do
+		if fired >= 6 then break end
+		if rem and rem.Parent and rem:IsA("RemoteEvent") then
+			local lower = rem.Name:lower()
+			for _, kw in ipairs(keywords) do
+				if lower:find(kw, 1, true) then
+					safeFireRemote(rem, actionName, cf)
+					fired += 1
+					break
+				end
+			end
+		end
+	end
+end
+
+-- ==========================================
+-- UNDER MAP SAFETY PLATFORM
+-- ==========================================
+local underPlatform = Instance.new("Part")
+underPlatform.Name = "DarkMoon_UnderPlatform"
+underPlatform.Size = Vector3.new(28, 1, 28)
+underPlatform.Anchored = true
+underPlatform.CanCollide = true
+underPlatform.CanTouch = false
+underPlatform.Transparency = 0.75
+underPlatform.Material = Enum.Material.SmoothPlastic
+underPlatform.Parent = nil
+
+local function ensurePlatform()
+	if not underPlatform or not underPlatform.Parent then
+		underPlatform = Instance.new("Part")
+		underPlatform.Name = "DarkMoon_UnderPlatform"
+		underPlatform.Size = Vector3.new(28, 1, 28)
+		underPlatform.Anchored = true
+		underPlatform.CanCollide = true
+		underPlatform.CanTouch = false
+		underPlatform.Transparency = 0.75
+		underPlatform.Material = Enum.Material.SmoothPlastic
+	end
+end
+
+-- ==========================================
+-- SERVER & STATE BYPASS HELPERS
+-- ==========================================
+local function enforceStateLock(hum)
+	if not hum or not State.ServerSystemBypass or not State.BypassStateLock then return end
+	local st = hum:GetState()
+	if st == Enum.HumanoidStateType.Ragdoll
+		or st == Enum.HumanoidStateType.FallingDown
+		or st == Enum.HumanoidStateType.Physics
+		or st == Enum.HumanoidStateType.PlatformStanding then
+		pcall(function()
+			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+			hum:ChangeState(Enum.HumanoidStateType.Running)
+		end)
+	end
+	if State.BypassSeatClear then
+		hum.Sit = false
+	end
+	hum.PlatformStand = false
+end
+
+local function cleanCharacterTethers(char, hum, root, deepClean)
+	if hum then
+		if State.BypassSeatClear then
+			hum.Sit = false
+		end
+		hum.PlatformStand = false
+		if State.ServerSystemBypass and State.BypassStateLock then
+			enforceStateLock(hum)
+		end
+	end
+
+	if root then
+		if isValidPos(root.AssemblyLinearVelocity) then
+			root.AssemblyLinearVelocity = Vector3.zero
+		end
+		if isValidPos(root.AssemblyAngularVelocity) then
+			root.AssemblyAngularVelocity = Vector3.zero
+		end
+	end
+
+	if deepClean and char and State.ServerSystemBypass then
 		for _, desc in ipairs(char:GetDescendants()) do
-			if desc:IsA("Seat") or desc:IsA("VehicleSeat") then
+			if State.BypassSeatClear and (desc:IsA("Seat") or desc:IsA("VehicleSeat")) then
 				desc.Disabled = true
 			elseif desc:IsA("WeldConstraint") or desc:IsA("RigidConstraint") then
 				if desc.Part0 ~= desc.Part1 then
@@ -146,8 +339,123 @@ local function clearCharacterTethers(char, hum, root)
 	end
 end
 
+-- ==========================================
+-- NOCLIP & CHARACTER CACHE
+-- ==========================================
+local function restoreNoclipParts()
+	for part, oldCollide in pairs(Cached.OrigCollide) do
+		if part and part.Parent and part:IsA("BasePart") then
+			pcall(function()
+				part.CanCollide = oldCollide
+			end)
+		end
+	end
+	table.clear(Cached.OrigCollide)
+end
+
+local function applyNoclipFrame()
+	if not State.NoclipEnabled or State.Unloaded then return end
+	for i = #Cached.Parts, 1, -1 do
+		local part = Cached.Parts[i]
+		if part and part.Parent and part:IsA("BasePart") then
+			if Cached.OrigCollide[part] == nil then
+				Cached.OrigCollide[part] = part.CanCollide
+			end
+			part.CanCollide = false
+		else
+			table.remove(Cached.Parts, i)
+		end
+	end
+end
+
+local function setNoclip(enabled)
+	State.NoclipEnabled = enabled
+	if enabled and not State.Unloaded then
+		applyNoclipFrame()
+	else
+		restoreNoclipParts()
+	end
+end
+
+local function refreshChar(char)
+	restoreNoclipParts()
+	table.clear(Cached.Parts)
+
+	Cached.Char = char
+	Cached.Hum = char and char:FindFirstChildOfClass("Humanoid") or nil
+	Cached.Root = char and (
+		char:FindFirstChild("HumanoidRootPart")
+		or char:FindFirstChild("Torso")
+		or char:FindFirstChild("UpperTorso")
+	) or nil
+
+	rayParams.FilterDescendantsInstances = char and { char } or {}
+	overlapParams.FilterDescendantsInstances = char and { char } or {}
+
+	if char then
+		for _, desc in ipairs(char:GetDescendants()) do
+			if desc:IsA("BasePart") then
+				table.insert(Cached.Parts, desc)
+				Cached.OrigCollide[desc] = desc.CanCollide
+			end
+		end
+	end
+
+	if Cached.Hum then
+		if Cached.Hum.UseJumpPower then
+			State.DefaultJumpPower = Cached.Hum.JumpPower
+		else
+			State.DefaultJumpPower = Cached.Hum.JumpHeight
+		end
+	end
+
+	if Cached.Root and isValidPos(Cached.Root.Position) then
+		State.LastCleanCFrame = Cached.Root.CFrame
+	end
+
+	if State.NoclipEnabled then
+		applyNoclipFrame()
+	end
+end
+
+if LocalPlayer.Character then
+	refreshChar(LocalPlayer.Character)
+end
+
+pcall(scanRemotesSafe)
+
+table.insert(connections, LocalPlayer.CharacterAdded:Connect(function(char)
+	if State.Unloaded then return end
+	State.UnderMapEnabled = false
+	State.UnderAnchorY = nil
+	State.SavedSurfaceCFrame = nil
+	if underPlatform then
+		underPlatform.Parent = nil
+	end
+
+	refreshChar(char)
+	if not Cached.Hum or not Cached.Root then
+		char:WaitForChild("Humanoid", 5)
+		char:WaitForChild("HumanoidRootPart", 5)
+		refreshChar(char)
+	end
+
+	if State.JumpEnabled and Cached.Hum then
+		if Cached.Hum.UseJumpPower then
+			Cached.Hum.JumpPower = State.JumpPower
+		else
+			Cached.Hum.JumpHeight = State.JumpPower / 5
+		end
+	end
+end))
+
+-- ==========================================
+-- SERVER & REMOTE BYPASS STEP TELEPORT ENGINE
+-- ==========================================
 local function stepCharacterToward(char, hum, root, nextPos, flatLook, velHint)
-	clearCharacterTethers(char, hum, root)
+	if not char or not root or not root.Parent then return end
+	cleanCharacterTethers(char, hum, root, State.ServerSystemBypass)
+
 	local targetCF = flatLook.Magnitude > 0.001
 		and CFrame.new(nextPos, nextPos + flatLook.Unit)
 		or CFrame.new(nextPos)
@@ -157,12 +465,16 @@ local function stepCharacterToward(char, hum, root, nextPos, flatLook, velHint)
 		char:PivotTo(targetCF)
 	end)
 
-	if isValidPos(velHint) then
+	if State.ServerSystemBypass and State.BypassVelocitySync and isValidPos(velHint) then
 		root.AssemblyLinearVelocity = velHint
+	end
+
+	if State.RemoteSystemBypass and State.RemoteSyncGuard then
+		pulseMovementRemotes("step", targetCF)
 	end
 end
 
-local function teleportToCFrame(targetCF)
+local function teleportToCFrame(targetCF, customOffsetY)
 	if State.Unloaded or State.TpRunning or typeof(targetCF) ~= "CFrame" then
 		return false
 	end
@@ -183,11 +495,14 @@ local function teleportToCFrame(targetCF)
 		return false
 	end
 
-	local goalPos = targetCF.Position + Vector3.new(0, 3.0, 0)
+	local yOff = (typeof(customOffsetY) == "number") and customOffsetY or 3.0
+	local goalPos = targetCF.Position + Vector3.new(0, yOff, 0)
 	local look = targetCF.LookVector
 	local flatLook = Vector3.new(look.X, 0, look.Z)
 
+	markIntent(1.6)
 	State.TpRunning = true
+
 	task.spawn(function()
 		local startPos = root.Position
 		local dist = (goalPos - startPos).Magnitude
@@ -198,24 +513,28 @@ local function teleportToCFrame(targetCF)
 			if State.Unloaded or not Cached.Char or not Cached.Hum or not Cached.Root or Cached.Hum.Health <= 0 then
 				break
 			end
+			markIntent(1.0)
 			local alpha = i / steps
 			local curPos = startPos:Lerp(goalPos, alpha)
-			local dir = (goalPos - curPos)
-			local vel = dir.Magnitude > 0.1 and (dir.Unit * math.min(dir.Magnitude * 8, 65)) or Vector3.zero
+			local dir = goalPos - curPos
+			local vel = dir.Magnitude > 0.1 and (dir.Unit * math.min(dir.Magnitude * 8, 60)) or Vector3.zero
 			stepCharacterToward(Cached.Char, Cached.Hum, Cached.Root, curPos, flatLook, vel)
 			RunService.Heartbeat:Wait()
 		end
 
-		-- Re-assert final position for a few frames so server sync accepts it
 		local holdCount = math.clamp(tonumber(State.HoldFrames) or 6, 1, 15)
 		for _ = 1, holdCount do
 			if State.Unloaded or not Cached.Char or not Cached.Hum or not Cached.Root or Cached.Hum.Health <= 0 then
 				break
 			end
+			markIntent(1.0)
 			stepCharacterToward(Cached.Char, Cached.Hum, Cached.Root, goalPos, flatLook, Vector3.zero)
 			RunService.Heartbeat:Wait()
 		end
 
+		if not State.Unloaded and Cached.Root and isValidPos(Cached.Root.Position) then
+			State.LastCleanCFrame = Cached.Root.CFrame
+		end
 		State.TpRunning = false
 	end)
 
@@ -233,7 +552,7 @@ local function teleportSavedSpot()
 	if not State.SavedCFrame then
 		if not saveCurrentSpot() then return false end
 	end
-	return teleportToCFrame(State.SavedCFrame)
+	return teleportToCFrame(State.SavedCFrame, 3.0)
 end
 
 local function teleportNearestPlayer()
@@ -259,14 +578,334 @@ local function teleportNearestPlayer()
 	end
 
 	if not bestRoot then return false end
-	return teleportToCFrame(bestRoot.CFrame * CFrame.new(0, 0, 3.5))
+	return teleportToCFrame(bestRoot.CFrame * CFrame.new(0, 0, 3.5), 2.5)
+end
+
+-- ==========================================
+-- UNDER MAP & RETURN SURFACE
+-- ==========================================
+local refreshFloatText = nil
+
+local function setUnderMap(enabled)
+	if State.Unloaded then return end
+	local root = Cached.Root
+	if not root or not isValidPos(root.Position) then return end
+
+	if enabled then
+		if not State.UnderMapEnabled then
+			State.SavedSurfaceCFrame = root.CFrame
+		end
+		State.UnderMapEnabled = true
+		markIntent(1.5)
+		local targetY = root.Position.Y - math.max(5, tonumber(State.UnderMapDepth) or 14)
+		State.UnderAnchorY = targetY
+		ensurePlatform()
+		underPlatform.Parent = Workspace
+		underPlatform.CFrame = CFrame.new(root.Position.X, targetY - 3.5, root.Position.Z)
+
+		local look = root.CFrame.LookVector
+		local flatLook = Vector3.new(look.X, 0, look.Z)
+		local destPos = Vector3.new(root.Position.X, targetY, root.Position.Z)
+		local destCF = flatLook.Magnitude > 0.001 and CFrame.new(destPos, destPos + flatLook.Unit) or CFrame.new(destPos)
+		stepCharacterToward(Cached.Char, Cached.Hum, root, destPos, flatLook, Vector3.zero)
+		State.LastCleanCFrame = destCF
+	else
+		State.UnderMapEnabled = false
+		State.UnderAnchorY = nil
+		if underPlatform then
+			underPlatform.Parent = nil
+		end
+		if State.SavedSurfaceCFrame then
+			local destCF = State.SavedSurfaceCFrame + Vector3.new(0, 3.0, 0)
+			State.SavedSurfaceCFrame = nil
+			teleportToCFrame(destCF, 0)
+		else
+			local upPos = root.Position + Vector3.new(0, (tonumber(State.UnderMapDepth) or 14) + 5, 0)
+			teleportToCFrame(CFrame.new(upPos), 0)
+		end
+	end
+
+	if refreshFloatText then
+		refreshFloatText()
+	end
+end
+
+-- ==========================================
+-- WALL BYPASS & SERVER BYPASS SYSTEMS
+-- ==========================================
+local function getMoveDirFlat()
+	local hum = Cached.Hum
+	local root = Cached.Root
+	if hum and hum.MoveDirection.Magnitude > 0.05 then
+		local v = Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z)
+		if v.Magnitude > 0.001 then return v.Unit end
+	end
+	if root then
+		local l = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+		if l.Magnitude > 0.001 then return l.Unit end
+	end
+	return Vector3.new(0, 0, -1)
+end
+
+local function isClearSpot(pos)
+	local hits = Workspace:GetPartBoundsInRadius(pos, 1.6, overlapParams)
+	for _, p in ipairs(hits) do
+		if p:IsA("BasePart") and p.CanCollide and p.Transparency < 0.98 then
+			return false
+		end
+	end
+	return true
+end
+
+local function executeWallBypass(force)
+	if State.Unloaded or State.TpRunning then return false end
+	local char = Cached.Char
+	local root = Cached.Root
+	if not char or not root or not isValidPos(root.Position) then return false end
+
+	local dir = getMoveDirFlat()
+	if not force then
+		local hit = Workspace:Raycast(root.Position, dir * 3.5, rayParams)
+		if not hit then
+			return false
+		end
+	end
+
+	local maxScan = math.clamp(tonumber(State.BypassScanDist) or 22, 6, 50)
+	local chosen = nil
+
+	for d = 3, maxScan do
+		local probe = root.Position + (dir * d)
+		if isClearSpot(probe) then
+			local floorHit = Workspace:Raycast(probe + Vector3.new(0, 2.5, 0), Vector3.new(0, -10, 0), rayParams)
+			if floorHit and isValidPos(floorHit.Position) then
+				chosen = Vector3.new(probe.X, floorHit.Position.Y + 3.0, probe.Z)
+			else
+				chosen = probe
+			end
+			break
+		end
+	end
+
+	if not chosen then
+		chosen = root.Position + (dir * math.min(maxScan, 14))
+	end
+
+	State.LastBypassTime = os.clock()
+	return teleportToCFrame(CFrame.new(chosen, chosen + dir), 0)
+end
+
+local function applyServerBypassSystems(char, hum, root, now)
+	if not char or not hum or not root then return end
+
+	if State.ServerSystemBypass and State.BypassStateLock then
+		enforceStateLock(hum)
+	end
+
+	if State.ServerSystemBypass and State.BypassVelocitySync then
+		local maxSpd = State.SpeedEnabled and (95 + State.ExtraSpeed) or 95
+		if isValidPos(root.AssemblyLinearVelocity) and root.AssemblyLinearVelocity.Magnitude > maxSpd then
+			local dir = root.AssemblyLinearVelocity.Magnitude > 0.001 and root.AssemblyLinearVelocity.Unit or Vector3.zero
+			root.AssemblyLinearVelocity = dir * maxSpd
+		end
+		if isValidPos(root.AssemblyAngularVelocity) and root.AssemblyAngularVelocity.Magnitude > 28 then
+			root.AssemblyAngularVelocity = Vector3.zero
+		end
+	end
+
+	if State.ServerSystemBypass and (now - State.LastCleanSweep) >= 0.45 then
+		State.LastCleanSweep = now
+		cleanCharacterTethers(char, hum, root, true)
+	end
+
+	if State.AntiPullbackGuard and not State.UnderMapEnabled and not State.TpRunning and now > State.IgnoreGuardUntil then
+		if State.LastCleanCFrame and isValidPos(root.Position) then
+			local jumpDist = (root.Position - State.LastCleanCFrame.Position).Magnitude
+			if jumpDist > (tonumber(State.PullbackThreshold) or 42) then
+				stepCharacterToward(char, hum, root, State.LastCleanCFrame.Position, State.LastCleanCFrame.LookVector, Vector3.zero)
+				return
+			end
+		end
+		if isValidPos(root.Position) then
+			State.LastCleanCFrame = root.CFrame
+		end
+	elseif isValidPos(root.Position) then
+		State.LastCleanCFrame = root.CFrame
+	end
+end
+
+-- ==========================================
+-- VISUALS: PLAYER ESP & FULLBRIGHT
+-- ==========================================
+local espEntries = {}
+local drawingAvailable = (typeof(Drawing) == "table" and typeof(Drawing.new) == "function")
+
+local function safeDrawing(kind)
+	if not drawingAvailable then return nil end
+	local ok, obj = pcall(function()
+		return Drawing.new(kind)
+	end)
+	return ok and obj or nil
+end
+
+local function ensureEspEntry(plr)
+	if espEntries[plr] then return espEntries[plr] end
+	local box = safeDrawing("Square")
+	local label = safeDrawing("Text")
+	local line = safeDrawing("Line")
+
+	if box then
+		pcall(function()
+			box.Visible = false
+			box.Color = Color3.fromRGB(255, 95, 95)
+			box.Thickness = 1.5
+			box.Filled = false
+			box.Transparency = 1
+		end)
+	end
+	if label then
+		pcall(function()
+			label.Visible = false
+			label.Color = Color3.fromRGB(235, 245, 255)
+			label.Size = 14
+			label.Center = true
+			label.Outline = true
+			label.Transparency = 1
+		end)
+	end
+	if line then
+		pcall(function()
+			line.Visible = false
+			line.Color = Color3.fromRGB(110, 195, 255)
+			line.Thickness = 1.2
+			line.Transparency = 1
+		end)
+	end
+
+	local entry = { Box = box, Label = label, Line = line }
+	espEntries[plr] = entry
+	return entry
+end
+
+local function hideEspEntry(entry)
+	if not entry then return end
+	if entry.Box then pcall(function() entry.Box.Visible = false end) end
+	if entry.Label then pcall(function() entry.Label.Visible = false end) end
+	if entry.Line then pcall(function() entry.Line.Visible = false end) end
+end
+
+local function removeEspForPlayer(plr)
+	local entry = espEntries[plr]
+	if entry then
+		if entry.Box then pcall(function() entry.Box:Remove() end) end
+		if entry.Label then pcall(function() entry.Label:Remove() end) end
+		if entry.Line then pcall(function() entry.Line:Remove() end) end
+		espEntries[plr] = nil
+	end
+end
+
+local function clearAllEsp()
+	for plr in pairs(espEntries) do
+		removeEspForPlayer(plr)
+	end
+end
+
+local function setFullbright(enabled)
+	State.FullbrightEnabled = enabled
+	pcall(function()
+		if enabled then
+			Lighting.Brightness = 2.5
+			Lighting.ClockTime = 14
+			Lighting.FogEnd = 100000
+			Lighting.GlobalShadows = false
+		else
+			Lighting.Brightness = Cached.OrigLighting.Brightness
+			Lighting.ClockTime = Cached.OrigLighting.ClockTime
+			Lighting.FogEnd = Cached.OrigLighting.FogEnd
+			Lighting.GlobalShadows = Cached.OrigLighting.GlobalShadows
+		end
+	end)
+end
+
+local function updateVisualsFrame()
+	if State.Unloaded or not State.PlayerESPEnabled or not drawingAvailable then
+		for _, entry in pairs(espEntries) do
+			hideEspEntry(entry)
+		end
+		return
+	end
+
+	local cam = Workspace.CurrentCamera
+	if not cam then return end
+
+	for plr, entry in pairs(espEntries) do
+		if not plr or not plr.Parent then
+			removeEspForPlayer(plr)
+		end
+	end
+
+	local myPos = Cached.Root and Cached.Root.Position or cam.CFrame.Position
+	local originTracer = Vector2.new(cam.ViewportSize.X * 0.5, cam.ViewportSize.Y)
+
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer then
+			local entry = ensureEspEntry(plr)
+			local char = plr.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			local root = char and (
+				char:FindFirstChild("HumanoidRootPart")
+				or char:FindFirstChild("Torso")
+				or char:FindFirstChild("UpperTorso")
+			)
+
+			if root and hum and hum.Health > 0 and isValidPos(root.Position) then
+				local rootScreen, onScreen = cam:WorldToViewportPoint(root.Position)
+				if onScreen and rootScreen.Z > 0 then
+					local topScreen = cam:WorldToViewportPoint((root.CFrame * CFrame.new(0, 2.6, 0)).Position)
+					local botScreen = cam:WorldToViewportPoint((root.CFrame * CFrame.new(0, -3.1, 0)).Position)
+					local h = math.clamp(math.abs(topScreen.Y - botScreen.Y), 18, 400)
+					local w = math.clamp(h * 0.6, 12, 250)
+					local dist = math.floor((root.Position - myPos).Magnitude)
+
+					if entry.Box then
+						pcall(function()
+							entry.Box.Size = Vector2.new(w, h)
+							entry.Box.Position = Vector2.new(rootScreen.X - (w * 0.5), topScreen.Y)
+							entry.Box.Visible = State.ESPBoxes
+						end)
+					end
+
+					if entry.Label then
+						local textOut = State.ESPDistance and string.format("%s [%dm]", plr.Name, dist) or plr.Name
+						pcall(function()
+							entry.Label.Text = textOut
+							entry.Label.Position = Vector2.new(rootScreen.X, topScreen.Y - 18)
+							entry.Label.Visible = true
+						end)
+					end
+
+					if entry.Line then
+						pcall(function()
+							entry.Line.From = originTracer
+							entry.Line.To = Vector2.new(rootScreen.X, botScreen.Y)
+							entry.Line.Visible = State.ESPTracers
+						end)
+					end
+				else
+					hideEspEntry(entry)
+				end
+			else
+				hideEspEntry(entry)
+			end
+		end
+	end
 end
 
 -- ==========================================
 -- FLOATING MOBILE BUTTONS
 -- ==========================================
 local floatGui = Instance.new("ScreenGui")
-floatGui.Name = "HussValley_FloatGuiV3"
+floatGui.Name = "DarkMoon_FloatGui_v11"
 floatGui.ResetOnSpawn = false
 floatGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
 floatGui.DisplayOrder = 250
@@ -276,7 +915,7 @@ local function makeFloatBtn(name, text, yOffset, bgColor, borderColor, onClick)
 	local btn = Instance.new("TextButton")
 	btn.Name = name
 	btn.Size = UDim2.fromOffset(154, 46)
-	btn.Position = UDim2.new(1, -172, 0.50, yOffset)
+	btn.Position = UDim2.new(1, -172, 0.40, yOffset)
 	btn.BackgroundColor3 = bgColor
 	btn.TextColor3 = Color3.fromRGB(240, 244, 255)
 	btn.Text = text
@@ -351,6 +990,15 @@ local function makeFloatBtn(name, text, yOffset, bgColor, borderColor, onClick)
 	return btn
 end
 
+local darkMoonToggleFloat = makeFloatBtn(
+	"DarkMoonToggleFloat",
+	"DARK MOON UI",
+	-54,
+	Color3.fromRGB(28, 22, 46),
+	Color3.fromRGB(165, 130, 255),
+	toggleWindowVisibility
+)
+
 local tpSavedFloat = makeFloatBtn(
 	"TpSavedFloat",
 	"TP Saved Spot",
@@ -369,19 +1017,77 @@ local tpNearestFloat = makeFloatBtn(
 	teleportNearestPlayer
 )
 
+local underMapFloat = makeFloatBtn(
+	"UnderMapFloat",
+	"Under Map",
+	108,
+	Color3.fromRGB(36, 24, 48),
+	Color3.fromRGB(190, 120, 255),
+	function()
+		setUnderMap(not State.UnderMapEnabled)
+	end
+)
+
+refreshFloatText = function()
+	if underMapFloat and underMapFloat.Parent then
+		underMapFloat.Text = State.UnderMapEnabled and "Return Surface" or "Under Map"
+	end
+end
+
 -- ==========================================
--- HEARTBEAT LOOP
+-- LOOPS & EVENTS
 -- ==========================================
+table.insert(connections, Players.PlayerRemoving:Connect(removeEspForPlayer))
+table.insert(connections, RunService.RenderStepped:Connect(updateVisualsFrame))
+
+table.insert(connections, RunService.Stepped:Connect(function()
+	if State.Unloaded then return end
+	if State.NoclipEnabled then
+		applyNoclipFrame()
+	end
+end))
+
 table.insert(connections, RunService.Heartbeat:Connect(function(dt)
-	if State.Unloaded or State.TpRunning then return end
+	if State.Unloaded then return end
+	local char = Cached.Char
 	local hum = Cached.Hum
 	local root = Cached.Root
-	if not hum or not root or hum.Health <= 0 then return end
+	if not char or not hum or not root or hum.Health <= 0 then return end
 
-	if State.SpeedEnabled and hum.MoveDirection.Magnitude > 0.05 then
+	local clampedDt = math.min(dt, 0.05)
+	local now = os.clock()
+
+	if State.AutoWallBypass and not State.TpRunning and hum.MoveDirection.Magnitude > 0.1 and (now - State.LastBypassTime) > 0.3 then
+		executeWallBypass(false)
+	end
+
+	if State.UnderMapEnabled and not State.TpRunning and isValidPos(root.Position) then
+		markIntent(0.35)
+		local targetY = State.UnderMapLockY and State.UnderAnchorY or root.Position.Y
+		if targetY then
+			if root.Position.Y < (targetY - 1.5) then
+				local look = root.CFrame.LookVector
+				local flatLook = Vector3.new(look.X, 0, look.Z)
+				local p = Vector3.new(root.Position.X, targetY, root.Position.Z)
+				stepCharacterToward(char, hum, root, p, flatLook, Vector3.zero)
+			end
+			ensurePlatform()
+			underPlatform.Parent = Workspace
+			underPlatform.CFrame = CFrame.new(root.Position.X, targetY - 3.5, root.Position.Z)
+		end
+	end
+
+	if State.SpeedEnabled and not State.TpRunning and hum.MoveDirection.Magnitude > 0.05 then
 		local flatDir = Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z)
 		if flatDir.Magnitude > 0.001 then
-			root.CFrame = root.CFrame + (flatDir.Unit * State.ExtraSpeed * math.min(dt, 0.05))
+			flatDir = flatDir.Unit
+			markIntent(0.25)
+			root.CFrame = root.CFrame + (flatDir * State.ExtraSpeed * clampedDt)
+			if State.ServerSystemBypass and State.BypassVelocitySync then
+				local curV = root.AssemblyLinearVelocity
+				local targetSpd = hum.WalkSpeed + State.ExtraSpeed
+				root.AssemblyLinearVelocity = Vector3.new(flatDir.X * targetSpd, isValidPos(curV) and curV.Y or 0, flatDir.Z * targetSpd)
+			end
 		end
 	end
 
@@ -397,80 +1103,183 @@ table.insert(connections, RunService.Heartbeat:Connect(function(dt)
 			end
 		end
 	end
+
+	applyServerBypassSystems(char, hum, root, now)
 end))
 
 -- ==========================================
--- UI CONTROLS
+-- 1. SERVER & REMOTE TAB
 -- ==========================================
+BypassTab:Toggle({
+	Title = "Server System Bypass",
+	Desc = "Master toggle for anti-pullback step sync, tether cleanup & state recovery",
+	Default = true,
+	Callback = function(v)
+		State.ServerSystemBypass = v
+		if v and Cached.Char and Cached.Hum and Cached.Root then
+			cleanCharacterTethers(Cached.Char, Cached.Hum, Cached.Root, true)
+		end
+	end
+})
+BypassTab:Toggle({
+	Title = "Remote System Bypass",
+	Desc = "Safely manages remote calls & movement sync across features",
+	Default = true,
+	Callback = function(v)
+		State.RemoteSystemBypass = v
+		if v then
+			pcall(scanRemotesSafe)
+		end
+	end
+})
+BypassTab:Toggle({
+	Title = "Remote Sync Guard",
+	Desc = "Sends safe movement/position sync pulses during teleports when enabled",
+	Default = true,
+	Callback = function(v) State.RemoteSyncGuard = v end
+})
+BypassTab:Button({
+	Title = "Rescan Remote System",
+	Desc = "Refresh cached RemoteEvents & RemoteFunctions safely",
+	Callback = function()
+		pcall(scanRemotesSafe)
+	end
+})
+BypassTab:Toggle({
+	Title = "Velocity & Clamp Sync",
+	Desc = "Matches velocity during steps/speed & clamps extreme knockback spikes",
+	Default = true,
+	Callback = function(v) State.BypassVelocitySync = v end
+})
+BypassTab:Toggle({
+	Title = "Ragdoll & State Lock Bypass",
+	Desc = "Recovers from Ragdoll, FallingDown, Physics & PlatformStanding states",
+	Default = true,
+	Callback = function(v) State.BypassStateLock = v end
+})
+BypassTab:Toggle({
+	Title = "Seat & Force Tether Clear",
+	Desc = "Disables seats & removes body movers or constraints pulling the character",
+	Default = true,
+	Callback = function(v) State.BypassSeatClear = v end
+})
+BypassTab:Toggle({
+	Title = "Anti-Pullback Guard",
+	Desc = "Snaps back to last clean position on unexpected position spikes",
+	Default = true,
+	Callback = function(v) State.AntiPullbackGuard = v end
+})
+BypassTab:Slider({
+	Title = "Pullback Guard Threshold",
+	Desc = "Stud jump distance that triggers pullback guard",
+	Step = 2,
+	Value = { Min = 20, Max = 90, Default = 42 },
+	Callback = function(v) State.PullbackThreshold = v end
+})
+BypassTab:Button({
+	Title = "Hard Wall Bypass Now",
+	Desc = "Phase past solid walls ahead immediately",
+	Callback = function() executeWallBypass(true) end
+})
+BypassTab:Toggle({
+	Title = "Auto Wall Bypass",
+	Desc = "Automatically bypass walls ahead while moving",
+	Default = false,
+	Callback = function(v) State.AutoWallBypass = v end
+})
+BypassTab:Slider({
+	Title = "Bypass Scan Distance",
+	Desc = "Max studs scanned past walls",
+	Step = 2,
+	Value = { Min = 8, Max = 50, Default = 22 },
+	Callback = function(v) State.BypassScanDist = v end
+})
+
+-- ==========================================
+-- 2. TELEPORT TAB
+-- ==========================================
+TeleportTab:Button({ Title = "Save Current Spot", Desc = "Save your current position", Callback = saveCurrentSpot })
+TeleportTab:Button({ Title = "Teleport to Saved Spot", Desc = "Teleport back to your saved position", Callback = teleportSavedSpot })
+TeleportTab:Button({ Title = "Teleport to Nearest Player", Desc = "Teleport next to the closest player in the server", Callback = teleportNearestPlayer })
 TeleportTab:Slider({
 	Title = "Step Distance",
-	Desc = "Studs moved per step during teleport",
+	Desc = "Studs moved per anti-pullback step",
 	Step = 2,
 	Value = { Min = 8, Max = 40, Default = 16 },
-	Callback = function(v)
-		State.StepStuds = v
-	end
+	Callback = function(v) State.StepStuds = v end
 })
-
 TeleportTab:Slider({
-	Title = "Anchor Frames",
-	Desc = "Frames held at destination to resist pullback",
+	Title = "Hold Frames",
+	Desc = "Frames held at destination to stabilize position",
 	Step = 1,
 	Value = { Min = 1, Max = 15, Default = 6 },
-	Callback = function(v)
-		State.HoldFrames = v
-	end
+	Callback = function(v) State.HoldFrames = v end
 })
-
-TeleportTab:Button({
-	Title = "Save Current Spot",
-	Desc = "Save your current position",
-	Callback = saveCurrentSpot
-})
-
-TeleportTab:Button({
-	Title = "Teleport to Saved Spot",
-	Desc = "Teleport back to your saved position",
-	Callback = teleportSavedSpot
-})
-
-TeleportTab:Button({
-	Title = "Teleport to Nearest Player",
-	Desc = "Teleport next to the closest player in the server",
-	Callback = teleportNearestPlayer
-})
-
 TeleportTab:Toggle({
 	Title = "Floating Teleport Buttons",
-	Desc = "Show draggable TP Saved & TP Nearest buttons",
+	Desc = "Show draggable DARK MOON UI, TP Saved, TP Nearest & Under Map buttons",
 	Default = true,
 	Callback = function(v)
 		State.ShowFloatButtons = v
 		local show = v and (not State.Unloaded)
+		if darkMoonToggleFloat then darkMoonToggleFloat.Visible = show end
 		if tpSavedFloat then tpSavedFloat.Visible = show end
 		if tpNearestFloat then tpNearestFloat.Visible = show end
+		if underMapFloat then underMapFloat.Visible = show end
 	end
 })
 
+-- ==========================================
+-- 3. MOVEMENT & UNDER MAP TAB
+-- ==========================================
+MovementTab:Toggle({
+	Title = "Under Map",
+	Desc = "Drop below map onto a safety platform",
+	Default = false,
+	Callback = function(v) setUnderMap(v) end
+})
+MovementTab:Button({
+	Title = "Return to Surface",
+	Desc = "Return safely from Under Map",
+	Callback = function() setUnderMap(false) end
+})
+MovementTab:Slider({
+	Title = "Under Map Depth",
+	Desc = "Studs below current height",
+	Step = 1,
+	Value = { Min = 6, Max = 35, Default = 14 },
+	Callback = function(v) State.UnderMapDepth = v end
+})
+MovementTab:Toggle({
+	Title = "Lock Under Map Height",
+	Desc = "Keep steady Y level underground",
+	Default = true,
+	Callback = function(v)
+		State.UnderMapLockY = v
+		if v and State.UnderMapEnabled and Cached.Root then
+			State.UnderAnchorY = Cached.Root.Position.Y
+		end
+	end
+})
+MovementTab:Toggle({
+	Title = "Noclip",
+	Desc = "Walk through solid parts smoothly",
+	Default = false,
+	Callback = function(v) setNoclip(v) end
+})
 MovementTab:Toggle({
 	Title = "Speed Boost",
 	Desc = "Smooth movement boost",
 	Default = false,
-	Callback = function(v)
-		State.SpeedEnabled = v
-	end
+	Callback = function(v) State.SpeedEnabled = v end
 })
-
 MovementTab:Slider({
 	Title = "Bonus Speed",
 	Desc = "Extra movement speed",
 	Step = 1,
 	Value = { Min = 4, Max = 50, Default = 12 },
-	Callback = function(v)
-		State.ExtraSpeed = v
-	end
+	Callback = function(v) State.ExtraSpeed = v end
 })
-
 MovementTab:Toggle({
 	Title = "Jump Boost",
 	Desc = "Boost character jump",
@@ -479,47 +1288,137 @@ MovementTab:Toggle({
 		State.JumpEnabled = v
 		if Cached.Hum then
 			if v then
-				if Cached.Hum.UseJumpPower then
-					Cached.Hum.JumpPower = State.JumpPower
-				else
-					Cached.Hum.JumpHeight = State.JumpPower / 5
-				end
+				if Cached.Hum.UseJumpPower then Cached.Hum.JumpPower = State.JumpPower else Cached.Hum.JumpHeight = State.JumpPower / 5 end
 			else
-				if Cached.Hum.UseJumpPower then
-					Cached.Hum.JumpPower = State.DefaultJumpPower
-				else
-					Cached.Hum.JumpHeight = State.DefaultJumpPower
-				end
+				if Cached.Hum.UseJumpPower then Cached.Hum.JumpPower = State.DefaultJumpPower else Cached.Hum.JumpHeight = State.DefaultJumpPower end
 			end
 		end
 	end
 })
-
 MovementTab:Slider({
 	Title = "Jump Power",
-	Desc = "Adjust jump strength",
+	Desc = "Adjust jump boost strength",
 	Step = 5,
 	Value = { Min = 50, Max = 150, Default = 65 },
-	Callback = function(v)
-		State.JumpPower = v
-	end
+	Callback = function(v) State.JumpPower = v end
 })
 
+-- ==========================================
+-- 4. VISUALS TAB
+-- ==========================================
+VisualsTab:Toggle({
+	Title = "Player ESP",
+	Desc = "Show player tags & visuals",
+	Default = false,
+	Callback = function(v)
+		State.PlayerESPEnabled = v
+		if not v then
+			for _, entry in pairs(espEntries) do hideEspEntry(entry) end
+		end
+	end
+})
+VisualsTab:Toggle({
+	Title = "ESP Boxes",
+	Desc = "Toggle 2D boxes around players",
+	Default = true,
+	Callback = function(v) State.ESPBoxes = v end
+})
+VisualsTab:Toggle({
+	Title = "ESP Distance",
+	Desc = "Show distance in studs on ESP",
+	Default = true,
+	Callback = function(v) State.ESPDistance = v end
+})
+VisualsTab:Toggle({
+	Title = "ESP Tracers",
+	Desc = "Draw lines from bottom screen to players",
+	Default = false,
+	Callback = function(v) State.ESPTracers = v end
+})
+VisualsTab:Toggle({
+	Title = "Fullbright",
+	Desc = "Brighten map & remove dark fog",
+	Default = false,
+	Callback = function(v) setFullbright(v) end
+})
+
+-- ==========================================
+-- 5. UTILITY TAB
+-- ==========================================
+UtilityTab:Button({
+	Title = "Reset Camera",
+	Desc = "Reset camera subject & type to Custom",
+	Callback = function()
+		local cam = Workspace.CurrentCamera
+		if cam and Cached.Hum then
+			cam.CameraType = Enum.CameraType.Custom
+			cam.CameraSubject = Cached.Hum
+		end
+	end
+})
+UtilityTab:Button({
+	Title = "Rejoin Server",
+	Desc = "Rejoin current server instance",
+	Callback = function()
+		if (os.clock() - State.LastRejoinTime) < 2 then return end
+		State.LastRejoinTime = os.clock()
+		local pid = game.PlaceId
+		local jid = game.JobId
+		if pid and pid > 0 then
+			pcall(function()
+				if jid and jid ~= "" then
+					TeleportService:TeleportToPlaceInstance(pid, jid, LocalPlayer)
+				else
+					TeleportService:Teleport(pid, LocalPlayer)
+				end
+			end)
+		end
+	end
+})
+UtilityTab:Button({
+	Title = "Copy Server JobId",
+	Desc = "Copy current JobId to clipboard if supported",
+	Callback = function()
+		if typeof(setclipboard) == "function" then
+			pcall(function()
+				setclipboard(tostring(game.JobId))
+			end)
+		end
+	end
+})
 UtilityTab:Button({
 	Title = "Unload Script",
-	Desc = "Clean up connections & close UI",
+	Desc = "Cleanly disconnect loops, restore lighting/collisions & close UI",
 	Callback = function()
 		if State.Unloaded then return end
 		State.Unloaded = true
 		State.TpRunning = false
+		State.UnderMapEnabled = false
+		State.NoclipEnabled = false
+		State.AutoWallBypass = false
+		State.AntiPullbackGuard = false
+		State.ServerSystemBypass = false
+		State.RemoteSystemBypass = false
 		State.SpeedEnabled = false
 		State.JumpEnabled = false
+		State.PlayerESPEnabled = false
+
+		setFullbright(false)
+		restoreNoclipParts()
+		clearAllEsp()
+		table.clear(Cached.Remotes)
+
 		for _, conn in ipairs(connections) do
 			if conn and conn.Connected then
 				conn:Disconnect()
 			end
 		end
 		table.clear(connections)
+
+		if underPlatform then
+			underPlatform:Destroy()
+			underPlatform = nil
+		end
 		if floatGui then
 			floatGui:Destroy()
 			floatGui = nil
