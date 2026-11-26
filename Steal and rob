@@ -12,8 +12,8 @@ local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local SCRIPT_VERSION = "v26.0"
-local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v26.json"
+local SCRIPT_VERSION = "v27.0"
+local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v27.json"
 local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-cloud/yutahub/main/main.lua"
 
 -- ==========================================
@@ -22,9 +22,9 @@ local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-
 local CHANGELOG = {
 	Version = SCRIPT_VERSION,
 	WhatsNew = {
-		"TP Nearest Vault / Loot: Teleports cleanly to the closest detected vault or loot marker.",
-		"Void Safety Net & Max Fall Speed Slider: Prevents void deaths & tunes safe fall velocity.",
-		"Player Name/Distance ESP, Low-Pop Server Hop Mode, Copy JobId, & Platform Opacity Toggle."
+		"UPGRADE BASE Button: Renamed from TP Nearest Vault/Loot with smooth ground/clearance teleport.",
+		"Auto Claim Index Toggle: Throttled auto-claim/collect/index interaction scanner for prompts & triggers.",
+		"Optimize Mobile Lag Toggle: Lowers graphics quality, trims heavy FX, & throttles scans for mobile FPS."
 	},
 	WhatsFixed = {
 		"Fixed Under Map dropping too deep into void kill-zones or drifting on uneven floors.",
@@ -38,7 +38,7 @@ local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubV26",
+	Folder = "PremiumYutaHubV27",
 	Size = UDim2.fromOffset(550, 530),
 	MinSize = Vector2.new(440, 320),
 	MaxSize = Vector2.new(740, 640),
@@ -102,6 +102,8 @@ local State = {
 	PlayerInfoESP = true,
 	LootVaultESP = false,
 	LootEspLogo = true,
+	AutoClaimIndex = false,
+	OptimizeMobileLag = false,
 	ServerHopLowPopMode = false,
 	AutoSaveEnabled = true,
 	AutoExecuteEnabled = true,
@@ -127,6 +129,8 @@ local State = {
 	LastWallProbeTime = 0,
 	LastRagdollSweepTime = 0,
 	LastLootScanTime = 0,
+	LastClaimScanTime = 0,
+	LastMobileFxSweepTime = 0,
 	LastRejoinAttempt = 0,
 	LastServerHopAttempt = 0,
 	LastBaseTpTime = 0,
@@ -149,7 +153,11 @@ local Cached = {
 	Root = nil,
 	Parts = {},
 	Seats = {},
-	OrigProps = {}
+	OrigProps = {},
+	MobileOrigFX = {},
+	MobileOrigQuality = nil,
+	MobileOrigWaterWave = nil,
+	MobileOrigWaterRefl = nil
 }
 
 local UIRefs = {}
@@ -180,6 +188,220 @@ local function disconnectList(list)
 		end
 	end
 	table.clear(list)
+end
+
+-- ==========================================
+-- MOBILE LAG OPTIMIZER SYSTEM
+-- ==========================================
+local function getUserGameSettingsSafe()
+	local ok, settings = pcall(function()
+		return UserSettings():GetService("UserGameSettings")
+	end)
+	if ok and settings then
+		return settings
+	end
+	return nil
+end
+
+local function applyMobileFxTrimPass(limitCount)
+	local maxTrim = limitCount or 120
+	local trimmed = 0
+
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if trimmed >= maxTrim then break end
+		if Cached.MobileOrigFX[desc] == nil then
+			if desc:IsA("ParticleEmitter") then
+				Cached.MobileOrigFX[desc] = {
+					Class = "ParticleEmitter",
+					Enabled = desc.Enabled,
+					Rate = desc.Rate
+				}
+				desc.Enabled = false
+				desc.Rate = 0
+				trimmed += 1
+			elseif desc:IsA("Trail") or desc:IsA("Beam") then
+				Cached.MobileOrigFX[desc] = {
+					Class = desc.ClassName,
+					Enabled = desc.Enabled
+				}
+				desc.Enabled = false
+				trimmed += 1
+			elseif desc:IsA("Fire") or desc:IsA("Smoke") or desc:IsA("Sparkles") then
+				Cached.MobileOrigFX[desc] = {
+					Class = desc.ClassName,
+					Enabled = desc.Enabled
+				}
+				desc.Enabled = false
+				trimmed += 1
+			end
+		end
+	end
+end
+
+local function restoreMobileLagOptimization()
+	for obj, saved in pairs(Cached.MobileOrigFX) do
+		if obj and obj.Parent and typeof(saved) == "table" then
+			pcall(function()
+				if saved.Class == "ParticleEmitter" then
+					obj.Enabled = saved.Enabled
+					obj.Rate = saved.Rate
+				else
+					obj.Enabled = saved.Enabled
+				end
+			end)
+		end
+	end
+	table.clear(Cached.MobileOrigFX)
+
+	local settings = getUserGameSettingsSafe()
+	if settings and Cached.MobileOrigQuality ~= nil then
+		pcall(function()
+			settings.SavedQualityLevel = Cached.MobileOrigQuality
+		end)
+		Cached.MobileOrigQuality = nil
+	end
+
+	local terrain = Workspace:FindFirstChildOfClass("Terrain")
+	if terrain then
+		if Cached.MobileOrigWaterWave ~= nil then
+			pcall(function()
+				terrain.WaterWaveSize = Cached.MobileOrigWaterWave
+			end)
+			Cached.MobileOrigWaterWave = nil
+		end
+		if Cached.MobileOrigWaterRefl ~= nil then
+			pcall(function()
+				terrain.WaterReflectance = Cached.MobileOrigWaterRefl
+			end)
+			Cached.MobileOrigWaterRefl = nil
+		end
+	end
+end
+
+local function setOptimizeMobileLag(enabled)
+	State.OptimizeMobileLag = enabled
+	if State.Unloaded or not enabled then
+		restoreMobileLagOptimization()
+		return
+	end
+
+	local settings = getUserGameSettingsSafe()
+	if settings then
+		if Cached.MobileOrigQuality == nil then
+			pcall(function()
+				Cached.MobileOrigQuality = settings.SavedQualityLevel
+			end)
+		end
+		pcall(function()
+			settings.SavedQualityLevel = Enum.SavedQualitySetting.QualityLevel1
+		end)
+	end
+
+	local terrain = Workspace:FindFirstChildOfClass("Terrain")
+	if terrain then
+		if Cached.MobileOrigWaterWave == nil then
+			pcall(function()
+				Cached.MobileOrigWaterWave = terrain.WaterWaveSize
+			end)
+		end
+		if Cached.MobileOrigWaterRefl == nil then
+			pcall(function()
+				Cached.MobileOrigWaterRefl = terrain.WaterReflectance
+			end)
+		end
+		pcall(function()
+			terrain.WaterWaveSize = 0
+			terrain.WaterReflectance = 0
+		end)
+	end
+
+	State.LastMobileFxSweepTime = os.clock()
+	applyMobileFxTrimPass(140)
+end
+
+-- ==========================================
+-- AUTO CLAIM INDEX SYSTEM
+-- ==========================================
+local claimKeywords = { "claim", "index", "collect", "redeem", "unlock", "reward", "grab" }
+
+local function matchesClaimKeyword(str)
+	if typeof(str) ~= "string" or str == "" then return false end
+	local lower = str:lower()
+	for _, kw in ipairs(claimKeywords) do
+		if lower:find(kw, 1, true) then
+			return true
+		end
+	end
+	return false
+end
+
+local function getPromptOrDetectorPosition(obj)
+	if not obj or not obj.Parent then return nil end
+	if obj.Parent:IsA("BasePart") then
+		return obj.Parent.Position
+	end
+	if obj.Parent:IsA("Attachment") and obj.Parent.Parent and obj.Parent.Parent:IsA("BasePart") then
+		return obj.Parent.Parent.Position
+	end
+	if obj.Parent:IsA("Model") then
+		if obj.Parent.PrimaryPart then
+			return obj.Parent.PrimaryPart.Position
+		end
+		local part = obj.Parent:FindFirstChildWhichIsA("BasePart", true)
+		if part then
+			return part.Position
+		end
+	end
+	return nil
+end
+
+local function runAutoClaimIndexPass()
+	if not State.AutoClaimIndex or State.Unloaded then return end
+	local root = Cached.Root
+	if not root or not isValidVector3(root.Position) then return end
+
+	local rootPos = root.Position
+	local maxReach = 24
+	local triggersFired = 0
+
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if triggersFired >= 8 then break end
+		if desc:IsA("ProximityPrompt") and desc.Enabled then
+			local pos = getPromptOrDetectorPosition(desc)
+			if pos and (pos - rootPos).Magnitude <= maxReach then
+				local parentName = desc.Parent and desc.Parent.Name or ""
+				if matchesClaimKeyword(desc.ActionText) or matchesClaimKeyword(desc.ObjectText) or matchesClaimKeyword(desc.Name) or matchesClaimKeyword(parentName) then
+					local ok = pcall(function()
+						fireproximityprompt(desc)
+					end)
+					if not ok then
+						pcall(function()
+							desc:InputHoldBegin()
+							task.delay(0.05, function()
+								pcall(function()
+									desc:InputHoldEnd()
+								end)
+							end)
+						end)
+					end
+					triggersFired += 1
+				end
+			end
+		elseif desc:IsA("ClickDetector") then
+			local pos = getPromptOrDetectorPosition(desc)
+			if pos and (pos - rootPos).Magnitude <= maxReach then
+				local parentName = desc.Parent and desc.Parent.Name or ""
+				if matchesClaimKeyword(desc.Name) or matchesClaimKeyword(parentName) then
+					if typeof(fireclickdetector) == "function" then
+						pcall(function()
+							fireclickdetector(desc)
+						end)
+						triggersFired += 1
+					end
+				end
+			end
+		end
+	end
 end
 
 -- ==========================================
@@ -245,6 +467,8 @@ local function buildSavePayload()
 			JumpHeight = State.JumpHeight,
 			LootVaultESP = State.LootVaultESP,
 			LootEspLogo = State.LootEspLogo,
+			AutoClaimIndex = State.AutoClaimIndex,
+			OptimizeMobileLag = State.OptimizeMobileLag,
 			AntiFallDamage = State.AntiFallDamage,
 			MaxSafeFallSpeed = State.MaxSafeFallSpeed,
 			VoidSafetyNet = State.VoidSafetyNet,
@@ -348,6 +572,8 @@ local function resetSavedFeatures()
 		JumpHeight = 14,
 		LootVaultESP = false,
 		LootEspLogo = true,
+		AutoClaimIndex = false,
+		OptimizeMobileLag = false,
 		AntiFallDamage = false,
 		MaxSafeFallSpeed = 38,
 		VoidSafetyNet = true,
@@ -605,7 +831,7 @@ local function isPositionClear(pos)
 end
 
 -- ==========================================
--- BUG-FREE BREAK & STEAL BASE & LOOT TELEPORT SYSTEM
+-- BUG-FREE BREAK & STEAL BASE & UPGRADE TELEPORT SYSTEM
 -- ==========================================
 local underPlatform = Instance.new("Part")
 underPlatform.Name = "YutaHub_UnderPlatform"
@@ -926,7 +1152,7 @@ local function executeHardWallBypass(forceScan)
 end
 
 -- ==========================================
--- UPGRADED UNDER MAP & RETURN SYSTEM (v26)
+-- UPGRADED UNDER MAP & RETURN SYSTEM
 -- ==========================================
 local function ensureUnderPlatform()
 	if not underPlatform or not underPlatform.Parent then
@@ -1718,9 +1944,10 @@ local function scanLootAndVaults()
 	clearLootMarkers()
 	local seenPositions = {}
 	local count = 0
+	local maxScan = State.OptimizeMobileLag and 16 or 24
 
 	for _, desc in ipairs(Workspace:GetDescendants()) do
-		if count >= 24 then break end
+		if count >= maxScan then break end
 		if desc and desc.Name then
 			local matched, isVault = classifyLootOrVault(desc.Name)
 			local displayName = desc.Name
@@ -1922,7 +2149,8 @@ local function updateESPFrame()
 
 	if State.LootVaultESP then
 		local now = os.clock()
-		if (now - State.LastLootScanTime) >= 1.5 or #lootMarkers == 0 then
+		local scanInterval = State.OptimizeMobileLag and 2.2 or 1.5
+		if (now - State.LastLootScanTime) >= scanInterval or #lootMarkers == 0 then
 			State.LastLootScanTime = now
 			scanLootAndVaults()
 		end
@@ -2241,6 +2469,10 @@ local function unloadAll()
 	State.SpeedEnabled = false
 	State.BoxESP = false
 	State.LootVaultESP = false
+	State.AutoClaimIndex = false
+	State.OptimizeMobileLag = false
+
+	restoreMobileLagOptimization()
 
 	if fallStateConn then
 		fallStateConn:Disconnect()
@@ -2297,6 +2529,16 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 
 	local clampedDt = math.min(dt, 0.05)
 	local now = os.clock()
+
+	if State.AutoClaimIndex and (now - State.LastClaimScanTime) >= 0.45 then
+		State.LastClaimScanTime = now
+		runAutoClaimIndexPass()
+	end
+
+	if State.OptimizeMobileLag and (now - State.LastMobileFxSweepTime) >= 4.0 then
+		State.LastMobileFxSweepTime = now
+		applyMobileFxTrimPass(60)
+	end
 
 	applyVoidSafetyNet(char, hum, root, now)
 
@@ -2683,10 +2925,24 @@ HeistTab:Button({
 })
 
 HeistTab:Button({
-	Title = "Teleport to Nearest Vault / Loot",
+	Title = "UPGRADE BASE",
 	Desc = "Jump cleanly to the closest detected vault or loot marker",
 	Callback = function()
 		teleportToNearestLootOrVault()
+	end
+})
+
+UIRefs.AutoClaimIndex = HeistTab:Toggle({
+	Title = "Auto Claim Index",
+	Desc = "Automatically triggers nearby claim, index, collect, & unlock prompts",
+	Default = false,
+	Callback = function(value)
+		State.AutoClaimIndex = value
+		if value then
+			State.LastClaimScanTime = 0
+			runAutoClaimIndexPass()
+		end
+		markFeatureUsed()
 	end
 })
 
@@ -2817,6 +3073,16 @@ UIRefs.PlayerInfoESP = VisualsTab:Toggle({
 				end
 			end
 		end
+		markFeatureUsed()
+	end
+})
+
+UIRefs.OptimizeMobileLag = UtilityTab:Toggle({
+	Title = "Optimize Mobile Lag",
+	Desc = "Lowers graphics quality, disables heavy FX, & throttles scans for FPS",
+	Default = false,
+	Callback = function(value)
+		setOptimizeMobileLag(value)
 		markFeatureUsed()
 	end
 })
