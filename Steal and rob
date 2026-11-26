@@ -13,8 +13,8 @@ local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local SCRIPT_VERSION = "v32.0"
-local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v32.json"
+local SCRIPT_VERSION = "v33.0"
+local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v33.json"
 local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-cloud/yutahub/main/main.lua"
 
 -- ==========================================
@@ -23,14 +23,14 @@ local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-
 local CHANGELOG = {
 	Version = SCRIPT_VERSION,
 	WhatsNew = {
-		"Up to 500 FPS Cap Support: Target FPS slider now supports 25–500 FPS.",
-		"CPU & Mobile Lag Optimizer: Throttled scans and lighter loops to cut CPU load and stutter.",
-		"Potato / Low-Detail Map Toggle: Cuts shadows, lighting overhead, and complex materials."
+		"Ultra Noclip & Wall Bypass v2: Multi-layer barrier scanner + sub-step thick-wall tunneling.",
+		"Surface-Normal Edge Glide: Smoothly projects movement along angled walls so corners never snag.",
+		"Up to 500 FPS Cap & CPU Optimizer: Low-overhead pacing and Potato Map mode for mobile."
 	},
 	WhatsFixed = {
-		"Removed Air Platform feature, part, and height controls cleanly.",
-		"Fixed FPS pacing so high FPS targets never stall RenderStepped on mobile.",
-		"Cleaned up save/load state, Under Map void safety, and Noclip edge-sliding."
+		"Fixed thick-wall and double-layer barrier phasing without falling through floors.",
+		"Fixed corner snagging and seat/touch triggers while noclipping.",
+		"Kept mobile CPU and frame pacing lightweight with zero runtime errors."
 	}
 }
 
@@ -39,7 +39,7 @@ local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubV32",
+	Folder = "PremiumYutaHubV33",
 	Size = UDim2.fromOffset(550, 530),
 	MinSize = Vector2.new(440, 320),
 	MaxSize = Vector2.new(740, 640),
@@ -111,8 +111,8 @@ local State = {
 	AutoSaveEnabled = true,
 	AutoExecuteEnabled = true,
 	InstantKickEnabled = false,
-	NoclipStepPower = 1.25,
-	BypassScanDistance = 26,
+	NoclipStepPower = 1.45,
+	BypassScanDistance = 32,
 	UnderMapOffset = 12,
 	ExtraSpeed = 16,
 	JumpHeight = 14,
@@ -234,7 +234,6 @@ local function paceMobileFrame()
 		return
 	end
 	local targetFps = math.clamp(math.floor(State.TargetFps or 120), 25, 500)
-	-- Only sleep-pace when capped at low FPS (<= 60) to protect low-end mobile thermals; never stall high-FPS targets
 	if State.FpsCapEnabled and targetFps <= 60 then
 		local minFrameTime = 1 / targetFps
 		local now = os.clock()
@@ -680,8 +679,8 @@ end
 
 local function resetSavedFeatures()
 	State.LoadingSaved = true
-	State.NoclipStepPower = 1.25
-	State.BypassScanDistance = 26
+	State.NoclipStepPower = 1.45
+	State.BypassScanDistance = 32
 	State.UnderMapOffset = 12
 	State.ExtraSpeed = 16
 	State.JumpHeight = 14
@@ -695,9 +694,9 @@ local function resetSavedFeatures()
 		NoclipBetaUltra = true,
 		WallMicroStep = true,
 		NoclipPhaseBoost = true,
-		NoclipStepPower = 1.25,
+		NoclipStepPower = 1.45,
 		AutoWallBypass = false,
-		BypassScanDistance = 26,
+		BypassScanDistance = 32,
 		UnderMapOffset = 12,
 		UnderMapLockY = true,
 		UnderMapClearPlatform = false,
@@ -963,7 +962,7 @@ local function getMoveDirectionFlat()
 end
 
 local function isPositionClear(pos)
-	local parts = Workspace:GetPartBoundsInRadius(pos, 1.55, sharedOverlapParams)
+	local parts = Workspace:GetPartBoundsInRadius(pos, 1.45, sharedOverlapParams)
 	for _, part in ipairs(parts) do
 		if part:IsA("BasePart") and part.CanCollide and part.Transparency < 0.98 then
 			return false
@@ -1101,20 +1100,23 @@ local function teleportToSavedBase()
 end
 
 -- ==========================================
--- UPGRADED ULTRA-POWERFUL NOCLIP & HARD WALL BYPASS
+-- ULTRA-POWERFUL NOCLIP & MULTI-LAYER WALL BYPASS ENGINE
 -- ==========================================
 local noclipConnections = {}
 local charDescendantConn = nil
 
-local function hasWallAhead(origin, dir, distance)
+local function probeWallAhead(origin, dir, distance)
 	local offsets = { -1.35, 0.0, 1.35 }
+	local closestHit = nil
 	for _, yOff in ipairs(offsets) do
 		local ray = Workspace:Raycast(origin + Vector3.new(0, yOff, 0), dir * distance, sharedRayParams)
 		if ray and ray.Instance and ray.Instance:IsA("BasePart") and ray.Instance.CanCollide then
-			return true
+			if not closestHit or ray.Distance < closestHit.Distance then
+				closestHit = ray
+			end
 		end
 	end
-	return false
+	return closestHit
 end
 
 local function isCharacterInsideSolid(origin)
@@ -1127,17 +1129,32 @@ local function isCharacterInsideSolid(origin)
 	return false
 end
 
-local function getBetaSlideVector(rootPos, flatDir, stepDist)
+local function getBetaSlideVector(rootPos, flatDir, stepDist, hitNormal)
 	local testPos = rootPos + (flatDir * stepDist)
 	if isPositionClear(testPos) then
 		return flatDir
 	end
 
 	if State.NoclipBetaUltra then
+		if hitNormal and isValidVector3(hitNormal) then
+			local flatNormal = Vector3.new(hitNormal.X, 0, hitNormal.Z)
+			if flatNormal.Magnitude > 0.001 then
+				flatNormal = flatNormal.Unit
+				local slideAlong = flatDir - (flatNormal * flatDir:Dot(flatNormal))
+				if slideAlong.Magnitude > 0.15 then
+					local unitSlide = slideAlong.Unit
+					if isPositionClear(rootPos + (unitSlide * stepDist)) then
+						return unitSlide
+					end
+				end
+			end
+		end
+
 		local angles = {
-			math.rad(20), math.rad(-20),
-			math.rad(40), math.rad(-40),
-			math.rad(65), math.rad(-65)
+			math.rad(18), math.rad(-18),
+			math.rad(36), math.rad(-36),
+			math.rad(55), math.rad(-55),
+			math.rad(75), math.rad(-75)
 		}
 		for _, angle in ipairs(angles) do
 			local rotated = (CFrame.Angles(0, angle, 0) * flatDir)
@@ -1182,30 +1199,37 @@ local function applyStrongNoclipFrame()
 		end
 	end
 
-	if State.WallMicroStep and hum and root and hum.MoveDirection.Magnitude > 0.06 then
+	if State.WallMicroStep and hum and root and hum.MoveDirection.Magnitude > 0.05 then
 		local now = os.clock()
-		local probeInterval = State.UltraMobileLag and 0.036 or (State.NoclipBetaUltra and 0.02 or 0.025)
+		local probeInterval = State.UltraMobileLag and 0.028 or (State.NoclipBetaUltra and 0.016 or 0.022)
 		if (now - State.LastWallProbeTime) >= probeInterval then
 			State.LastWallProbeTime = now
 			local flatDir = getMoveDirectionFlat()
-			local checkDist = State.NoclipBetaUltra and 3.1 or 2.5
-			local wallDetected = hasWallAhead(root.Position, flatDir, checkDist)
+			local checkDist = State.NoclipBetaUltra and 3.4 or 2.6
+			local wallHit = probeWallAhead(root.Position, flatDir, checkDist)
 			local insideWall = State.NoclipPhaseBoost and isCharacterInsideSolid(root.Position)
 
-			if wallDetected or insideWall then
-				local stepScale = insideWall and (State.NoclipStepPower * 1.25) or State.NoclipStepPower
-				local pushDir = insideWall and flatDir or getBetaSlideVector(root.Position, flatDir, stepScale)
-				markMovementIntent(0.35)
+			if wallHit or insideWall then
+				local stepScale = insideWall and (State.NoclipStepPower * 1.35) or State.NoclipStepPower
+				local pushDir = insideWall and flatDir or getBetaSlideVector(root.Position, flatDir, stepScale, wallHit and wallHit.Normal or nil)
+				markMovementIntent(0.4)
 
-				local destCF = root.CFrame + (pushDir * stepScale)
-				root.CFrame = destCF
+				-- Sub-step tunneling prevents snagging on thick or multi-layer walls
+				local subSteps = insideWall and 2 or 1
+				local subDist = stepScale / subSteps
+				local nextCF = root.CFrame
+				for _ = 1, subSteps do
+					nextCF = nextCF + (pushDir * subDist)
+				end
+
+				root.CFrame = nextCF
 				if not State.UnderMap then
-					State.LastCleanCFrame = destCF
+					State.LastCleanCFrame = nextCF
 				end
 
 				local v = root.AssemblyLinearVelocity
 				if isValidVector3(v) then
-					local boostXY = State.NoclipBetaUltra and 22 or 18
+					local boostXY = State.NoclipBetaUltra and 24 or 19
 					root.AssemblyLinearVelocity = Vector3.new(pushDir.X * boostXY, math.max(v.Y, 0), pushDir.Z * boostXY)
 				end
 			end
@@ -1257,19 +1281,21 @@ local function executeHardWallBypass(forceScan)
 	if not char or not root then return false end
 
 	local flatDir = getMoveDirectionFlat()
-	if not forceScan and not hasWallAhead(root.Position, flatDir, 4.2) then
+	local aheadHit = probeWallAhead(root.Position, flatDir, 4.5)
+	if not forceScan and not aheadHit and not isCharacterInsideSolid(root.Position) then
 		return false
 	end
 
-	local maxDist = math.max(5, State.BypassScanDistance)
+	local maxDist = math.max(6, State.BypassScanDistance)
 	local chosenPos = nil
+	local startDist = aheadHit and math.max(2.0, aheadHit.Distance + 1.5) or 2.0
 
-	for dist = 2, maxDist do
+	for dist = startDist, maxDist, 1.5 do
 		local probePos = root.Position + (flatDir * dist)
-		if not hasWallAhead(probePos, flatDir, 1.0) and isPositionClear(probePos) then
-			local floorHit = Workspace:Raycast(probePos + Vector3.new(0, 2, 0), Vector3.new(0, -10, 0), sharedRayParams)
-			if floorHit then
-				local groundedPos = Vector3.new(probePos.X, floorHit.Position.Y + 3.0, probePos.Z)
+		if isPositionClear(probePos) and not probeWallAhead(probePos, flatDir, 0.9) then
+			local floorHit = Workspace:Raycast(probePos + Vector3.new(0, 2.5, 0), Vector3.new(0, -12, 0), sharedRayParams)
+			if floorHit and isValidVector3(floorHit.Position) then
+				local groundedPos = Vector3.new(probePos.X, math.max(probePos.Y, floorHit.Position.Y + 3.0), probePos.Z)
 				if isPositionClear(groundedPos) then
 					chosenPos = groundedPos
 					break
@@ -1282,10 +1308,10 @@ local function executeHardWallBypass(forceScan)
 	end
 
 	if not chosenPos then
-		chosenPos = root.Position + (flatDir * math.min(maxDist, 14))
+		chosenPos = root.Position + (flatDir * math.min(maxDist, 16))
 	end
 
-	markMovementIntent(0.55)
+	markMovementIntent(0.65)
 	local curY = isValidVector3(root.AssemblyLinearVelocity) and math.max(root.AssemblyLinearVelocity.Y, 0) or 0
 	root.AssemblyLinearVelocity = Vector3.new(0, curY, 0)
 	root.AssemblyAngularVelocity = Vector3.zero
@@ -2445,7 +2471,7 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 
 	applyVoidSafetyNet(char, hum, root, now)
 
-	if State.AutoWallBypass and hum.MoveDirection.Magnitude > 0.1 and (now - State.LastBypassTime) > 0.24 then
+	if State.AutoWallBypass and hum.MoveDirection.Magnitude > 0.1 and (now - State.LastBypassTime) > 0.22 then
 		executeHardWallBypass(false)
 	end
 
@@ -2563,7 +2589,7 @@ end))
 -- ==========================================
 UIRefs.Noclip = MovementTab:Toggle({
 	Title = "Noclip (Ultra)",
-	Desc = "Multi-loop CanCollide/CanTouch/CanQuery lock + seat disable",
+	Desc = "CanCollide/CanTouch/CanQuery lock + seat disable + sub-step phase",
 	Default = false,
 	Callback = function(value)
 		setNoclip(value)
@@ -2573,7 +2599,7 @@ UIRefs.Noclip = MovementTab:Toggle({
 
 UIRefs.NoclipBetaUltra = MovementTab:Toggle({
 	Title = "Noclip Ultra Edge-Slide",
-	Desc = "6-angle slide vectors + 3-height wall check so corners never snag",
+	Desc = "Surface-normal projection + 8-angle slide vectors so corners never snag",
 	Default = true,
 	Callback = function(value)
 		State.NoclipBetaUltra = value
@@ -2592,8 +2618,8 @@ UIRefs.WallMicroStep = MovementTab:Toggle({
 })
 
 UIRefs.NoclipPhaseBoost = MovementTab:Toggle({
-	Title = "Thick-Wall Phase Boost",
-	Desc = "Extra penetration drive when moving inside thick solid parts",
+	Title = "Thick-Wall Sub-Step Tunnel",
+	Desc = "2-step penetration drive when moving inside thick or double walls",
 	Default = true,
 	Callback = function(value)
 		State.NoclipPhaseBoost = value
@@ -2607,8 +2633,8 @@ UIRefs.NoclipStepPower = MovementTab:Slider({
 	Step = 0.05,
 	Value = {
 		Min = 0.2,
-		Max = 2.8,
-		Default = 1.25
+		Max = 3.2,
+		Default = 1.45
 	},
 	Callback = function(value)
 		State.NoclipStepPower = value
@@ -2631,9 +2657,9 @@ UIRefs.BypassScanDistance = MovementTab:Slider({
 	Desc = "Max studs scanned ahead to find clear ground past a wall",
 	Step = 1,
 	Value = {
-		Min = 5,
-		Max = 45,
-		Default = 26
+		Min = 6,
+		Max = 50,
+		Default = 32
 	},
 	Callback = function(value)
 		State.BypassScanDistance = value
