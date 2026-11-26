@@ -12,8 +12,8 @@ local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local SCRIPT_VERSION = "v21.0"
-local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v21.json"
+local SCRIPT_VERSION = "v24.0"
+local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v24.json"
 local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-cloud/yutahub/main/main.lua"
 
 -- ==========================================
@@ -22,14 +22,14 @@ local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-
 local CHANGELOG = {
 	Version = SCRIPT_VERSION,
 	WhatsNew = {
-		"Rebuilt Teleport to Base with Anti-Unusual snap-back protection & velocity/state reset.",
-		"Added automatic floor/clearance check + brief stabilization pulse on base teleport.",
-		"Auto Execute, Server Hop (5 Servers), Big Front Changelog, and Auto-Save Features."
+		"Anti Fall Damage Toggle: Clamps high fall velocity, blocks FallingDown state, & stabilizes landing.",
+		"Instant Kick Server Toggle: Immediately kicks you out of the current server safely (Auto-Exec untouched).",
+		"Join Best Server Hop: Scores public servers by lowest ping, highest FPS, and open slots."
 	},
 	WhatsFixed = {
-		"Fixed Teleport to Base getting snapped back by Anti-Unusual Movement or stuck in Sit/Seat state.",
-		"Fixed Loot & Vault ESP immediate scan on toggle + duplicate marker filtering within 2 studs.",
-		"Fixed BasePart, Model, and TextLabel position lookup + guarded Drawing logo badges."
+		"Fixed fall-impact velocity spikes and FallingDown state lockups on high drops.",
+		"Fixed wall-corner snagging and thick-wall resistance during Noclip movement.",
+		"Fixed Teleport to Base snap-back conflicts with Anti-Unusual Movement and Sit/Seat locks."
 	}
 }
 
@@ -38,7 +38,7 @@ local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubV21",
+	Folder = "PremiumYutaHubV24",
 	Size = UDim2.fromOffset(550, 530),
 	MinSize = Vector2.new(440, 320),
 	MaxSize = Vector2.new(740, 640),
@@ -81,7 +81,9 @@ local State = {
 	Noclip = false,
 	NoclipBetaUltra = true,
 	WallMicroStep = true,
+	NoclipPhaseBoost = true,
 	AutoWallBypass = false,
+	AntiFallDamage = false,
 	AntiRagdoll = false,
 	AntiKnockback = false,
 	AntiUnusualMovement = false,
@@ -98,15 +100,17 @@ local State = {
 	LootEspLogo = true,
 	AutoSaveEnabled = true,
 	AutoExecuteEnabled = true,
-	ServerHopCount = 5,
-	NoclipStepPower = 0.95,
-	BypassScanDistance = 24,
+	InstantKickEnabled = false,
+	BestServerMode = "Balanced",
+	NoclipStepPower = 1.25,
+	BypassScanDistance = 26,
 	UnderMapOffset = 12,
 	ExtraSpeed = 16,
 	JumpHeight = 14,
 	JumpPower = 75,
 	DefaultJumpHeight = 7.2,
 	DefaultJumpPower = 50,
+	MaxSafeFallSpeed = 38,
 	MaxSafeVelocity = 110,
 	MaxUnusualSpeed = 95,
 	MaxUnusualSnapDist = 35,
@@ -121,7 +125,9 @@ local State = {
 	LastRejoinAttempt = 0,
 	LastServerHopAttempt = 0,
 	LastBaseTpTime = 0,
+	LastKickAttempt = 0,
 	ServerHopBusy = false,
+	KickBusy = false,
 	TeleportQueued = false,
 	LastAutoSaveTime = 0,
 	IgnoreUnusualUntil = 0,
@@ -136,7 +142,7 @@ local Cached = {
 	Root = nil,
 	Parts = {},
 	Seats = {},
-	OrigCollide = {}
+	OrigProps = {}
 }
 
 local UIRefs = {}
@@ -215,6 +221,7 @@ local function buildSavePayload()
 			Noclip = State.Noclip,
 			NoclipBetaUltra = State.NoclipBetaUltra,
 			WallMicroStep = State.WallMicroStep,
+			NoclipPhaseBoost = State.NoclipPhaseBoost,
 			NoclipStepPower = State.NoclipStepPower,
 			AutoWallBypass = State.AutoWallBypass,
 			BypassScanDistance = State.BypassScanDistance,
@@ -229,6 +236,7 @@ local function buildSavePayload()
 			JumpHeight = State.JumpHeight,
 			LootVaultESP = State.LootVaultESP,
 			LootEspLogo = State.LootEspLogo,
+			AntiFallDamage = State.AntiFallDamage,
 			AntiUnusualMovement = State.AntiUnusualMovement,
 			SnapBackOnUnusual = State.SnapBackOnUnusual,
 			AntiRagdoll = State.AntiRagdoll,
@@ -297,8 +305,8 @@ end
 
 local function resetSavedFeatures()
 	State.LoadingSaved = true
-	State.NoclipStepPower = 0.95
-	State.BypassScanDistance = 24
+	State.NoclipStepPower = 1.25
+	State.BypassScanDistance = 26
 	State.UnderMapOffset = 12
 	State.ExtraSpeed = 16
 	State.JumpHeight = 14
@@ -309,9 +317,10 @@ local function resetSavedFeatures()
 		Noclip = false,
 		NoclipBetaUltra = true,
 		WallMicroStep = true,
-		NoclipStepPower = 0.95,
+		NoclipPhaseBoost = true,
+		NoclipStepPower = 1.25,
 		AutoWallBypass = false,
-		BypassScanDistance = 24,
+		BypassScanDistance = 26,
 		UnderMapOffset = 12,
 		UnderMapLockY = true,
 		ShowFloatingUnderBtn = true,
@@ -323,6 +332,7 @@ local function resetSavedFeatures()
 		JumpHeight = 14,
 		LootVaultESP = false,
 		LootEspLogo = true,
+		AntiFallDamage = false,
 		AntiUnusualMovement = false,
 		SnapBackOnUnusual = true,
 		AntiRagdoll = false,
@@ -492,6 +502,16 @@ end
 -- ==========================================
 -- CHARACTER CACHE HELPERS
 -- ==========================================
+local function cacheOriginalPartProps(part)
+	if Cached.OrigProps[part] == nil then
+		Cached.OrigProps[part] = {
+			CanCollide = part.CanCollide,
+			CanTouch = part.CanTouch,
+			CanQuery = part.CanQuery
+		}
+	end
+end
+
 local function rebuildCharacterCache(char)
 	table.clear(Cached.Parts)
 	table.clear(Cached.Seats)
@@ -512,9 +532,7 @@ local function rebuildCharacterCache(char)
 	for _, desc in ipairs(char:GetDescendants()) do
 		if desc:IsA("BasePart") then
 			table.insert(Cached.Parts, desc)
-			if Cached.OrigCollide[desc] == nil then
-				Cached.OrigCollide[desc] = desc.CanCollide
-			end
+			cacheOriginalPartProps(desc)
 		elseif desc:IsA("Seat") or desc:IsA("VehicleSeat") then
 			table.insert(Cached.Seats, desc)
 		end
@@ -524,12 +542,11 @@ end
 local function registerDescendant(desc)
 	if desc:IsA("BasePart") then
 		table.insert(Cached.Parts, desc)
-		if Cached.OrigCollide[desc] == nil then
-			Cached.OrigCollide[desc] = desc.CanCollide
-		end
+		cacheOriginalPartProps(desc)
 		if State.Noclip and not State.Unloaded then
 			desc.CanCollide = false
 			desc.CanTouch = false
+			desc.CanQuery = false
 		end
 	elseif desc:IsA("Seat") or desc:IsA("VehicleSeat") then
 		table.insert(Cached.Seats, desc)
@@ -558,7 +575,7 @@ local function getMoveDirectionFlat()
 end
 
 local function isPositionClear(pos)
-	local parts = Workspace:GetPartBoundsInRadius(pos, 1.65, sharedOverlapParams)
+	local parts = Workspace:GetPartBoundsInRadius(pos, 1.55, sharedOverlapParams)
 	for _, part in ipairs(parts) do
 		if part:IsA("BasePart") and part.CanCollide and part.Transparency < 0.98 then
 			return false
@@ -694,22 +711,29 @@ local function teleportToSavedBase()
 end
 
 -- ==========================================
--- NOCLIP BETA (ULTRA) & HARD WALL BYPASS
+-- UPGRADED ULTRA-POWERFUL NOCLIP & HARD WALL BYPASS
 -- ==========================================
 local noclipConnections = {}
 local charDescendantConn = nil
 
 local function hasWallAhead(origin, dir, distance)
-	local rayLow = Workspace:Raycast(origin - Vector3.new(0, 1.15, 0), dir * distance, sharedRayParams)
-	if rayLow and rayLow.Instance and rayLow.Instance:IsA("BasePart") and rayLow.Instance.CanCollide then
-		return true
+	local offsets = { -1.35, 0.0, 1.35 }
+	for _, yOff in ipairs(offsets) do
+		local ray = Workspace:Raycast(origin + Vector3.new(0, yOff, 0), dir * distance, sharedRayParams)
+		if ray and ray.Instance and ray.Instance:IsA("BasePart") and ray.Instance.CanCollide then
+			return true
+		end
 	end
+	return false
+end
 
-	local rayHigh = Workspace:Raycast(origin + Vector3.new(0, 1.15, 0), dir * distance, sharedRayParams)
-	if rayHigh and rayHigh.Instance and rayHigh.Instance:IsA("BasePart") and rayHigh.Instance.CanCollide then
-		return true
+local function isCharacterInsideSolid(origin)
+	local parts = Workspace:GetPartBoundsInRadius(origin, 1.35, sharedOverlapParams)
+	for _, part in ipairs(parts) do
+		if part:IsA("BasePart") and part.CanCollide and part.Transparency < 0.98 then
+			return true
+		end
 	end
-
 	return false
 end
 
@@ -720,7 +744,11 @@ local function getBetaSlideVector(rootPos, flatDir, stepDist)
 	end
 
 	if State.NoclipBetaUltra then
-		local angles = { math.rad(25), math.rad(-25), math.rad(45), math.rad(-45) }
+		local angles = {
+			math.rad(20), math.rad(-20),
+			math.rad(40), math.rad(-40),
+			math.rad(65), math.rad(-65)
+		}
 		for _, angle in ipairs(angles) do
 			local rotated = (CFrame.Angles(0, angle, 0) * flatDir)
 			local candidate = rootPos + (rotated * stepDist)
@@ -740,11 +768,16 @@ local function applyStrongNoclipFrame()
 	local root = Cached.Root
 	if not char then return end
 
+	if hum and hum.Sit then
+		hum.Sit = false
+	end
+
 	for i = #Cached.Parts, 1, -1 do
 		local part = Cached.Parts[i]
 		if part and part.Parent then
 			part.CanCollide = false
 			part.CanTouch = false
+			part.CanQuery = false
 		else
 			table.remove(Cached.Parts, i)
 		end
@@ -759,21 +792,31 @@ local function applyStrongNoclipFrame()
 		end
 	end
 
-	if State.WallMicroStep and hum and root and hum.MoveDirection.Magnitude > 0.08 then
+	if State.WallMicroStep and hum and root and hum.MoveDirection.Magnitude > 0.06 then
 		local now = os.clock()
-		local probeInterval = State.NoclipBetaUltra and 0.025 or 0.035
+		local probeInterval = State.NoclipBetaUltra and 0.016 or 0.025
 		if (now - State.LastWallProbeTime) >= probeInterval then
 			State.LastWallProbeTime = now
 			local flatDir = getMoveDirectionFlat()
-			local checkDist = State.NoclipBetaUltra and 2.5 or 2.35
-			if hasWallAhead(root.Position, flatDir, checkDist) then
-				local pushDir = getBetaSlideVector(root.Position, flatDir, State.NoclipStepPower)
-				markMovementIntent(0.25)
-				root.CFrame = root.CFrame + (pushDir * State.NoclipStepPower)
+			local checkDist = State.NoclipBetaUltra and 3.1 or 2.5
+			local wallDetected = hasWallAhead(root.Position, flatDir, checkDist)
+			local insideWall = State.NoclipPhaseBoost and isCharacterInsideSolid(root.Position)
+
+			if wallDetected or insideWall then
+				local stepScale = insideWall and (State.NoclipStepPower * 1.25) or State.NoclipStepPower
+				local pushDir = insideWall and flatDir or getBetaSlideVector(root.Position, flatDir, stepScale)
+				markMovementIntent(0.35)
+
+				local destCF = root.CFrame + (pushDir * stepScale)
+				root.CFrame = destCF
+				if not State.UnderMap then
+					State.LastCleanCFrame = destCF
+				end
+
 				local v = root.AssemblyLinearVelocity
 				if isValidVector3(v) then
-					local boostXY = State.NoclipBetaUltra and 18 or 16
-					root.AssemblyLinearVelocity = Vector3.new(pushDir.X * boostXY, v.Y, pushDir.Z * boostXY)
+					local boostXY = State.NoclipBetaUltra and 22 or 18
+					root.AssemblyLinearVelocity = Vector3.new(pushDir.X * boostXY, math.max(v.Y, 0), pushDir.Z * boostXY)
 				end
 			end
 		end
@@ -781,12 +824,14 @@ local function applyStrongNoclipFrame()
 end
 
 local function restoreNoclipProps()
-	for part, origCollide in pairs(Cached.OrigCollide) do
+	for part, props in pairs(Cached.OrigProps) do
 		if part and part.Parent and part:IsA("BasePart") then
-			part.CanCollide = origCollide
+			part.CanCollide = props.CanCollide
+			part.CanTouch = props.CanTouch
+			part.CanQuery = props.CanQuery
 		end
 	end
-	table.clear(Cached.OrigCollide)
+	table.clear(Cached.OrigProps)
 end
 
 local function setNoclip(enabled)
@@ -808,6 +853,7 @@ local function setNoclip(enabled)
 			table.insert(noclipConnections, RunService.PreSimulation:Connect(applyStrongNoclipFrame))
 		end
 		table.insert(noclipConnections, RunService.Stepped:Connect(applyStrongNoclipFrame))
+		table.insert(noclipConnections, RunService.Heartbeat:Connect(applyStrongNoclipFrame))
 	else
 		restoreNoclipProps()
 	end
@@ -819,7 +865,7 @@ local function executeHardWallBypass(forceScan)
 	if not char or not root then return false end
 
 	local flatDir = getMoveDirectionFlat()
-	if not forceScan and not hasWallAhead(root.Position, flatDir, 4.0) then
+	if not forceScan and not hasWallAhead(root.Position, flatDir, 4.2) then
 		return false
 	end
 
@@ -1157,9 +1203,82 @@ bindDraggableButton(baseFloatBtn, function()
 end)
 
 -- ==========================================
--- ANTI-UNUSUAL MOVEMENT, RAGDOLL & KNOCKBACK
+-- ANTI-FALL DAMAGE, UNUSUAL MOVEMENT, RAGDOLL & KNOCKBACK
 -- ==========================================
 local ragdollStateConn = nil
+local fallStateConn = nil
+
+local function syncFallingStateLocks(hum)
+	if not hum then return end
+	local blockFall = (State.AntiFallDamage or State.AntiRagdoll) and (not State.Unloaded)
+	pcall(function()
+		hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, not blockFall)
+	end)
+end
+
+local function applyAntiFallDamageFrame(hum, root)
+	if not State.AntiFallDamage or State.Unloaded or not hum or not root then return end
+
+	local v = root.AssemblyLinearVelocity
+	if isValidVector3(v) and v.Y < -State.MaxSafeFallSpeed then
+		markMovementIntent(0.25)
+		root.AssemblyLinearVelocity = Vector3.new(v.X, -State.MaxSafeFallSpeed, v.Z)
+	end
+
+	local hState = hum:GetState()
+	if hState == Enum.HumanoidStateType.FallingDown then
+		pcall(function()
+			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end)
+		task.defer(function()
+			if hum and hum.Parent and not State.Unloaded then
+				pcall(function()
+					hum:ChangeState(Enum.HumanoidStateType.Running)
+				end)
+			end
+		end)
+	end
+end
+
+local function bindFallWatcher(char)
+	if fallStateConn then
+		fallStateConn:Disconnect()
+		fallStateConn = nil
+	end
+
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not hum then return end
+
+	if State.AntiFallDamage and not State.Unloaded then
+		syncFallingStateLocks(hum)
+		fallStateConn = hum.StateChanged:Connect(function(_, newState)
+			if not State.AntiFallDamage or State.Unloaded then return end
+			if newState == Enum.HumanoidStateType.FallingDown then
+				applyAntiFallDamageFrame(hum, Cached.Root)
+			elseif newState == Enum.HumanoidStateType.Landed and Cached.Root then
+				local v = Cached.Root.AssemblyLinearVelocity
+				if isValidVector3(v) and v.Y < -12 then
+					markMovementIntent(0.25)
+					Cached.Root.AssemblyLinearVelocity = Vector3.new(v.X, 0, v.Z)
+				end
+			end
+		end)
+	end
+end
+
+local function setAntiFallDamage(enabled)
+	State.AntiFallDamage = enabled
+	if enabled and not State.Unloaded then
+		bindFallWatcher(Cached.Char)
+		applyAntiFallDamageFrame(Cached.Hum, Cached.Root)
+	else
+		if fallStateConn then
+			fallStateConn:Disconnect()
+			fallStateConn = nil
+		end
+		syncFallingStateLocks(Cached.Hum)
+	end
+end
 
 local function lockHumanoidStates(hum)
 	if not hum then return end
@@ -1183,8 +1302,9 @@ local function unlockHumanoidStates(hum)
 		Enum.HumanoidStateType.Physics
 	}
 	for _, stateType in ipairs(states) do
+		local keepBlocked = (stateType == Enum.HumanoidStateType.FallingDown) and State.AntiFallDamage
 		pcall(function()
-			hum:SetStateEnabled(stateType, true)
+			hum:SetStateEnabled(stateType, not keepBlocked)
 		end)
 	end
 end
@@ -1672,10 +1792,63 @@ local function updateESPFrame()
 end
 
 -- ==========================================
--- REJOIN & 5-SERVER HOP SYSTEM
+-- INSTANT KICK, REJOIN & BEST SERVER HOP SYSTEM
 -- ==========================================
 if game.JobId and game.JobId ~= "" then
 	VisitedServers[game.JobId] = true
+end
+
+local function setInstantKickToggleUI(value)
+	local ctrl = UIRefs.InstantKickEnabled
+	if ctrl and ctrl.Set then
+		State.SyncingToggle = true
+		pcall(function()
+			ctrl:Set(value)
+		end)
+		State.SyncingToggle = false
+	end
+end
+
+local function triggerInstantKickServer(reasonText)
+	if State.Unloaded or State.KickBusy then return end
+	local now = os.clock()
+	if (now - State.LastKickAttempt) < 1.0 then return end
+	State.LastKickAttempt = now
+	State.KickBusy = true
+
+	persistSaveNow()
+	if State.AutoExecuteEnabled then
+		armAutoExecuteForTeleport()
+	end
+	closeChangelogScreen()
+	if floatGui then
+		pcall(function()
+			floatGui:Destroy()
+		end)
+		floatGui = nil
+	end
+
+	local kickMsg = (typeof(reasonText) == "string" and reasonText ~= "")
+		and reasonText
+		or "PREMIUM YUTAHUB: Instant Server Kick"
+
+	local kicked = pcall(function()
+		LocalPlayer:Kick(kickMsg)
+	end)
+
+	if not kicked then
+		State.KickBusy = false
+		State.InstantKickEnabled = false
+		setInstantKickToggleUI(false)
+	end
+end
+
+local function setInstantKickEnabled(enabled)
+	if State.SyncingToggle then return end
+	State.InstantKickEnabled = enabled
+	if enabled and not State.Unloaded then
+		triggerInstantKickServer("PREMIUM YUTAHUB: Instant Server Kick")
+	end
 end
 
 local function rejoinCurrentServer()
@@ -1709,14 +1882,28 @@ local function rejoinCurrentServer()
 	end
 end
 
-local function fetchCandidateServers(placeId, maxServers)
-	local candidates = {}
+local function scoreServerCandidate(srv)
+	local playing = tonumber(srv.playing) or 0
+	local maxPlayers = math.max(1, tonumber(srv.maxPlayers) or 12)
+	local ping = tonumber(srv.ping) or 160
+	local fps = tonumber(srv.fps) or 55
+
+	local pingScore = math.max(0, 300 - ping) * 2.2
+	local fpsScore = math.clamp(fps, 10, 60) * 3.0
+	local freeSlots = math.max(0, maxPlayers - playing)
+	local ratio = playing / maxPlayers
+	local popScore = (ratio >= 0.2 and ratio <= 0.75) and 65 or (freeSlots * 4)
+
+	return pingScore + fpsScore + popScore
+end
+
+local function fetchBestServers(placeId)
+	local ranked = {}
 	local cursor = ""
 
-	for _ = 1, 3 do
-		if #candidates >= maxServers then break end
+	for _ = 1, 4 do
 		local url = string.format(
-			"https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Desc&limit=100%s",
+			"https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100%s",
 			placeId,
 			cursor ~= "" and ("&cursor=" .. HttpService:UrlEncode(cursor)) or ""
 		)
@@ -1736,12 +1923,14 @@ local function fetchCandidateServers(placeId, maxServers)
 		end
 
 		for _, srv in ipairs(decoded.data) do
-			if #candidates >= maxServers then break end
 			if typeof(srv) == "table" and typeof(srv.id) == "string" and srv.id ~= "" then
 				local playing = tonumber(srv.playing) or 0
 				local maxPlayers = tonumber(srv.maxPlayers) or 0
-				if srv.id ~= game.JobId and not VisitedServers[srv.id] and (maxPlayers <= 0 or playing < maxPlayers) then
-					table.insert(candidates, srv.id)
+				if srv.id ~= game.JobId and not VisitedServers[srv.id] and playing >= 1 and (maxPlayers <= 0 or playing < maxPlayers) then
+					table.insert(ranked, {
+						id = srv.id,
+						score = scoreServerCandidate(srv)
+					})
 				end
 			end
 		end
@@ -1753,10 +1942,14 @@ local function fetchCandidateServers(placeId, maxServers)
 		end
 	end
 
-	return candidates
+	table.sort(ranked, function(a, b)
+		return a.score > b.score
+	end)
+
+	return ranked
 end
 
-local function serverHopFive()
+local function joinBestServer()
 	if State.Unloaded or State.ServerHopBusy then return end
 	local now = os.clock()
 	if (now - State.LastServerHopAttempt) < 2.5 then return end
@@ -1770,11 +1963,12 @@ local function serverHopFive()
 	armAutoExecuteForTeleport()
 
 	task.spawn(function()
-		local targetLimit = math.clamp(math.floor(State.ServerHopCount or 5), 1, 5)
-		local candidates = fetchCandidateServers(placeId, targetLimit)
+		local candidates = fetchBestServers(placeId)
+		local attempts = math.min(#candidates, 5)
 
-		for _, jobId in ipairs(candidates) do
+		for i = 1, attempts do
 			if State.Unloaded then break end
+			local jobId = candidates[i].id
 			VisitedServers[jobId] = true
 			local ok = pcall(function()
 				TeleportService:TeleportToPlaceInstance(placeId, jobId, LocalPlayer)
@@ -1812,12 +2006,17 @@ local function unloadAll()
 	closeChangelogScreen()
 
 	State.AutoWallBypass = false
+	State.AntiFallDamage = false
 	State.AntiUnusualMovement = false
 	State.AntiKnockback = false
 	State.SpeedEnabled = false
 	State.BoxESP = false
 	State.LootVaultESP = false
 
+	if fallStateConn then
+		fallStateConn:Disconnect()
+		fallStateConn = nil
+	end
 	setNoclip(false)
 	setAntiRagdoll(false)
 	applyJumpBoost(false)
@@ -1869,6 +2068,10 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 
 	if State.AutoWallBypass and hum.MoveDirection.Magnitude > 0.1 and (now - State.LastBypassTime) > 0.22 then
 		executeHardWallBypass(false)
+	end
+
+	if State.AntiFallDamage then
+		applyAntiFallDamageFrame(hum, root)
 	end
 
 	if State.AntiRagdoll then
@@ -1926,7 +2129,7 @@ table.insert(lifecycleConnections, Players.PlayerRemoving:Connect(removePlayerES
 
 table.insert(lifecycleConnections, LocalPlayer.CharacterAdded:Connect(function(char)
 	if State.Unloaded then return end
-	table.clear(Cached.OrigCollide)
+	table.clear(Cached.OrigProps)
 	State.UnderMap = false
 	State.UnderAnchorY = nil
 	State.SavedCFrame = nil
@@ -1952,6 +2155,10 @@ table.insert(lifecycleConnections, LocalPlayer.CharacterAdded:Connect(function(c
 	if State.Noclip then
 		setNoclip(true)
 	end
+	if State.AntiFallDamage then
+		bindFallWatcher(char)
+		applyAntiFallDamageFrame(Cached.Hum, Cached.Root)
+	end
 	if State.AntiRagdoll then
 		lockHumanoidStates(Cached.Hum)
 		bindRagdollWatcher(char)
@@ -1966,8 +2173,8 @@ end))
 -- UI CONTROLS (WITH AUTO-SAVE HOOKS)
 -- ==========================================
 UIRefs.Noclip = MovementTab:Toggle({
-	Title = "Noclip (Beta)",
-	Desc = "Cached collision/touch lock + seat disable",
+	Title = "Noclip (Ultra)",
+	Desc = "Multi-loop CanCollide/CanTouch/CanQuery lock + seat disable",
 	Default = false,
 	Callback = function(value)
 		setNoclip(value)
@@ -1976,8 +2183,8 @@ UIRefs.Noclip = MovementTab:Toggle({
 })
 
 UIRefs.NoclipBetaUltra = MovementTab:Toggle({
-	Title = "Noclip Beta Ultra (Edge Slide)",
-	Desc = "Tests angled slide vectors to prevent wall-edge snagging",
+	Title = "Noclip Ultra Edge-Slide",
+	Desc = "6-angle slide vectors + 3-height wall check so corners never snag",
 	Default = true,
 	Callback = function(value)
 		State.NoclipBetaUltra = value
@@ -1995,14 +2202,24 @@ UIRefs.WallMicroStep = MovementTab:Toggle({
 	end
 })
 
+UIRefs.NoclipPhaseBoost = MovementTab:Toggle({
+	Title = "Thick-Wall Phase Boost",
+	Desc = "Extra penetration drive when moving inside thick solid parts",
+	Default = true,
+	Callback = function(value)
+		State.NoclipPhaseBoost = value
+		markFeatureUsed()
+	end
+})
+
 UIRefs.NoclipStepPower = MovementTab:Slider({
 	Title = "Noclip Step Power",
 	Desc = "Studs nudged per wall contact step",
 	Step = 0.05,
 	Value = {
 		Min = 0.2,
-		Max = 2.5,
-		Default = 0.95
+		Max = 2.8,
+		Default = 1.25
 	},
 	Callback = function(value)
 		State.NoclipStepPower = value
@@ -2027,7 +2244,7 @@ UIRefs.BypassScanDistance = MovementTab:Slider({
 	Value = {
 		Min = 5,
 		Max = 45,
-		Default = 24
+		Default = 26
 	},
 	Callback = function(value)
 		State.BypassScanDistance = value
@@ -2225,6 +2442,16 @@ UIRefs.LootEspLogo = HeistTab:Toggle({
 	end
 })
 
+UIRefs.AntiFallDamage = ProtectionTab:Toggle({
+	Title = "Anti Fall Damage",
+	Desc = "Clamps high fall velocity, blocks FallingDown state, & smooths landings",
+	Default = false,
+	Callback = function(value)
+		setAntiFallDamage(value)
+		markFeatureUsed()
+	end
+})
+
 UIRefs.AntiUnusualMovement = ProtectionTab:Toggle({
 	Title = "Anti-Unusual Movement",
 	Desc = "Stops abnormal velocity/spin bursts & odd movement states",
@@ -2278,6 +2505,15 @@ UIRefs.BoxESP = VisualsTab:Toggle({
 	end
 })
 
+UIRefs.InstantKickEnabled = UtilityTab:Toggle({
+	Title = "Instant Kick Server",
+	Desc = "Immediately disconnect/kick yourself from the current server",
+	Default = false,
+	Callback = function(value)
+		setInstantKickEnabled(value)
+	end
+})
+
 UIRefs.AutoExecuteEnabled = UtilityTab:Toggle({
 	Title = "Auto Execute on Teleport",
 	Desc = "Automatically queues script after server hops & rejoins",
@@ -2306,9 +2542,9 @@ UIRefs.AutoSaveEnabled = UtilityTab:Toggle({
 })
 
 UtilityTab:Button({
-	Title = "Server Hop (Join 5 Servers)",
-	Desc = "Cycle & teleport across up to 5 different servers",
-	Callback = serverHopFive
+	Title = "Server Hop (Join Best Server)",
+	Desc = "Finds & joins the lowest-ping, highest-FPS server with open slots",
+	Callback = joinBestServer
 })
 
 UtilityTab:Button({
