@@ -8,14 +8,12 @@ local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TextChatService = game:GetService("TextChatService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local SCRIPT_VERSION = "v29.0"
-local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v29.json"
+local SCRIPT_VERSION = "v28.0"
+local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v28.json"
 local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-cloud/yutahub/main/main.lua"
 
 -- ==========================================
@@ -24,14 +22,14 @@ local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-
 local CHANGELOG = {
 	Version = SCRIPT_VERSION,
 	WhatsNew = {
-		"Honest Admin Cmds v29: Sends chat commands, checks matching game remotes safely, & manages local cage visuals.",
-		"Local Jail Cage Toggle: Show or clear local visual cages cleanly without leaving leftover parts.",
-		"UPGRADE BASE, Auto Claim Index, & Optimize Mobile Lag carried forward with error-safe execution."
+		"Mobile FPS Cap & Pacer: Smooth frame pacing & target FPS slider (30–120 FPS) for zero frame drops.",
+		"Removed Loot/Vault ESP & Logo ESP: Cleaner UI and lighter rendering for mobile devices.",
+		"UPGRADE BASE, Auto Claim Index, On-Screen Instant Kick, Under Map, & Auto-Save Features."
 	},
 	WhatsFixed = {
-		"Clarified client vs. server limits so other-player admin actions don't mislead with fake server effects.",
+		"Eliminated heavy per-frame scans to prevent mobile frame drops and stutter.",
 		"Fixed Under Map dropping too deep into void kill-zones or drifting on uneven floors.",
-		"Fixed wall-corner snagging during Noclip and snap-backs during Teleport to Base."
+		"Fixed fall-impact velocity spikes and wall-corner snagging during Noclip."
 	}
 }
 
@@ -40,8 +38,8 @@ local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubV29",
-	Size = UDim2.fromOffset(550, 540),
+	Folder = "PremiumYutaHubV28",
+	Size = UDim2.fromOffset(550, 530),
 	MinSize = Vector2.new(440, 320),
 	MaxSize = Vector2.new(740, 640),
 	Theme = "Dark",
@@ -59,11 +57,6 @@ local MovementTab = Window:Tab({
 local HeistTab = Window:Tab({
 	Title = "Break & Steal",
 	Icon = "gem"
-})
-
-local AdminTab = Window:Tab({
-	Title = "Admin Cmds",
-	Icon = "terminal"
 })
 
 local ProtectionTab = Window:Tab({
@@ -107,13 +100,10 @@ local State = {
 	JumpEnabled = false,
 	BoxESP = false,
 	PlayerInfoESP = true,
-	LootVaultESP = false,
-	LootEspLogo = true,
 	AutoClaimIndex = false,
 	OptimizeMobileLag = false,
-	AdminTargetMode = "others",
-	AdminCustomTarget = "",
-	LocalJailVisuals = true,
+	FpsCapEnabled = true,
+	TargetFps = 60,
 	ServerHopLowPopMode = false,
 	AutoSaveEnabled = true,
 	AutoExecuteEnabled = true,
@@ -138,14 +128,12 @@ local State = {
 	LastBypassTime = 0,
 	LastWallProbeTime = 0,
 	LastRagdollSweepTime = 0,
-	LastLootScanTime = 0,
 	LastClaimScanTime = 0,
 	LastMobileFxSweepTime = 0,
-	LastCmdTime = 0,
+	LastFpsApplyTime = 0,
 	LastRejoinAttempt = 0,
 	LastServerHopAttempt = 0,
 	LastBaseTpTime = 0,
-	LastLootTpTime = 0,
 	LastVoidRescueTime = 0,
 	LastKickAttempt = 0,
 	ServerHopBusy = false,
@@ -173,7 +161,6 @@ local Cached = {
 
 local UIRefs = {}
 local VisitedServers = {}
-local activeJailModels = {}
 
 local sharedRayParams = RaycastParams.new()
 sharedRayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -203,202 +190,35 @@ local function disconnectList(list)
 end
 
 -- ==========================================
--- ADMIN COMMANDS SYSTEM (CHAT + SAFE REMOTE PROBE + LOCAL CAGE VISUALS)
+-- ZERO-FRAME-DROP MOBILE FPS CAP & LAG OPTIMIZER
 -- ==========================================
-local function clearJailCages()
-	for i = #activeJailModels, 1, -1 do
-		local model = activeJailModels[i]
-		if model then
-			pcall(function()
-				model:Destroy()
-			end)
-		end
-		table.remove(activeJailModels, i)
+local function getSetFpsCapFn()
+	if typeof(setfpscap) == "function" then
+		return setfpscap
 	end
+	if typeof(set_fps_cap) == "function" then
+		return set_fps_cap
+	end
+	return nil
 end
 
-local function getTargetPlayers(overrideTarget)
-	local mode = (typeof(overrideTarget) == "string" and overrideTarget ~= "")
-		and overrideTarget:lower():gsub("^%s+", ""):gsub("%s+$", "")
-		or State.AdminTargetMode:lower()
-
-	local list = {}
-	if mode == "all" or mode == "/all" then
-		for _, plr in ipairs(Players:GetPlayers()) do
-			if plr and plr.Parent then
-				table.insert(list, plr)
-			end
-		end
-		return list, "all"
-	elseif mode == "others" or mode == "other" then
-		for _, plr in ipairs(Players:GetPlayers()) do
-			if plr and plr.Parent and plr ~= LocalPlayer then
-				table.insert(list, plr)
-			end
-		end
-		return list, "others"
-	else
-		local query = State.AdminCustomTarget:lower():gsub("^%s+", ""):gsub("%s+$", "")
-		if query ~= "" then
-			for _, plr in ipairs(Players:GetPlayers()) do
-				if plr and plr.Parent then
-					if plr.Name:lower():find(query, 1, true) or plr.DisplayName:lower():find(query, 1, true) then
-						table.insert(list, plr)
-					end
-				end
-			end
-		end
-		return list, query ~= "" and query or "others"
-	end
-end
-
-local function spawnLocalCageAroundPosition(centerPos)
-	if not State.LocalJailVisuals or not isValidVector3(centerPos) then return end
-
-	local cage = Instance.new("Model")
-	cage.Name = "YutaHub_LocalJailCage"
-	cage.Parent = Workspace
-
-	local barColor = Color3.fromRGB(55, 62, 78)
-	local barMat = Enum.Material.Metal
-	local radius = 4.2
-	local height = 8.5
-
-	local floorPart = Instance.new("Part")
-	floorPart.Name = "CageFloor"
-	floorPart.Size = Vector3.new(radius * 2 + 0.6, 0.5, radius * 2 + 0.6)
-	floorPart.Position = centerPos + Vector3.new(0, -3.2, 0)
-	floorPart.Anchored = true
-	floorPart.CanCollide = false
-	floorPart.Material = barMat
-	floorPart.Color = barColor
-	floorPart.Transparency = 0.35
-	floorPart.Parent = cage
-
-	local roofPart = Instance.new("Part")
-	roofPart.Name = "CageRoof"
-	roofPart.Size = Vector3.new(radius * 2 + 0.6, 0.5, radius * 2 + 0.6)
-	roofPart.Position = centerPos + Vector3.new(0, height - 3.2, 0)
-	roofPart.Anchored = true
-	roofPart.CanCollide = false
-	roofPart.Material = barMat
-	roofPart.Color = barColor
-	roofPart.Transparency = 0.35
-	roofPart.Parent = cage
-
-	local sides = {
-		Vector3.new(0, 0, -radius),
-		Vector3.new(0, 0, radius),
-		Vector3.new(-radius, 0, 0),
-		Vector3.new(radius, 0, 0)
-	}
-
-	for sIdx, offset in ipairs(sides) do
-		local isXSide = (sIdx <= 2)
-		for b = -3, 3 do
-			local bar = Instance.new("Part")
-			bar.Name = "CageBar"
-			bar.Size = Vector3.new(0.32, height, 0.32)
-			local spread = b * 1.15
-			local barPos = isXSide
-				and (centerPos + Vector3.new(spread, (height * 0.5) - 3.2, offset.Z))
-				or (centerPos + Vector3.new(offset.X, (height * 0.5) - 3.2, spread))
-			bar.Position = barPos
-			bar.Anchored = true
-			bar.CanCollide = false
-			bar.Material = barMat
-			bar.Color = barColor
-			bar.Transparency = 0.25
-			bar.Parent = cage
-		end
-	end
-
-	table.insert(activeJailModels, cage)
-end
-
-local function trySendChatCommandText(cmdText)
-	if typeof(cmdText) ~= "string" or cmdText == "" then return end
-
-	if TextChatService and TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
-		local channels = TextChatService:FindFirstChild("TextChannels")
-		local general = channels and (channels:FindFirstChild("RBXGeneral") or channels:FindFirstChildWhichIsA("TextChannel"))
-		if general and typeof(general.SendAsync) == "function" then
-			pcall(function()
-				general:SendAsync(cmdText)
-			end)
-			return
-		end
-	end
-
-	local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
-	local sayReq = chatEvents and chatEvents:FindFirstChild("SayMessageRequest")
-	if sayReq and sayReq:IsA("RemoteEvent") then
-		pcall(function()
-			sayReq:FireServer(cmdText, "All")
-		end)
-	end
-end
-
-local function tryFireMatchingCommandRemotes(cmdNameNoPrefix, targets)
-	local cleanKey = tostring(cmdNameNoPrefix or ""):lower()
-	if cleanKey == "" then return end
-
-	local fired = 0
-	for _, desc in ipairs(ReplicatedStorage:GetDescendants()) do
-		if fired >= 4 then break end
-		if desc:IsA("RemoteEvent") then
-			local n = desc.Name:lower()
-			if n:find(cleanKey, 1, true) or n:find("admin", 1, true) or n:find("command", 1, true) then
-				for _, plr in ipairs(targets) do
-					pcall(function()
-						desc:FireServer(plr, cleanKey)
-					end)
-					pcall(function()
-						desc:FireServer(cleanKey, plr)
-					end)
-					fired += 1
-					if fired >= 4 then break end
-				end
-			end
-		end
-	end
-end
-
-local function dispatchAdminCommand(rawCmd, overrideTarget)
+local function applyTargetFpsCap(forceNow)
 	if State.Unloaded then return end
 	local now = os.clock()
-	if (now - State.LastCmdTime) < 0.15 then return end
-	State.LastCmdTime = now
-
-	local cleanCmd = tostring(rawCmd or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
-	if cleanCmd == "" then return end
-	if cleanCmd:sub(1, 1) ~= ";" and cleanCmd:sub(1, 1) ~= "/" then
-		cleanCmd = ";" .. cleanCmd
+	if not forceNow and (now - State.LastFpsApplyTime) < 2.0 then
+		return
 	end
+	State.LastFpsApplyTime = now
 
-	local bareCmd = cleanCmd:sub(2)
-	local targets, label = getTargetPlayers(overrideTarget)
-	local formattedChat = string.format("%s %s", cleanCmd, label)
+	local capFn = getSetFpsCapFn()
+	if not capFn then return end
 
-	trySendChatCommandText(formattedChat)
-	tryFireMatchingCommandRemotes(bareCmd, targets)
-
-	if bareCmd == "jail" and State.LocalJailVisuals then
-		for _, plr in ipairs(targets) do
-			local char = plr.Character
-			local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
-			if root and isValidVector3(root.Position) then
-				spawnLocalCageAroundPosition(root.Position)
-			end
-		end
-	elseif bareCmd == "unjail" or bareCmd == "clearjail" then
-		clearJailCages()
-	end
+	local target = State.FpsCapEnabled and math.clamp(math.floor(State.TargetFps or 60), 30, 120) or 0
+	pcall(function()
+		capFn(target)
+	end)
 end
 
--- ==========================================
--- MOBILE LAG OPTIMIZER SYSTEM
--- ==========================================
 local function getUserGameSettingsSafe()
 	local ok, settings = pcall(function()
 		return UserSettings():GetService("UserGameSettings")
@@ -410,7 +230,7 @@ local function getUserGameSettingsSafe()
 end
 
 local function applyMobileFxTrimPass(limitCount)
-	local maxTrim = limitCount or 120
+	local maxTrim = limitCount or 32
 	local trimmed = 0
 
 	for _, desc in ipairs(Workspace:GetDescendants()) do
@@ -425,14 +245,7 @@ local function applyMobileFxTrimPass(limitCount)
 				desc.Enabled = false
 				desc.Rate = 0
 				trimmed += 1
-			elseif desc:IsA("Trail") or desc:IsA("Beam") then
-				Cached.MobileOrigFX[desc] = {
-					Class = desc.ClassName,
-					Enabled = desc.Enabled
-				}
-				desc.Enabled = false
-				trimmed += 1
-			elseif desc:IsA("Fire") or desc:IsA("Smoke") or desc:IsA("Sparkles") then
+			elseif desc:IsA("Trail") or desc:IsA("Beam") or desc:IsA("Fire") or desc:IsA("Smoke") or desc:IsA("Sparkles") then
 				Cached.MobileOrigFX[desc] = {
 					Class = desc.ClassName,
 					Enabled = desc.Enabled
@@ -522,7 +335,7 @@ local function setOptimizeMobileLag(enabled)
 	end
 
 	State.LastMobileFxSweepTime = os.clock()
-	applyMobileFxTrimPass(140)
+	applyMobileFxTrimPass(48)
 end
 
 -- ==========================================
@@ -571,7 +384,7 @@ local function runAutoClaimIndexPass()
 	local triggersFired = 0
 
 	for _, desc in ipairs(Workspace:GetDescendants()) do
-		if triggersFired >= 8 then break end
+		if triggersFired >= 6 then break end
 		if desc:IsA("ProximityPrompt") and desc.Enabled then
 			local pos = getPromptOrDetectorPosition(desc)
 			if pos and (pos - rootPos).Magnitude <= maxReach then
@@ -671,12 +484,10 @@ local function buildSavePayload()
 			ExtraSpeed = State.ExtraSpeed,
 			JumpEnabled = State.JumpEnabled,
 			JumpHeight = State.JumpHeight,
-			LootVaultESP = State.LootVaultESP,
-			LootEspLogo = State.LootEspLogo,
 			AutoClaimIndex = State.AutoClaimIndex,
 			OptimizeMobileLag = State.OptimizeMobileLag,
-			AdminTargetMode = State.AdminTargetMode,
-			LocalJailVisuals = State.LocalJailVisuals,
+			FpsCapEnabled = State.FpsCapEnabled,
+			TargetFps = State.TargetFps,
 			AntiFallDamage = State.AntiFallDamage,
 			MaxSafeFallSpeed = State.MaxSafeFallSpeed,
 			VoidSafetyNet = State.VoidSafetyNet,
@@ -757,6 +568,7 @@ local function resetSavedFeatures()
 	State.JumpHeight = 14
 	State.JumpPower = 70
 	State.MaxSafeFallSpeed = 38
+	State.TargetFps = 60
 	State.FloatingBtnWidth = 164
 
 	local defaults = {
@@ -778,12 +590,10 @@ local function resetSavedFeatures()
 		ExtraSpeed = 16,
 		JumpEnabled = false,
 		JumpHeight = 14,
-		LootVaultESP = false,
-		LootEspLogo = true,
 		AutoClaimIndex = false,
 		OptimizeMobileLag = false,
-		AdminTargetMode = "others",
-		LocalJailVisuals = true,
+		FpsCapEnabled = true,
+		TargetFps = 60,
 		AntiFallDamage = false,
 		MaxSafeFallSpeed = 38,
 		VoidSafetyNet = true,
@@ -806,6 +616,7 @@ local function resetSavedFeatures()
 	end
 
 	State.LoadingSaved = false
+	applyTargetFpsCap(true)
 	persistSaveNow()
 end
 
@@ -1041,7 +852,7 @@ local function isPositionClear(pos)
 end
 
 -- ==========================================
--- BUG-FREE BREAK & STEAL BASE & UPGRADE TELEPORT SYSTEM
+-- BUG-FREE BREAK & STEAL BASE TELEPORT SYSTEM
 -- ==========================================
 local underPlatform = Instance.new("Part")
 underPlatform.Name = "YutaHub_UnderPlatform"
@@ -1999,11 +1810,10 @@ local function applyJumpBoost(enabled)
 end
 
 -- ==========================================
--- BOX ESP, PLAYER TAGS & LOOT/VAULT ESP WITH LOGO (DRAWING API)
+-- BOX ESP & PLAYER TAGS (DRAWING API)
 -- ==========================================
 local espBoxes = {}
 local espPlayerLabels = {}
-local lootMarkers = {}
 local drawingAvailable = (typeof(Drawing) == "table" and typeof(Drawing.new) == "function")
 
 local function safeNewDrawing(kind)
@@ -2035,8 +1845,8 @@ local function createLabel(color, size)
 	if not lbl then return nil end
 	pcall(function()
 		lbl.Visible = false
-		lbl.Color = color or Color3.fromRGB(90, 225, 255)
-		lbl.Size = size or 14
+		lbl.Color = color or Color3.fromRGB(255, 210, 210)
+		lbl.Size = size or 13
 		lbl.Center = true
 		lbl.Outline = true
 		lbl.Transparency = 1
@@ -2057,24 +1867,6 @@ local function hideAllBoxes()
 	end
 end
 
-local function clearLootMarkers()
-	for _, entry in ipairs(lootMarkers) do
-		if entry.LogoOuter then
-			pcall(function() entry.LogoOuter:Remove() end)
-		end
-		if entry.LogoInner then
-			pcall(function() entry.LogoInner:Remove() end)
-		end
-		if entry.Dot then
-			pcall(function() entry.Dot:Remove() end)
-		end
-		if entry.Label then
-			pcall(function() entry.Label:Remove() end)
-		end
-	end
-	table.clear(lootMarkers)
-end
-
 local function removePlayerESP(player)
 	local box = espBoxes[player]
 	if box then
@@ -2092,183 +1884,9 @@ local function removePlayerESP(player)
 	end
 end
 
-local lootKeywords = { "vault", "diamond", "loot", "cash", "money", "safe", "gold", "gem", "emerald", "ruby" }
-
-local function classifyLootOrVault(textStr)
-	if typeof(textStr) ~= "string" or textStr == "" then
-		return false, false
-	end
-	local lower = textStr:lower()
-	for _, kw in ipairs(lootKeywords) do
-		if lower:find(kw, 1, true) then
-			local isVault = (kw == "vault" or kw == "safe")
-			return true, isVault
-		end
-	end
-	return false, false
-end
-
-local function getInstanceWorldPosition(obj)
-	if not obj or not obj.Parent then return nil end
-	if obj:IsA("BasePart") then
-		return obj.Position
-	elseif obj:IsA("Model") then
-		if obj.PrimaryPart and obj.PrimaryPart:IsA("BasePart") then
-			return obj.PrimaryPart.Position
-		end
-		local part = obj:FindFirstChildWhichIsA("BasePart", true)
-		if part then
-			return part.Position
-		end
-		local ok, cf = pcall(function()
-			return obj:GetPivot()
-		end)
-		if ok and typeof(cf) == "CFrame" and isValidVector3(cf.Position) then
-			return cf.Position
-		end
-	elseif obj:IsA("GuiObject") or obj:IsA("TextLabel") then
-		local ancestor = obj:FindFirstAncestorWhichIsA("BasePart") or obj:FindFirstAncestorWhichIsA("Model")
-		if ancestor then
-			return getInstanceWorldPosition(ancestor)
-		end
-	end
-	return nil
-end
-
-local function createLogoBadge(isVault)
-	local accent = isVault and Color3.fromRGB(255, 200, 65) or Color3.fromRGB(80, 225, 255)
-	local logoOuter = createBox(accent, 2, false)
-	local logoInner = createBox(accent, 1.5, true)
-	if logoOuter then
-		pcall(function() logoOuter.Rotation = 45 end)
-	end
-	if logoInner then
-		pcall(function() logoInner.Rotation = 45 end)
-	end
-	local dot = createBox(accent, 1.5, false)
-	local label = createLabel(accent, 14)
-	return logoOuter, logoInner, dot, label
-end
-
-local function scanLootAndVaults()
-	clearLootMarkers()
-	local seenPositions = {}
-	local count = 0
-	local maxScan = State.OptimizeMobileLag and 16 or 24
-
-	for _, desc in ipairs(Workspace:GetDescendants()) do
-		if count >= maxScan then break end
-		if desc and desc.Name then
-			local matched, isVault = classifyLootOrVault(desc.Name)
-			local displayName = desc.Name
-
-			if not matched and desc:IsA("TextLabel") and desc.Text ~= "" then
-				matched, isVault = classifyLootOrVault(desc.Text)
-				if matched then
-					displayName = desc.Text
-				end
-			end
-
-			if matched then
-				local worldPos = getInstanceWorldPosition(desc)
-				if isValidVector3(worldPos) then
-					local duplicate = false
-					for _, prevPos in ipairs(seenPositions) do
-						if (prevPos - worldPos).Magnitude < 2.0 then
-							duplicate = true
-							break
-						end
-					end
-
-					if not duplicate then
-						table.insert(seenPositions, worldPos)
-						count += 1
-						local logoOuter, logoInner, dot, label = createLogoBadge(isVault)
-						table.insert(lootMarkers, {
-							Pos = worldPos,
-							Name = displayName,
-							IsVault = isVault,
-							LogoOuter = logoOuter,
-							LogoInner = logoInner,
-							Dot = dot,
-							Label = label
-						})
-					end
-				end
-			end
-		end
-	end
-end
-
-local function teleportToNearestLootOrVault()
-	if State.Unloaded then return false end
-	local now = os.clock()
-	if (now - State.LastLootTpTime) < 0.35 then return false end
-
-	local char = Cached.Char
-	local hum = Cached.Hum
-	local root = Cached.Root
-	if not char or not root or not isValidVector3(root.Position) then
-		return false
-	end
-
-	if #lootMarkers == 0 then
-		scanLootAndVaults()
-	end
-
-	local bestEntry = nil
-	local bestDist = math.huge
-	for _, entry in ipairs(lootMarkers) do
-		if isValidVector3(entry.Pos) then
-			local d = (entry.Pos - root.Position).Magnitude
-			if d < bestDist then
-				bestDist = d
-				bestEntry = entry
-			end
-		end
-	end
-
-	if not bestEntry then
-		return false
-	end
-
-	State.LastLootTpTime = now
-
-	if State.UnderMap then
-		State.UnderMap = false
-		State.UnderAnchorY = nil
-		if underPlatform then
-			underPlatform.Parent = nil
-		end
-		syncUnderMapToggleUI(false)
-	end
-
-	local destCF = computeSafeGroundCFrame(bestEntry.Pos, root.CFrame.LookVector)
-	State.LastCleanCFrame = destCF
-	markMovementIntent(1.3)
-	applyTeleportCFrame(char, hum, root, destCF)
-	return true
-end
-
-local function setEntryVisible(entry, visible)
-	if entry.LogoOuter then
-		pcall(function() entry.LogoOuter.Visible = visible end)
-	end
-	if entry.LogoInner then
-		pcall(function() entry.LogoInner.Visible = visible end)
-	end
-	if entry.Dot then
-		pcall(function() entry.Dot.Visible = visible end)
-	end
-	if entry.Label then
-		pcall(function() entry.Label.Visible = visible end)
-	end
-end
-
 local function updateESPFrame()
-	if State.Unloaded or not drawingAvailable then
+	if State.Unloaded or not drawingAvailable or not State.BoxESP then
 		hideAllBoxes()
-		clearLootMarkers()
 		return
 	end
 
@@ -2278,144 +1896,79 @@ local function updateESPFrame()
 		return
 	end
 
-	if State.BoxESP then
-		for player, box in pairs(espBoxes) do
-			if not player or not player.Parent then
-				removePlayerESP(player)
-			end
+	for player, box in pairs(espBoxes) do
+		if not player or not player.Parent then
+			removePlayerESP(player)
 		end
-
-		for _, player in ipairs(Players:GetPlayers()) do
-			if player ~= LocalPlayer then
-				local char = player.Character
-				local root = char and (
-					char:FindFirstChild("HumanoidRootPart")
-					or char:FindFirstChild("Torso")
-					or char:FindFirstChild("UpperTorso")
-				)
-				local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-
-				if root and humanoid and humanoid.Health > 0 then
-					local box = espBoxes[player]
-					if not box then
-						box = createBox(Color3.fromRGB(255, 85, 85), 1.5, false)
-						espBoxes[player] = box
-					end
-
-					local lbl = nil
-					if State.PlayerInfoESP then
-						lbl = espPlayerLabels[player]
-						if not lbl then
-							lbl = createLabel(Color3.fromRGB(255, 210, 210), 13)
-							espPlayerLabels[player] = lbl
-						end
-					elseif espPlayerLabels[player] then
-						pcall(function() espPlayerLabels[player].Visible = false end)
-					end
-
-					if box then
-						local rootPos, onScreen = activeCam:WorldToViewportPoint(root.Position)
-						if onScreen and rootPos.Z > 0 then
-							local topPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, 2.6, 0)).Position)
-							local bottomPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, -3.1, 0)).Position)
-
-							local height = math.abs(topPos.Y - bottomPos.Y)
-							local width = math.clamp(height * 0.6, 12, 250)
-
-							pcall(function()
-								box.Size = Vector2.new(width, math.clamp(height, 18, 400))
-								box.Position = Vector2.new(rootPos.X - box.Size.X / 2, topPos.Y)
-								box.Visible = true
-							end)
-
-							if lbl then
-								local dist = Cached.Root and math.floor((Cached.Root.Position - root.Position).Magnitude) or 0
-								pcall(function()
-									lbl.Text = string.format("%s [%dm]", player.Name, dist)
-									lbl.Position = Vector2.new(rootPos.X, topPos.Y - 16)
-									lbl.Visible = true
-								end)
-							end
-						else
-							pcall(function() box.Visible = false end)
-							if lbl then
-								pcall(function() lbl.Visible = false end)
-							end
-						end
-					end
-				else
-					if espBoxes[player] then
-						pcall(function() box.Visible = false end)
-					end
-					if espPlayerLabels[player] then
-						pcall(function() espPlayerLabels[player].Visible = false end)
-					end
-				end
-			end
-		end
-	else
-		hideAllBoxes()
 	end
 
-	if State.LootVaultESP then
-		local now = os.clock()
-		local scanInterval = State.OptimizeMobileLag and 2.2 or 1.5
-		if (now - State.LastLootScanTime) >= scanInterval or #lootMarkers == 0 then
-			State.LastLootScanTime = now
-			scanLootAndVaults()
-		end
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer then
+			local char = player.Character
+			local root = char and (
+				char:FindFirstChild("HumanoidRootPart")
+				or char:FindFirstChild("Torso")
+				or char:FindFirstChild("UpperTorso")
+			)
+			local humanoid = char and char:FindFirstChildOfClass("Humanoid")
 
-		for _, entry in ipairs(lootMarkers) do
-			local screenPos, onScreen = activeCam:WorldToViewportPoint(entry.Pos)
-			if onScreen and screenPos.Z > 0 and entry.Dot and entry.Label then
-				pcall(function()
-					entry.Dot.Size = Vector2.new(12, 12)
-					entry.Dot.Position = Vector2.new(screenPos.X - 6, screenPos.Y - 6)
-					entry.Dot.Visible = true
-				end)
+			if root and humanoid and humanoid.Health > 0 then
+				local box = espBoxes[player]
+				if not box then
+					box = createBox(Color3.fromRGB(255, 85, 85), 1.5, false)
+					espBoxes[player] = box
+				end
 
-				local dist = Cached.Root and math.floor((Cached.Root.Position - entry.Pos).Magnitude) or 0
-				local badgePrefix = entry.IsVault and "[VAULT]" or "[LOOT]"
+				local lbl = nil
+				if State.PlayerInfoESP then
+					lbl = espPlayerLabels[player]
+					if not lbl then
+						lbl = createLabel(Color3.fromRGB(255, 210, 210), 13)
+						espPlayerLabels[player] = lbl
+					end
+				elseif espPlayerLabels[player] then
+					pcall(function() espPlayerLabels[player].Visible = false end)
+				end
 
-				if State.LootEspLogo then
-					if entry.LogoOuter then
+				if box then
+					local rootPos, onScreen = activeCam:WorldToViewportPoint(root.Position)
+					if onScreen and rootPos.Z > 0 then
+						local topPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, 2.6, 0)).Position)
+						local bottomPos = activeCam:WorldToViewportPoint((root.CFrame * CFrame.new(0, -3.1, 0)).Position)
+
+						local height = math.abs(topPos.Y - bottomPos.Y)
+						local width = math.clamp(height * 0.6, 12, 250)
+
 						pcall(function()
-							entry.LogoOuter.Size = Vector2.new(14, 14)
-							entry.LogoOuter.Position = Vector2.new(screenPos.X - 7, screenPos.Y - 40)
-							entry.LogoOuter.Visible = true
+							box.Size = Vector2.new(width, math.clamp(height, 18, 400))
+							box.Position = Vector2.new(rootPos.X - box.Size.X / 2, topPos.Y)
+							box.Visible = true
 						end)
+
+						if lbl then
+							local dist = Cached.Root and math.floor((Cached.Root.Position - root.Position).Magnitude) or 0
+							pcall(function()
+								lbl.Text = string.format("%s [%dm]", player.Name, dist)
+								lbl.Position = Vector2.new(rootPos.X, topPos.Y - 16)
+								lbl.Visible = true
+							end)
+						end
+					else
+						pcall(function() box.Visible = false end)
+						if lbl then
+							pcall(function() lbl.Visible = false end)
+						end
 					end
-					if entry.LogoInner then
-						pcall(function()
-							entry.LogoInner.Size = Vector2.new(8, 8)
-							entry.LogoInner.Position = Vector2.new(screenPos.X - 4, screenPos.Y - 37)
-							entry.LogoInner.Visible = true
-						end)
-					end
-					pcall(function()
-						entry.Label.Text = string.format("◆ %s %s [%dm]", badgePrefix, entry.Name, dist)
-						entry.Label.Position = Vector2.new(screenPos.X, screenPos.Y - 22)
-						entry.Label.Visible = true
-					end)
-				else
-					if entry.LogoOuter then
-						pcall(function() entry.LogoOuter.Visible = false end)
-					end
-					if entry.LogoInner then
-						pcall(function() entry.LogoInner.Visible = false end)
-					end
-					pcall(function()
-						entry.Label.Text = string.format("%s [%dm]", entry.Name, dist)
-						entry.Label.Position = Vector2.new(screenPos.X, screenPos.Y - 20)
-						entry.Label.Visible = true
-					end)
 				end
 			else
-				setEntryVisible(entry, false)
+				if espBoxes[player] then
+					pcall(function() box.Visible = false end)
+				end
+				if espPlayerLabels[player] then
+					pcall(function() espPlayerLabels[player].Visible = false end)
+				end
 			end
 		end
-	elseif #lootMarkers > 0 then
-		clearLootMarkers()
 	end
 end
 
@@ -2670,7 +2223,6 @@ local function unloadAll()
 
 	persistSaveNow()
 	closeChangelogScreen()
-	clearJailCages()
 
 	State.AutoWallBypass = false
 	State.AntiFallDamage = false
@@ -2679,11 +2231,17 @@ local function unloadAll()
 	State.AntiKnockback = false
 	State.SpeedEnabled = false
 	State.BoxESP = false
-	State.LootVaultESP = false
 	State.AutoClaimIndex = false
 	State.OptimizeMobileLag = false
 
 	restoreMobileLagOptimization()
+
+	local capFn = getSetFpsCapFn()
+	if capFn then
+		pcall(function()
+			capFn(0)
+		end)
+	end
 
 	if fallStateConn then
 		fallStateConn:Disconnect()
@@ -2705,7 +2263,6 @@ local function unloadAll()
 	for player in pairs(espPlayerLabels) do
 		removePlayerESP(player)
 	end
-	clearLootMarkers()
 
 	disconnectList(lifecycleConnections)
 
@@ -2741,14 +2298,18 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 	local clampedDt = math.min(dt, 0.05)
 	local now = os.clock()
 
-	if State.AutoClaimIndex and (now - State.LastClaimScanTime) >= 0.45 then
+	if State.FpsCapEnabled and (now - State.LastFpsApplyTime) >= 2.0 then
+		applyTargetFpsCap(false)
+	end
+
+	if State.AutoClaimIndex and (now - State.LastClaimScanTime) >= 0.55 then
 		State.LastClaimScanTime = now
 		runAutoClaimIndexPass()
 	end
 
-	if State.OptimizeMobileLag and (now - State.LastMobileFxSweepTime) >= 4.0 then
+	if State.OptimizeMobileLag and (now - State.LastMobileFxSweepTime) >= 6.0 then
 		State.LastMobileFxSweepTime = now
-		applyMobileFxTrimPass(60)
+		applyMobileFxTrimPass(32)
 	end
 
 	applyVoidSafetyNet(char, hum, root, now)
@@ -2762,7 +2323,7 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 	end
 
 	if State.AntiRagdoll then
-		local doFullSweep = (now - State.LastRagdollSweepTime) >= 0.12
+		local doFullSweep = (now - State.LastRagdollSweepTime) >= 0.15
 		if doFullSweep then
 			State.LastRagdollSweepTime = now
 		end
@@ -2838,6 +2399,9 @@ table.insert(lifecycleConnections, LocalPlayer.CharacterAdded:Connect(function(c
 
 	if Cached.Root then
 		State.LastCleanCFrame = Cached.Root.CFrame
+	end
+	if State.FpsCapEnabled then
+		applyTargetFpsCap(true)
 	end
 	if State.Noclip then
 		setNoclip(true)
@@ -3137,9 +2701,12 @@ HeistTab:Button({
 
 HeistTab:Button({
 	Title = "UPGRADE BASE",
-	Desc = "Jump cleanly to the closest detected vault or loot marker",
+	Desc = "Teleport cleanly to your saved base/upgrade spot without snap-backs",
 	Callback = function()
-		teleportToNearestLootOrVault()
+		if not State.SavedBaseCFrame then
+			saveCurrentBaseSpot()
+		end
+		teleportToSavedBase()
 	end
 })
 
@@ -3156,112 +2723,6 @@ UIRefs.AutoClaimIndex = HeistTab:Toggle({
 		markFeatureUsed()
 	end
 })
-
-UIRefs.LootVaultESP = HeistTab:Toggle({
-	Title = "Loot & Vault ESP",
-	Desc = "Highlight nearby vault/loot/diamond objects & distance",
-	Default = false,
-	Callback = function(value)
-		State.LootVaultESP = value
-		if value then
-			State.LastLootScanTime = 0
-			scanLootAndVaults()
-		else
-			clearLootMarkers()
-		end
-		markFeatureUsed()
-	end
-})
-
-UIRefs.LootEspLogo = HeistTab:Toggle({
-	Title = "Loot ESP Logo Badge",
-	Desc = "Show diamond logo emblem + ◆ [VAULT]/[LOOT] tag on markers",
-	Default = true,
-	Callback = function(value)
-		State.LootEspLogo = value
-		markFeatureUsed()
-	end
-})
-
-UIRefs.AdminTargetMode = AdminTab:Dropdown({
-	Title = "Command Target",
-	Desc = "Server authority applies only if game supports commands; sends chat/remotes",
-	Values = { "others", "all", "custom" },
-	Default = "others",
-	Callback = function(value)
-		State.AdminTargetMode = tostring(value or "others")
-		markFeatureUsed()
-	end
-})
-
-UIRefs.LocalJailVisuals = AdminTab:Toggle({
-	Title = "Local Jail Cage Visuals",
-	Desc = "Spawn client-only cage visuals on ;jail (does not move other players)",
-	Default = true,
-	Callback = function(value)
-		State.LocalJailVisuals = value
-		if not value then
-			clearJailCages()
-		end
-		markFeatureUsed()
-	end
-})
-
-AdminTab:Input({
-	Title = "Custom Player Name (when Custom selected)",
-	Desc = "Type part of a player's name or display name",
-	Default = "",
-	Placeholder = "PlayerName...",
-	Callback = function(text)
-		State.AdminCustomTarget = tostring(text or "")
-	end
-})
-
-AdminTab:Button({
-	Title = ";jail (Others)",
-	Desc = "Send ;jail others in chat/remotes & spawn local cage if enabled",
-	Callback = function()
-		dispatchAdminCommand(";jail", "others")
-	end
-})
-
-AdminTab:Button({
-	Title = ";jail /all",
-	Desc = "Send ;jail all in chat/remotes & spawn local cages if enabled",
-	Callback = function()
-		dispatchAdminCommand(";jail", "all")
-	end
-})
-
-AdminTab:Button({
-	Title = "Clear Jail Cages (;unjail)",
-	Desc = "Remove local cage visuals & send ;unjail",
-	Callback = function()
-		dispatchAdminCommand(";unjail", State.AdminTargetMode)
-	end
-})
-
-local listCmds = {
-	";rocket",
-	";ragdoll",
-	";balloon",
-	";abduct",
-	";dizzy",
-	";control",
-	";tiny",
-	";jumpscare",
-	";morph"
-}
-
-for _, cmdName in ipairs(listCmds) do
-	AdminTab:Button({
-		Title = cmdName,
-		Desc = "Send " .. cmdName .. " via chat/matching remotes",
-		Callback = function()
-			dispatchAdminCommand(cmdName, State.AdminTargetMode)
-		end
-	})
-end
 
 UIRefs.AntiFallDamage = ProtectionTab:Toggle({
 	Title = "Anti Fall Damage",
@@ -3368,9 +2829,36 @@ UIRefs.PlayerInfoESP = VisualsTab:Toggle({
 	end
 })
 
+UIRefs.FpsCapEnabled = UtilityTab:Toggle({
+	Title = "Mobile FPS Cap (Zero Frame Drop)",
+	Desc = "Keeps steady FPS pacing on mobile to prevent thermal & frame spikes",
+	Default = true,
+	Callback = function(value)
+		State.FpsCapEnabled = value
+		applyTargetFpsCap(true)
+		markFeatureUsed()
+	end
+})
+
+UIRefs.TargetFps = UtilityTab:Slider({
+	Title = "Target FPS Cap",
+	Desc = "Steady FPS target (30, 45, 60, or 120 FPS)",
+	Step = 5,
+	Value = {
+		Min = 30,
+		Max = 120,
+		Default = 60
+	},
+	Callback = function(value)
+		State.TargetFps = value
+		applyTargetFpsCap(true)
+		markFeatureUsed()
+	end
+})
+
 UIRefs.OptimizeMobileLag = UtilityTab:Toggle({
 	Title = "Optimize Mobile Lag",
-	Desc = "Lowers graphics quality, disables heavy FX, & throttles scans for FPS",
+	Desc = "Lowers graphics quality & trims heavy FX with low-overhead pacing",
 	Default = false,
 	Callback = function(value)
 		setOptimizeMobileLag(value)
@@ -3499,6 +2987,7 @@ do
 	end
 
 	State.LoadingSaved = false
+	applyTargetFpsCap(true)
 
 	if State.AutoExecuteEnabled then
 		armAutoExecuteForTeleport()
