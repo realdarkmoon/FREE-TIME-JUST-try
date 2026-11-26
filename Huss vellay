@@ -1,1335 +1,1359 @@
--- Murder Mystery 2 Hub + Neon Lock Screen + CS2 Skeleton ESP + Aimbot & Silent Aim + Grab Gun
+-- Load WindUI
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+
+-- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
-local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local CONFIG = {
-	HubTitle = "DARK MOON // MM2",
+-- Create Window
+local Window = WindUI:CreateWindow({
+	Title = "MM2 DARK HUB",
+	Icon = "moon",
 	Author = "biyxznd",
-	AccessKey = "YUTA2026",
-	DiscordLink = "https://discord.gg/QxRKp9wNeE",
-	GunScanInterval = 0.65,
-	FOVPresets = { 90, 125, 170, 220 },
-	SmoothPresets = { 0.12, 0.22, 0.38, 0.65 }
-}
+	Folder = "MM2DarkHubV5",
+	Size = UDim2.fromOffset(520, 480),
+	MinSize = Vector2.new(380, 290),
+	MaxSize = Vector2.new(700, 600),
+	Theme = "Dark",
+	Transparent = true,
+	Resizable = true,
+	ToggleKey = Enum.KeyCode.RightShift
+})
 
+local CombatTab = Window:Tab({
+	Title = "Murder",
+	Icon = "sword"
+})
+
+local AimTab = Window:Tab({
+	Title = "Aim & Ping",
+	Icon = "crosshair"
+})
+
+local VisualsTab = Window:Tab({
+	Title = "Visuals",
+	Icon = "eye"
+})
+
+local MovementTab = Window:Tab({
+	Title = "Movement",
+	Icon = "move"
+})
+
+local UtilityTab = Window:Tab({
+	Title = "Utility",
+	Icon = "settings"
+})
+
+-- ==========================================
+-- STATE & CACHE
+-- ==========================================
 local State = {
-	Unlocked = false,
-	Unlocking = false,
 	RoleESP = false,
 	GunESP = false,
+	CS2BoxESP = false,
 	SkeletonESP = false,
-	HeadDotESP = true,
-	BoxESP = false,
+	AutoGrabGun = false,
 	AimbotEnabled = false,
 	SilentAimEnabled = false,
-	ShowFOV = true,
-	FOVIndex = 2,
-	SmoothIndex = 2,
-	FOVRadius = 125,
-	AimSmoothness = 0.22,
-	HubVisible = true,
-	Unloaded = false,
+	MurdererOnlyAim = true,
+	KnifeReachEnabled = false,
+	AimPrediction = true,
+	PingCompensation = true,
+	SpeedEnabled = false,
+	NoclipEnabled = false,
+	KnifeReachSize = 12,
+	AimFOV = 150,
+	AimSmoothness = 0.24,
+	PredictionLead = 0.135,
+	WalkSpeedBoost = 24,
+	DefaultWalkSpeed = 16,
+	CurrentPingSec = 0.06,
+	LastRoleScan = 0,
 	LastGunScan = 0,
-	CachedGunPart = nil,
-	CurrentTarget = nil,
-	CurrentAimPos = nil
+	LastGunGrab = 0,
+	LastNoclipStep = 0,
+	LastPingSample = 0,
+	Unloaded = false
 }
 
-local Connections = {}
-local roleTags = {} -- [Player] = DrawingText
-local gunMarker = nil
-local skeletonRigs = {} -- [Player] = { BoneCount, OutlineLines, CoreLines, HeadOutline, HeadCore, BoxOutline, BoxCore }
-local fovOutline = nil
-local fovCore = nil
-local panelStatusLbl = nil
+local Cache = {
+	Char = nil,
+	Hum = nil,
+	Root = nil,
+	Parts = {},
+	OrigCollide = {},
+	OrigHandleSize = {},
+	PlayerRoles = {},
+	RoleVisuals = {},
+	GunVisuals = {},
+	CS2Boxes = {},
+	SkeletonLines = {},
+	SilentTargetPos = nil,
+	SilentTargetPart = nil
+}
 
-local drawingOk = (typeof(Drawing) == "table" and typeof(Drawing.new) == "function")
+local drawingAvailable = (typeof(Drawing) == "table" and typeof(Drawing.new) == "function")
 
-local function newDrawing(kind)
-	if not drawingOk then return nil end
-	local ok, obj = pcall(function()
-		return Drawing.new(kind)
+local function isValidPos(v)
+	return typeof(v) == "Vector3" and v.X == v.X and v.Y == v.Y and v.Z == v.Z
+end
+
+local function disconnectAll(list)
+	for _, conn in ipairs(list) do
+		if conn and conn.Connected then
+			conn:Disconnect()
+		end
+	end
+	table.clear(list)
+end
+
+local function rebuildCharCache(char)
+	table.clear(Cache.Parts)
+	table.clear(Cache.OrigCollide)
+
+	Cache.Char = char
+	Cache.Hum = char and char:FindFirstChildOfClass("Humanoid") or nil
+	Cache.Root = char and (
+		char:FindFirstChild("HumanoidRootPart")
+		or char:FindFirstChild("Torso")
+		or char:FindFirstChild("UpperTorso")
+	) or nil
+
+	if Cache.Hum then
+		State.DefaultWalkSpeed = Cache.Hum.WalkSpeed > 0 and Cache.Hum.WalkSpeed or 16
+	end
+
+	if not char then return end
+	for _, desc in ipairs(char:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			table.insert(Cache.Parts, desc)
+			Cache.OrigCollide[desc] = desc.CanCollide
+		end
+	end
+end
+
+-- ==========================================
+-- PING & AIM PREDICTION HELPERS
+-- ==========================================
+local function sampleNetworkPing(now)
+	if (now - State.LastPingSample) < 0.5 then
+		return State.CurrentPingSec
+	end
+	State.LastPingSample = now
+
+	local ok, pingSec = pcall(function()
+		return LocalPlayer:GetNetworkPing()
 	end)
-	return ok and obj or nil
-end
-
-local function removeDrawing(obj)
-	if obj then
-		pcall(function()
-			obj:Remove()
-		end)
+	if ok and typeof(pingSec) == "number" and pingSec >= 0 and pingSec < 2.5 then
+		State.CurrentPingSec = pingSec
 	end
+	return State.CurrentPingSec
 end
 
-local function clearRoleTags()
-	for plr, tag in pairs(roleTags) do
-		removeDrawing(tag)
-		roleTags[plr] = nil
+local function computePredictedWorldPos(targetPart, now)
+	if not targetPart or not targetPart.Parent or not isValidPos(targetPart.Position) then
+		return nil
 	end
-end
 
-local function clearGunMarker()
-	removeDrawing(gunMarker)
-	gunMarker = nil
-end
-
-local function clearSkeletonForPlayer(plr)
-	local rig = skeletonRigs[plr]
-	if rig then
-		if rig.OutlineLines then
-			for _, ln in ipairs(rig.OutlineLines) do
-				removeDrawing(ln)
-			end
-		end
-		if rig.CoreLines then
-			for _, ln in ipairs(rig.CoreLines) do
-				removeDrawing(ln)
-			end
-		end
-		removeDrawing(rig.HeadOutline)
-		removeDrawing(rig.HeadCore)
-		removeDrawing(rig.BoxOutline)
-		removeDrawing(rig.BoxCore)
-		skeletonRigs[plr] = nil
+	local basePos = targetPart.Position
+	if not State.AimPrediction and not State.PingCompensation then
+		return basePos
 	end
-end
 
-local function clearAllSkeletons()
-	for plr in pairs(skeletonRigs) do
-		clearSkeletonForPlayer(plr)
+	local vel = targetPart.AssemblyLinearVelocity
+	if not isValidPos(vel) or vel.Magnitude < 0.25 then
+		return basePos
 	end
-end
 
-local function clearFOVCircle()
-	removeDrawing(fovOutline)
-	removeDrawing(fovCore)
-	fovOutline = nil
-	fovCore = nil
-end
-
-local function clearAllVisuals()
-	clearRoleTags()
-	clearGunMarker()
-	clearAllSkeletons()
-	clearFOVCircle()
-end
-
-local function setPanelStatus(msg, color)
-	if panelStatusLbl and not State.Unloaded then
-		panelStatusLbl.Text = tostring(msg or "")
-		panelStatusLbl.TextColor3 = color or Color3.fromRGB(145, 215, 255)
+	local leadTime = 0
+	if State.AimPrediction then
+		leadTime += State.PredictionLead
 	end
+	if State.PingCompensation then
+		leadTime += math.clamp(sampleNetworkPing(now), 0, 0.6)
+	end
+
+	local predicted = basePos + (vel * leadTime)
+	if isValidPos(predicted) then
+		return predicted
+	end
+	return basePos
 end
 
-local function hasToolKeyword(container, keyword)
+-- ==========================================
+-- ROLE DETECTION (MURDERER / SHERIFF / INNOCENT)
+-- ==========================================
+local function hasToolNamed(container, keyword)
 	if not container then return false end
 	for _, item in ipairs(container:GetChildren()) do
-		if item:IsA("Tool") and string.find(string.lower(item.Name), keyword, 1, true) then
-			return true
+		if item:IsA("Tool") then
+			local n = item.Name:lower()
+			if n:find(keyword, 1, true) then
+				return true
+			end
 		end
 	end
 	return false
 end
 
-local function getPlayerRole(plr)
-	local char = plr.Character
-	local backpack = plr:FindFirstChildOfClass("Backpack")
+local function detectPlayerRole(player)
+	if not player then return "Innocent" end
+	local char = player.Character
+	local backpack = player:FindFirstChild("Backpack")
+	local starterGear = player:FindFirstChild("StarterGear")
 
-	if hasToolKeyword(char, "knife") or hasToolKeyword(backpack, "knife") then
-		return "MURDERER", Color3.fromRGB(255, 65, 95)
+	if hasToolNamed(char, "knife") or hasToolNamed(backpack, "knife") or hasToolNamed(starterGear, "knife") then
+		return "Murderer"
 	end
 
-	if hasToolKeyword(char, "gun") or hasToolKeyword(backpack, "gun")
-		or hasToolKeyword(char, "revolver") or hasToolKeyword(backpack, "revolver") then
-		return "SHERIFF", Color3.fromRGB(65, 175, 255)
-	end
-
-	return "INNOCENT", Color3.fromRGB(105, 240, 165)
-end
-
-local function localPlayerHasGun()
-	local char = LocalPlayer.Character
-	local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
-	return hasToolKeyword(char, "gun") or hasToolKeyword(backpack, "gun")
-		or hasToolKeyword(char, "revolver") or hasToolKeyword(backpack, "revolver")
-end
-
-local function getLocalRoot()
-	local char = LocalPlayer.Character
-	local root = char and char:FindFirstChild("HumanoidRootPart")
-	if root and root:IsA("BasePart") then
-		return root
-	end
-	return nil
-end
-
-local function getLocalRootPos()
-	local root = getLocalRoot()
-	return root and root.Position or nil
-end
-
-local function getDroppedGunPart()
-	if State.CachedGunPart and State.CachedGunPart.Parent then
-		return State.CachedGunPart
-	end
-
-	local now = os.clock()
-	if (now - State.LastGunScan) < CONFIG.GunScanInterval then
-		return State.CachedGunPart
-	end
-	State.LastGunScan = now
-
-	for _, obj in ipairs(Workspace:GetDescendants()) do
-		if obj:IsA("BasePart") and (obj.Name == "GunDrop" or string.find(string.lower(obj.Name), "gundrop", 1, true)) then
-			State.CachedGunPart = obj
-			return obj
+	if player ~= LocalPlayer then
+		if hasToolNamed(char, "gun") or hasToolNamed(char, "revolver")
+			or hasToolNamed(backpack, "gun") or hasToolNamed(backpack, "revolver")
+			or hasToolNamed(starterGear, "gun") or hasToolNamed(starterGear, "revolver") then
+			return "Sheriff"
 		end
 	end
 
-	State.CachedGunPart = nil
-	return nil
+	return "Innocent"
 end
 
-local function grabDroppedGun()
-	if State.Unloaded or not State.Unlocked then return end
-	local root = getLocalRoot()
-	if not root then
-		setPanelStatus("Character not spawned yet", Color3.fromRGB(255, 195, 90))
+local function getRoleColor(role)
+	if role == "Murderer" then
+		return Color3.fromRGB(255, 65, 85)
+	elseif role == "Sheriff" then
+		return Color3.fromRGB(75, 165, 255)
+	end
+	return Color3.fromRGB(95, 235, 145)
+end
+
+local function clearRoleVisualFor(player)
+	local entry = Cache.RoleVisuals[player]
+	if entry then
+		if entry.Highlight then pcall(function() entry.Highlight:Destroy() end) end
+		if entry.Billboard then pcall(function() entry.Billboard:Destroy() end) end
+		Cache.RoleVisuals[player] = nil
+	end
+end
+
+local function clearAllRoleVisuals()
+	for player in pairs(Cache.RoleVisuals) do
+		clearRoleVisualFor(player)
+	end
+end
+
+local function applyRoleVisual(player, role)
+	local char = player and player.Character
+	local head = char and (char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart"))
+	if not char or not head or not isValidPos(head.Position) then
+		clearRoleVisualFor(player)
 		return
 	end
 
-	State.LastGunScan = 0
-	local gunPart = getDroppedGunPart()
-	if not gunPart or not gunPart.Parent then
-		setPanelStatus("No dropped gun found", Color3.fromRGB(255, 110, 130))
-		return
+	local color = getRoleColor(role)
+	local entry = Cache.RoleVisuals[player]
+
+	if not entry then
+		local hl = Instance.new("Highlight")
+		hl.Name = "YutaRoleHighlight"
+		hl.FillTransparency = 0.65
+		hl.OutlineTransparency = 0
+		hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+		hl.Adornee = char
+		hl.Parent = char
+
+		local bb = Instance.new("BillboardGui")
+		bb.Name = "YutaRoleTag"
+		bb.Size = UDim2.fromOffset(136, 34)
+		bb.StudsOffset = Vector3.new(0, 2.8, 0)
+		bb.AlwaysOnTop = true
+		bb.Adornee = head
+		bb.Parent = PlayerGui
+
+		local lbl = Instance.new("TextLabel")
+		lbl.Size = UDim2.fromScale(1, 1)
+		lbl.BackgroundTransparency = 1
+		lbl.Font = Enum.Font.GothamBold
+		lbl.TextSize = 13
+		lbl.TextStrokeTransparency = 0.25
+		lbl.Parent = bb
+
+		entry = { Highlight = hl, Billboard = bb, Label = lbl }
+		Cache.RoleVisuals[player] = entry
 	end
 
-	local savedCFrame = root.CFrame
-	local targetPos = gunPart.Position + Vector3.new(0, 1.5, 0)
+	entry.Highlight.Adornee = char
+	entry.Highlight.Parent = char
+	entry.Highlight.FillColor = color
+	entry.Highlight.OutlineColor = color
 
-	local ok = pcall(function()
-		root.CFrame = CFrame.new(targetPos)
-		if typeof(firetouchinterest) == "function" then
-			firetouchinterest(root, gunPart, 0)
-			firetouchinterest(root, gunPart, 1)
-		end
-	end)
-
-	if ok then
-		setPanelStatus("Pulled to dropped gun!", Color3.fromRGB(105, 240, 165))
-		task.delay(0.22, function()
-			if State.Unloaded then return end
-			local currentRoot = getLocalRoot()
-			if currentRoot and not localPlayerHasGun() then
-				pcall(function()
-					currentRoot.CFrame = savedCFrame
-				end)
-			end
-		end)
-	else
-		setPanelStatus("Grab action failed", Color3.fromRGB(255, 110, 130))
-	end
+	entry.Billboard.Adornee = head
+	local dist = (Cache.Root and isValidPos(Cache.Root.Position)) and math.floor((Cache.Root.Position - head.Position).Magnitude) or 0
+	entry.Label.Text = string.format("[%s] %s (%dm)", role, player.DisplayName, dist)
+	entry.Label.TextColor3 = color
 end
 
--- ==========================================
--- TARGET SELECTION, AIMBOT & SILENT AIM
--- ==========================================
-local function getScreenCenter(cam)
-	local vp = cam.ViewportSize
-	return Vector2.new(vp.X * 0.5, vp.Y * 0.5)
-end
-
-local function getBestAimTarget(cam)
-	if not cam then return nil, nil end
-	local center = getScreenCenter(cam)
-	local preferMurderer = localPlayerHasGun()
-
-	local bestPlr = nil
-	local bestPart = nil
-	local bestScore = math.huge
-
-	for _, plr in ipairs(Players:GetPlayers()) do
-		if plr ~= LocalPlayer then
-			local char = plr.Character
-			local hum = char and char:FindFirstChildOfClass("Humanoid")
-			local aimPart = (char and (char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart"))) or nil
-
-			if char and hum and aimPart and aimPart:IsA("BasePart") and hum.Health > 0 then
-				local roleName = getPlayerRole(plr)
-				local screenPos, onScreen = cam:WorldToViewportPoint(aimPart.Position)
-				if onScreen and screenPos.Z > 0 then
-					local dist2D = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
-					if dist2D <= State.FOVRadius then
-						local priorityBonus = (preferMurderer and roleName == "MURDERER") and -80 or 0
-						local score = dist2D + priorityBonus
-						if score < bestScore then
-							bestScore = score
-							bestPlr = plr
-							bestPart = aimPart
-						end
-					end
-				end
+local function scanRoles()
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer then
+			local role = detectPlayerRole(player)
+			Cache.PlayerRoles[player] = role
+			if State.RoleESP then
+				applyRoleVisual(player, role)
 			end
 		end
 	end
+end
 
-	if bestPlr and bestPart then
-		return bestPlr, bestPart.Position
+local function findPlayerByRole(targetRole)
+	scanRoles()
+	for player, role in pairs(Cache.PlayerRoles) do
+		if role == targetRole and player and player.Parent and player.Character then
+			local hum = player.Character:FindFirstChildOfClass("Humanoid")
+			local root = player.Character:FindFirstChild("HumanoidRootPart") or player.Character:FindFirstChild("Torso")
+			if hum and hum.Health > 0 and root and isValidPos(root.Position) then
+				return player, root
+			end
+		end
 	end
 	return nil, nil
 end
 
-local function applyCameraAimbot(cam)
-	if not State.AimbotEnabled or State.Unloaded or not State.Unlocked or not cam then return end
-	if not State.CurrentAimPos then return end
+local function teleportToCFrame(targetCF)
+	local char = Cache.Char
+	local hum = Cache.Hum
+	local root = Cache.Root
+	if not char or not root or State.Unloaded then return false end
 
-	local currentCF = cam.CFrame
-	local targetCF = CFrame.lookAt(currentCF.Position, State.CurrentAimPos)
-	local alpha = math.clamp(State.AimSmoothness, 0.05, 0.85)
-	cam.CFrame = currentCF:Lerp(targetCF, alpha)
-end
-
-local originalRaycast = nil
-local raycastHookActive = false
-local originalNamecall = nil
-local namecallHookActive = false
-
-local function getSilentAimDirection(origin)
-	if not State.SilentAimEnabled or State.Unloaded or not State.Unlocked then
-		return nil
-	end
-	if typeof(origin) ~= "Vector3" or not State.CurrentAimPos then
-		return nil
-	end
-	local delta = State.CurrentAimPos - origin
-	if delta.Magnitude < 0.01 then
-		return nil
-	end
-	return delta.Unit
-end
-
-local function installSilentAimHooks()
-	if not raycastHookActive and typeof(hookfunction) == "function" and typeof(Workspace.Raycast) == "function" then
-		local ok, prev = pcall(function()
-			return hookfunction(Workspace.Raycast, function(self, origin, direction, params, ...)
-				if self == Workspace and State.SilentAimEnabled and not State.Unloaded and State.Unlocked then
-					local dirUnit = getSilentAimDirection(origin)
-					if dirUnit and typeof(direction) == "Vector3" then
-						local mag = direction.Magnitude
-						if mag > 0 then
-							return prev(self, origin, dirUnit * mag, params, ...)
-						end
-					end
-				end
-				return prev(self, origin, direction, params, ...)
-			end)
+	if hum then
+		hum.Sit = false
+		pcall(function()
+			hum:ChangeState(Enum.HumanoidStateType.Running)
 		end)
-		if ok and typeof(prev) == "function" then
-			originalRaycast = prev
-			raycastHookActive = true
+	end
+
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
+
+	local ok = pcall(function()
+		char:PivotTo(targetCF)
+	end)
+	if not ok then
+		root.CFrame = targetCF
+	end
+	return true
+end
+
+local function teleportToRole(targetRole)
+	local _, targetRoot = findPlayerByRole(targetRole)
+	if not targetRoot then return false end
+	local destPos = targetRoot.Position - (targetRoot.CFrame.LookVector * 3.2) + Vector3.new(0, 1.2, 0)
+	return teleportToCFrame(CFrame.new(destPos, targetRoot.Position))
+end
+
+-- ==========================================
+-- MURDERER KNIFE REACH HELPER
+-- ==========================================
+local function restoreKnifeHandles()
+	for handle, origSize in pairs(Cache.OrigHandleSize) do
+		if handle and handle.Parent and handle:IsA("BasePart") and isValidPos(origSize) then
+			pcall(function()
+				handle.Size = origSize
+				handle.Transparency = 0
+			end)
 		end
 	end
+	table.clear(Cache.OrigHandleSize)
+end
 
-	if not namecallHookActive and typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "function" then
-		local ok, prev = pcall(function()
-			return hookmetamethod(game, "__namecall", function(self, ...)
-				local method = getnamecallmethod()
-				if not State.Unloaded and State.Unlocked and State.SilentAimEnabled then
-					if method == "Raycast" and self == Workspace then
-						local args = { ... }
-						local origin = args[1]
-						local direction = args[2]
-						local dirUnit = getSilentAimDirection(origin)
-						if dirUnit and typeof(direction) == "Vector3" and direction.Magnitude > 0 then
-							args[2] = dirUnit * direction.Magnitude
-							return prev(self, table.unpack(args))
-						end
-					elseif (method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList") and self == Workspace then
-						local args = { ... }
-						local rayObj = args[1]
-						if typeof(rayObj) == "Ray" then
-							local dirUnit = getSilentAimDirection(rayObj.Origin)
-							if dirUnit then
-								local len = rayObj.Direction.Magnitude
-								args[1] = Ray.new(rayObj.Origin, dirUnit * (len > 0 and len or 200))
-								return prev(self, table.unpack(args))
+local function updateKnifeReach()
+	if not State.KnifeReachEnabled or State.Unloaded then
+		restoreKnifeHandles()
+		return
+	end
+
+	local char = Cache.Char
+	if not char then return end
+
+	for _, item in ipairs(char:GetChildren()) do
+		if item:IsA("Tool") then
+			local handle = item:FindFirstChild("Handle")
+			if handle and handle:IsA("BasePart") then
+				if Cache.OrigHandleSize[handle] == nil then
+					Cache.OrigHandleSize[handle] = handle.Size
+				end
+				local sz = math.clamp(State.KnifeReachSize, 2, 25)
+				pcall(function()
+					handle.Size = Vector3.new(sz, sz, sz)
+					handle.Massless = true
+				end)
+			end
+		end
+	end
+end
+
+-- ==========================================
+-- AIMBOT & SILENT AIM TARGETING
+-- ==========================================
+local function getAimReferenceScreenPos(cam)
+	local vp = cam.ViewportSize
+	if UserInputService.TouchEnabled and not UserInputService.MouseEnabled then
+		return Vector2.new(vp.X * 0.5, vp.Y * 0.45)
+	end
+	local mouseLoc = UserInputService:GetMouseLocation()
+	if mouseLoc and mouseLoc.X == mouseLoc.X and mouseLoc.Y == mouseLoc.Y then
+		return Vector2.new(mouseLoc.X, mouseLoc.Y)
+	end
+	return Vector2.new(vp.X * 0.5, vp.Y * 0.5)
+end
+
+local function pickBestAimTarget(cam, now)
+	if not cam then return nil, nil end
+	local refPos = getAimReferenceScreenPos(cam)
+	local bestPart = nil
+	local bestPredPos = nil
+	local bestScore = State.AimFOV
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character then
+			local role = Cache.PlayerRoles[player] or detectPlayerRole(player)
+			if not State.MurdererOnlyAim or role == "Murderer" then
+				local char = player.Character
+				local hum = char:FindFirstChildOfClass("Humanoid")
+				local aimPart = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head") or char:FindFirstChild("Torso")
+
+				if hum and hum.Health > 0 and aimPart and aimPart:IsA("BasePart") then
+					local predWorld = computePredictedWorldPos(aimPart, now)
+					if predWorld then
+						local screenPt, onScreen = cam:WorldToViewportPoint(predWorld)
+						if onScreen and screenPt.Z > 0 then
+							local dist2D = (Vector2.new(screenPt.X, screenPt.Y) - refPos).Magnitude
+							if dist2D <= bestScore then
+								bestScore = dist2D
+								bestPart = aimPart
+								bestPredPos = predWorld
 							end
 						end
 					end
 				end
-				return prev(self, ...)
-			end)
-		end)
-		if ok and typeof(prev) == "function" then
-			originalNamecall = prev
-			namecallHookActive = true
+			end
 		end
 	end
+
+	return bestPart, bestPredPos
 end
 
-local function removeSilentAimHooks()
-	if raycastHookActive and originalRaycast and typeof(hookfunction) == "function" and typeof(Workspace.Raycast) == "function" then
-		pcall(function()
-			hookfunction(Workspace.Raycast, originalRaycast)
-		end)
-	end
-	raycastHookActive = false
-	originalRaycast = nil
+local function updateAimbotAndSilentAim(cam, now)
+	local targetPart, predPos = pickBestAimTarget(cam, now)
 
-	if namecallHookActive and originalNamecall and typeof(hookmetamethod) == "function" then
-		pcall(function()
-			hookmetamethod(game, "__namecall", originalNamecall)
-		end)
-	end
-	namecallHookActive = false
-	originalNamecall = nil
-end
-
--- ==========================================
--- CS2-STYLE SKELETON + HEAD DOT + BOX ESP + FOV
--- ==========================================
-local R15_BONES = {
-	{ "Head", "UpperTorso" },
-	{ "UpperTorso", "LowerTorso" },
-	{ "UpperTorso", "LeftUpperArm" },
-	{ "LeftUpperArm", "LeftLowerArm" },
-	{ "LeftLowerArm", "LeftHand" },
-	{ "UpperTorso", "RightUpperArm" },
-	{ "RightUpperArm", "RightLowerArm" },
-	{ "RightLowerArm", "RightHand" },
-	{ "LowerTorso", "LeftUpperLeg" },
-	{ "LeftUpperLeg", "LeftLowerLeg" },
-	{ "LeftLowerLeg", "LeftFoot" },
-	{ "LowerTorso", "RightUpperLeg" },
-	{ "RightUpperLeg", "RightLowerLeg" },
-	{ "RightLowerLeg", "RightFoot" }
-}
-
-local R6_BONES = {
-	{ "Head", "Torso" },
-	{ "Torso", "Left Arm" },
-	{ "Torso", "Right Arm" },
-	{ "Torso", "Left Leg" },
-	{ "Torso", "Right Leg" }
-}
-
-local function ensureFOVCircle()
-	if fovOutline and fovCore then return end
-	clearFOVCircle()
-
-	fovOutline = newDrawing("Circle")
-	if fovOutline then
-		pcall(function()
-			fovOutline.Visible = false
-			fovOutline.Color = Color3.fromRGB(6, 8, 14)
-			fovOutline.Thickness = 2.8
-			fovOutline.Filled = false
-			fovOutline.NumSides = 48
-			fovOutline.Transparency = 0.8
-		end)
+	if State.SilentAimEnabled and targetPart and predPos then
+		Cache.SilentTargetPart = targetPart
+		Cache.SilentTargetPos = predPos
+	else
+		Cache.SilentTargetPart = nil
+		Cache.SilentTargetPos = nil
 	end
 
-	fovCore = newDrawing("Circle")
-	if fovCore then
-		pcall(function()
-			fovCore.Visible = false
-			fovCore.Color = Color3.fromRGB(95, 225, 255)
-			fovCore.Thickness = 1.4
-			fovCore.Filled = false
-			fovCore.NumSides = 48
-			fovCore.Transparency = 0.95
-		end)
-	end
-end
-
-local function updateFOVCircle(cam)
-	local needFOV = State.ShowFOV and (State.AimbotEnabled or State.SilentAimEnabled)
-	if not needFOV then
-		if fovOutline then pcall(function() fovOutline.Visible = false end) end
-		if fovCore then pcall(function() fovCore.Visible = false end) end
+	if not State.AimbotEnabled or State.Unloaded or not cam or not predPos then
 		return
 	end
 
-	ensureFOVCircle()
-	local center = getScreenCenter(cam)
-	local activeColor = State.CurrentTarget and Color3.fromRGB(255, 85, 115) or Color3.fromRGB(95, 225, 255)
-
-	if fovOutline then
-		pcall(function()
-			fovOutline.Position = center
-			fovOutline.Radius = State.FOVRadius + 1
-			fovOutline.Visible = true
-		end)
+	local shouldEngage = false
+	if UserInputService.TouchEnabled and not UserInputService.MouseEnabled then
+		shouldEngage = true
+	else
+		shouldEngage = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+			or UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
 	end
-	if fovCore then
-		pcall(function()
-			fovCore.Position = center
-			fovCore.Radius = State.FOVRadius
-			fovCore.Color = activeColor
-			fovCore.Visible = true
-		end)
+
+	if shouldEngage then
+		local currentCF = cam.CFrame
+		local desiredCF = CFrame.lookAt(currentCF.Position, predPos)
+		local alpha = math.clamp(State.AimSmoothness, 0.05, 1)
+		cam.CFrame = currentCF:Lerp(desiredCF, alpha)
 	end
 end
 
-local function ensureSkeletonRig(plr, boneCount)
-	local rig = skeletonRigs[plr]
-	if rig and rig.BoneCount == boneCount then
-		return rig
-	end
+-- Safe Silent Aim Metatable Hook (guarded via pcall)
+do
+	local canHook = (typeof(getrawmetatable) == "function") and (typeof(setreadonly) == "function") and (typeof(newcclosure) == "function")
+	if canHook then
+		pcall(function()
+			local mt = getrawmetatable(game)
+			local oldNamecall = mt.__namecall
+			setreadonly(mt, false)
 
-	clearSkeletonForPlayer(plr)
-
-	local outlines = {}
-	local cores = {}
-
-	for i = 1, boneCount do
-		local bg = newDrawing("Line")
-		if bg then
-			pcall(function()
-				bg.Visible = false
-				bg.Color = Color3.fromRGB(6, 8, 14)
-				bg.Thickness = 3.2
-				bg.Transparency = 0.85
+			mt.__namecall = newcclosure(function(self, ...)
+				if not State.Unloaded and State.SilentAimEnabled and Cache.SilentTargetPos then
+					local method = getnamecallmethod()
+					if method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRay" or method == "Raycast" then
+						local args = { ... }
+						if typeof(args[1]) == "Vector3" then
+							local origin = args[1]
+							local dirVec = (Cache.SilentTargetPos - origin)
+							if dirVec.Magnitude > 0.001 then
+								if method == "Raycast" then
+									args[2] = dirVec.Unit * math.max(dirVec.Magnitude + 15, 250)
+								else
+									args[1] = Ray.new(origin, dirVec.Unit * math.max(dirVec.Magnitude + 15, 250))
+								end
+								return oldNamecall(self, table.unpack(args))
+							end
+						end
+					end
+				end
+				return oldNamecall(self, ...)
 			end)
-			outlines[i] = bg
-		end
 
-		local fg = newDrawing("Line")
-		if fg then
+			setreadonly(mt, true)
+		end)
+	end
+end
+
+-- ==========================================
+-- DROPPED GUN ESP & POCKET PULL HELPER
+-- ==========================================
+local function clearGunVisuals()
+	for _, entry in ipairs(Cache.GunVisuals) do
+		if entry.Billboard then pcall(function() entry.Billboard:Destroy() end) end
+		if entry.Highlight then pcall(function() entry.Highlight:Destroy() end) end
+	end
+	table.clear(Cache.GunVisuals)
+end
+
+local function findDroppedGunContainerAndPart()
+	local gunDrop = Workspace:FindFirstChild("GunDrop", true)
+	if gunDrop then
+		if gunDrop:IsA("Tool") then
+			local part = gunDrop:FindFirstChild("Handle") or gunDrop:FindFirstChildWhichIsA("BasePart", true)
+			if part and isValidPos(part.Position) then
+				return gunDrop, part
+			end
+		elseif gunDrop:IsA("BasePart") and isValidPos(gunDrop.Position) then
+			return gunDrop.Parent or gunDrop, gunDrop
+		elseif gunDrop:IsA("Model") then
+			local part = gunDrop.PrimaryPart or gunDrop:FindFirstChildWhichIsA("BasePart", true)
+			if part and isValidPos(part.Position) then
+				return gunDrop, part
+			end
+		end
+	end
+
+	for _, desc in ipairs(Workspace:GetChildren()) do
+		if desc:IsA("Tool") or desc:IsA("BasePart") or desc:IsA("Model") then
+			local n = desc.Name:lower()
+			if n == "gundrop" or n:find("gun", 1, true) or n:find("revolver", 1, true) then
+				local charAncestor = desc:FindFirstAncestorOfClass("Model")
+				if not charAncestor or not Players:GetPlayerFromCharacter(charAncestor) then
+					if desc:IsA("BasePart") and isValidPos(desc.Position) then
+						return desc, desc
+					end
+					local part = desc:FindFirstChild("Handle") or desc:FindFirstChildWhichIsA("BasePart", true)
+					if part and isValidPos(part.Position) then
+						return desc, part
+					end
+				end
+			end
+		end
+	end
+
+	return nil, nil
+end
+
+local function findDroppedGunTarget()
+	local _, part = findDroppedGunContainerAndPart()
+	return part
+end
+
+local function triggerGunTouchToPocket(container, root)
+	if not container or not root or not isValidPos(root.Position) then return end
+
+	local destCF = root.CFrame * CFrame.new(0, 0.5, -1.5)
+	for _, desc in ipairs(container:GetDescendants()) do
+		if desc:IsA("BasePart") then
 			pcall(function()
-				fg.Visible = false
-				fg.Color = Color3.fromRGB(105, 240, 165)
-				fg.Thickness = 1.6
-				fg.Transparency = 1
+				desc.Anchored = false
+				desc.CanCollide = false
+				desc.CFrame = destCF
 			end)
-			cores[i] = fg
+			if typeof(firetouchinterest) == "function" then
+				pcall(function()
+					firetouchinterest(root, desc, 0)
+					firetouchinterest(root, desc, 1)
+				end)
+			end
+		elseif desc:IsA("ProximityPrompt") and typeof(fireproximityprompt) == "function" then
+			pcall(function()
+				fireproximityprompt(desc)
+			end)
 		end
 	end
 
-	local headOutline = newDrawing("Circle")
-	if headOutline then
+	if container:IsA("BasePart") then
 		pcall(function()
-			headOutline.Visible = false
-			headOutline.Color = Color3.fromRGB(6, 8, 14)
-			headOutline.Thickness = 2.4
-			headOutline.Filled = false
-			headOutline.NumSides = 20
-			headOutline.Transparency = 0.9
+			container.Anchored = false
+			container.CanCollide = false
+			container.CFrame = destCF
 		end)
-	end
-
-	local headCore = newDrawing("Circle")
-	if headCore then
-		pcall(function()
-			headCore.Visible = false
-			headCore.Color = Color3.fromRGB(255, 255, 255)
-			headCore.Thickness = 1.6
-			headCore.Filled = false
-			headCore.NumSides = 20
-			headCore.Transparency = 1
-		end)
-	end
-
-	local boxOutline = newDrawing("Square")
-	if boxOutline then
-		pcall(function()
-			boxOutline.Visible = false
-			boxOutline.Color = Color3.fromRGB(6, 8, 14)
-			boxOutline.Thickness = 3.0
-			boxOutline.Filled = false
-			boxOutline.Transparency = 0.85
-		end)
-	end
-
-	local boxCore = newDrawing("Square")
-	if boxCore then
-		pcall(function()
-			boxCore.Visible = false
-			boxCore.Color = Color3.fromRGB(105, 240, 165)
-			boxCore.Thickness = 1.5
-			boxCore.Filled = false
-			boxCore.Transparency = 1
-		end)
-	end
-
-	rig = {
-		BoneCount = boneCount,
-		OutlineLines = outlines,
-		CoreLines = cores,
-		HeadOutline = headOutline,
-		HeadCore = headCore,
-		BoxOutline = boxOutline,
-		BoxCore = boxCore
-	}
-	skeletonRigs[plr] = rig
-	return rig
-end
-
-local function hideSkeletonRig(rig)
-	if not rig then return end
-	if rig.OutlineLines then
-		for _, ln in ipairs(rig.OutlineLines) do
-			if ln then pcall(function() ln.Visible = false end) end
+		if typeof(firetouchinterest) == "function" then
+			pcall(function()
+				firetouchinterest(root, container, 0)
+				firetouchinterest(root, container, 1)
+			end)
 		end
 	end
-	if rig.CoreLines then
-		for _, ln in ipairs(rig.CoreLines) do
-			if ln then pcall(function() ln.Visible = false end) end
+
+	local backpack = LocalPlayer:FindFirstChild("Backpack")
+	if container:IsA("Tool") and backpack then
+		pcall(function()
+			container.Parent = backpack
+		end)
+	end
+end
+
+local function pullDroppedGunToPocket()
+	local container, gunPart = findDroppedGunContainerAndPart()
+	local root = Cache.Root
+	if not container or not gunPart or not gunPart.Parent or not root or State.Unloaded then
+		return false
+	end
+
+	triggerGunTouchToPocket(container, root)
+	return true
+end
+
+local function updateGunESP()
+	clearGunVisuals()
+	if not State.GunESP or State.Unloaded then return end
+
+	local targetPart = findDroppedGunTarget()
+	if not targetPart or not targetPart.Parent then return end
+
+	local hl = Instance.new("Highlight")
+	hl.Name = "YutaGunHighlight"
+	hl.FillColor = Color3.fromRGB(255, 215, 70)
+	hl.OutlineColor = Color3.fromRGB(255, 215, 70)
+	hl.FillTransparency = 0.5
+	hl.OutlineTransparency = 0
+	hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	hl.Adornee = targetPart.Parent:IsA("Model") and targetPart.Parent or targetPart
+	hl.Parent = PlayerGui
+
+	local bb = Instance.new("BillboardGui")
+	bb.Name = "YutaGunTag"
+	bb.Size = UDim2.fromOffset(146, 32)
+	bb.StudsOffset = Vector3.new(0, 1.8, 0)
+	bb.AlwaysOnTop = true
+	bb.Adornee = targetPart
+	bb.Parent = PlayerGui
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.fromScale(1, 1)
+	lbl.BackgroundTransparency = 1
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextSize = 14
+	lbl.TextColor3 = Color3.fromRGB(255, 220, 80)
+	lbl.TextStrokeTransparency = 0.2
+	local dist = (Cache.Root and isValidPos(Cache.Root.Position)) and math.floor((Cache.Root.Position - targetPart.Position).Magnitude) or 0
+	lbl.Text = string.format("◆ DROPPED GUN [%dm]", dist)
+	lbl.Parent = bb
+
+	table.insert(Cache.GunVisuals, { Highlight = hl, Billboard = bb })
+end
+
+-- ==========================================
+-- CS2 BOX ESP & SKELETON ESP (DRAWING API)
+-- ==========================================
+local function safeDrawing(kind)
+	if not drawingAvailable then return nil end
+	local ok, obj = pcall(function()
+		return Drawing.new(kind)
+	end)
+	return (ok and obj) and obj or nil
+end
+
+local function ensureCS2Box(player)
+	if Cache.CS2Boxes[player] then return Cache.CS2Boxes[player] end
+	local outline = safeDrawing("Square")
+	local box = safeDrawing("Square")
+	if outline then
+		pcall(function()
+			outline.Visible = false
+			outline.Filled = false
+			outline.Thickness = 3
+			outline.Color = Color3.fromRGB(0, 0, 0)
+			outline.Transparency = 1
+		end)
+	end
+	if box then
+		pcall(function()
+			box.Visible = false
+			box.Filled = false
+			box.Thickness = 1.5
+			box.Color = Color3.fromRGB(95, 235, 145)
+			box.Transparency = 1
+		end)
+	end
+	local entry = { Outline = outline, Box = box }
+	Cache.CS2Boxes[player] = entry
+	return entry
+end
+
+local function hideCS2Box(entry)
+	if not entry then return end
+	if entry.Outline then pcall(function() entry.Outline.Visible = false end) end
+	if entry.Box then pcall(function() entry.Box.Visible = false end) end
+end
+
+local function removeCS2Box(player)
+	local entry = Cache.CS2Boxes[player]
+	if entry then
+		if entry.Outline then pcall(function() entry.Outline:Remove() end) end
+		if entry.Box then pcall(function() entry.Box:Remove() end) end
+		Cache.CS2Boxes[player] = nil
+	end
+end
+
+local function clearAllCS2Boxes()
+	for plr in pairs(Cache.CS2Boxes) do
+		removeCS2Box(plr)
+	end
+end
+
+local function ensureSkeletonPool(count)
+	while #Cache.SkeletonLines < count do
+		local line = safeDrawing("Line")
+		if line then
+			pcall(function()
+				line.Visible = false
+				line.Thickness = 1.6
+				line.Color = Color3.fromRGB(235, 240, 255)
+				line.Transparency = 1
+			end)
+			table.insert(Cache.SkeletonLines, line)
+		else
+			break
 		end
 	end
-	if rig.HeadOutline then
-		pcall(function() rig.HeadOutline.Visible = false end)
-	end
-	if rig.HeadCore then
-		pcall(function() rig.HeadCore.Visible = false end)
-	end
-	if rig.BoxOutline then
-		pcall(function() rig.BoxOutline.Visible = false end)
-	end
-	if rig.BoxCore then
-		pcall(function() rig.BoxCore.Visible = false end)
+end
+
+local function hideAllSkeletonLines()
+	for _, line in ipairs(Cache.SkeletonLines) do
+		pcall(function() line.Visible = false end)
 	end
 end
 
-local function getPartWorldPoint(char, partName)
-	local part = char:FindFirstChild(partName)
-	if part and part:IsA("BasePart") then
-		return part.Position
+local function clearAllSkeletonLines()
+	for _, line in ipairs(Cache.SkeletonLines) do
+		pcall(function() line:Remove() end)
 	end
-	return nil
+	table.clear(Cache.SkeletonLines)
 end
 
-local function updateSkeletonESP(cam)
-	local anyVisualActive = State.SkeletonESP or State.HeadDotESP or State.BoxESP
-	if not anyVisualActive then
-		clearAllSkeletons()
+local function getBoneSegments(char)
+	local head = char:FindFirstChild("Head")
+	local root = char:FindFirstChild("HumanoidRootPart")
+	local upperTorso = char:FindFirstChild("UpperTorso")
+	local lowerTorso = char:FindFirstChild("LowerTorso")
+	local torso = char:FindFirstChild("Torso")
+
+	local neckPos = head and head.Position or (upperTorso and upperTorso.Position) or (torso and torso.Position) or (root and root.Position)
+	local hipPos = lowerTorso and lowerTorso.Position or torso and torso.Position or root and root.Position
+	if not neckPos or not hipPos then return {} end
+
+	local segments = {}
+	local function addSeg(pA, pB)
+		if isValidPos(pA) and isValidPos(pB) then
+			table.insert(segments, { pA, pB })
+		end
+	end
+
+	addSeg(neckPos, hipPos)
+
+	local lUpperArm = char:FindFirstChild("LeftUpperArm")
+	local lLowerArm = char:FindFirstChild("LeftLowerArm")
+	local lHand = char:FindFirstChild("LeftHand")
+	local rUpperArm = char:FindFirstChild("RightUpperArm")
+	local rLowerArm = char:FindFirstChild("RightLowerArm")
+	local rHand = char:FindFirstChild("RightHand")
+
+	local lUpperLeg = char:FindFirstChild("LeftUpperLeg")
+	local lLowerLeg = char:FindFirstChild("LeftLowerLeg")
+	local lFoot = char:FindFirstChild("LeftFoot")
+	local rUpperLeg = char:FindFirstChild("RightUpperLeg")
+	local rLowerLeg = char:FindFirstChild("RightLowerLeg")
+	local rFoot = char:FindFirstChild("RightFoot")
+
+	if lUpperArm and upperTorso then
+		addSeg(upperTorso.Position, lUpperArm.Position)
+		if lLowerArm then addSeg(lUpperArm.Position, lLowerArm.Position) end
+		if lHand and lLowerArm then addSeg(lLowerArm.Position, lHand.Position) end
+	end
+	if rUpperArm and upperTorso then
+		addSeg(upperTorso.Position, rUpperArm.Position)
+		if rLowerArm then addSeg(rUpperArm.Position, rLowerArm.Position) end
+		if rHand and rLowerArm then addSeg(rLowerArm.Position, rHand.Position) end
+	end
+	if lUpperLeg and lowerTorso then
+		addSeg(lowerTorso.Position, lUpperLeg.Position)
+		if lLowerLeg then addSeg(lUpperLeg.Position, lLowerLeg.Position) end
+		if lFoot and lLowerLeg then addSeg(lLowerLeg.Position, lFoot.Position) end
+	end
+	if rUpperLeg and lowerTorso then
+		addSeg(lowerTorso.Position, rUpperLeg.Position)
+		if rLowerLeg then addSeg(rUpperLeg.Position, rLowerLeg.Position) end
+		if rFoot and rLowerLeg then addSeg(rLowerLeg.Position, rFoot.Position) end
+	end
+
+	if #segments == 1 and root then
+		local cf = root.CFrame
+		addSeg(neckPos, (cf * CFrame.new(-1.35, 1.1, 0)).Position)
+		addSeg(neckPos, (cf * CFrame.new(1.35, 1.1, 0)).Position)
+		addSeg(hipPos, (cf * CFrame.new(-0.6, -2.5, 0)).Position)
+		addSeg(hipPos, (cf * CFrame.new(0.6, -2.5, 0)).Position)
+	end
+
+	return segments
+end
+
+local function updateRenderVisuals(cam, now)
+	if State.Unloaded or not drawingAvailable or not cam then
+		for _, entry in pairs(Cache.CS2Boxes) do hideCS2Box(entry) end
+		hideAllSkeletonLines()
 		return
 	end
 
-	for plr in pairs(skeletonRigs) do
+	for plr, entry in pairs(Cache.CS2Boxes) do
 		if not plr or not plr.Parent then
-			clearSkeletonForPlayer(plr)
+			removeCS2Box(plr)
 		end
 	end
 
-	for _, plr in ipairs(Players:GetPlayers()) do
-		if plr ~= LocalPlayer then
-			local char = plr.Character
-			local hum = char and char:FindFirstChildOfClass("Humanoid")
-			local root = char and char:FindFirstChild("HumanoidRootPart")
+	local activeBoneCount = 0
+	local pendingBones = {}
 
-			if char and hum and root and root:IsA("BasePart") and hum.Health > 0 then
-				local isR15 = (hum.RigType == Enum.HumanoidRigType.R15) or (char:FindFirstChild("UpperTorso") ~= nil)
-				local bones = isR15 and R15_BONES or R6_BONES
-				local rig = ensureSkeletonRig(plr, #bones)
-				local _, roleColor = getPlayerRole(plr)
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer then
+			local char = player.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+			local role = Cache.PlayerRoles[player] or "Innocent"
+			local col = getRoleColor(role)
+
+			if char and hum and hum.Health > 0 and root and isValidPos(root.Position) then
+				if State.CS2BoxESP then
+					local entry = ensureCS2Box(player)
+					local rootScreen, onScreen = cam:WorldToViewportPoint(root.Position)
+					if onScreen and rootScreen.Z > 0 and entry.Box then
+						local topPt = cam:WorldToViewportPoint((root.CFrame * CFrame.new(0, 2.7, 0)).Position)
+						local botPt = cam:WorldToViewportPoint((root.CFrame * CFrame.new(0, -3.1, 0)).Position)
+						local h = math.clamp(math.abs(topPt.Y - botPt.Y), 16, 420)
+						local w = math.clamp(h * 0.56, 10, 240)
+						local x = rootScreen.X - (w * 0.5)
+						local y = topPt.Y
+
+						pcall(function()
+							if entry.Outline then
+								entry.Outline.Size = Vector2.new(w, h)
+								entry.Outline.Position = Vector2.new(x, y)
+								entry.Outline.Visible = true
+							end
+							entry.Box.Size = Vector2.new(w, h)
+							entry.Box.Position = Vector2.new(x, y)
+							entry.Box.Color = col
+							entry.Box.Visible = true
+						end)
+					else
+						hideCS2Box(entry)
+					end
+				elseif Cache.CS2Boxes[player] then
+					hideCS2Box(Cache.CS2Boxes[player])
+				end
 
 				if State.SkeletonESP then
-					for idx, pair in ipairs(bones) do
-						local bg = rig.OutlineLines[idx]
-						local fg = rig.CoreLines[idx]
-						local pA = getPartWorldPoint(char, pair[1])
-						local pB = getPartWorldPoint(char, pair[2])
-
-						if bg and fg and pA and pB then
-							local sA, visA = cam:WorldToViewportPoint(pA)
-							local sB, visB = cam:WorldToViewportPoint(pB)
-
-							if (visA or visB) and sA.Z > 0 and sB.Z > 0 then
-								local vA = Vector2.new(sA.X, sA.Y)
-								local vB = Vector2.new(sB.X, sB.Y)
-								pcall(function()
-									bg.From = vA
-									bg.To = vB
-									bg.Visible = true
-
-									fg.From = vA
-									fg.To = vB
-									fg.Color = roleColor
-									fg.Visible = true
-								end)
-							else
-								pcall(function()
-									bg.Visible = false
-									fg.Visible = false
-								end)
-							end
-						elseif bg and fg then
-							pcall(function()
-								bg.Visible = false
-								fg.Visible = false
-							end)
+					local segs = getBoneSegments(char)
+					for _, seg in ipairs(segs) do
+						local p1Screen, vis1 = cam:WorldToViewportPoint(seg[1])
+						local p2Screen, vis2 = cam:WorldToViewportPoint(seg[2])
+						if vis1 and vis2 and p1Screen.Z > 0 and p2Screen.Z > 0 then
+							activeBoneCount += 1
+							table.insert(pendingBones, {
+								From = Vector2.new(p1Screen.X, p1Screen.Y),
+								To = Vector2.new(p2Screen.X, p2Screen.Y),
+								Color = col
+							})
 						end
 					end
-				else
-					for idx = 1, rig.BoneCount do
-						local bg = rig.OutlineLines[idx]
-						local fg = rig.CoreLines[idx]
-						if bg then pcall(function() bg.Visible = false end) end
-						if fg then pcall(function() fg.Visible = false end) end
-					end
 				end
-
-				local headPos = getPartWorldPoint(char, "Head")
-				if State.HeadDotESP and headPos and rig.HeadOutline and rig.HeadCore then
-					local hScreen, hVis = cam:WorldToViewportPoint(headPos)
-					if hVis and hScreen.Z > 0 then
-						local radius = math.clamp(190 / math.max(hScreen.Z, 1), 3, 12)
-						local center = Vector2.new(hScreen.X, hScreen.Y)
-						pcall(function()
-							rig.HeadOutline.Position = center
-							rig.HeadOutline.Radius = radius + 1.2
-							rig.HeadOutline.Visible = true
-
-							rig.HeadCore.Position = center
-							rig.HeadCore.Radius = radius
-							rig.HeadCore.Color = roleColor
-							rig.HeadCore.Visible = true
-						end)
-					else
-						pcall(function()
-							rig.HeadOutline.Visible = false
-							rig.HeadCore.Visible = false
-						end)
-					end
-				elseif rig.HeadOutline and rig.HeadCore then
-					pcall(function()
-						rig.HeadOutline.Visible = false
-						rig.HeadCore.Visible = false
-					end)
-				end
-
-				if State.BoxESP and rig.BoxOutline and rig.BoxCore then
-					local rootScreen, rVis = cam:WorldToViewportPoint(root.Position)
-					if rVis and rootScreen.Z > 0 then
-						local topScreen = cam:WorldToViewportPoint((root.CFrame * CFrame.new(0, 2.7, 0)).Position)
-						local botScreen = cam:WorldToViewportPoint((root.CFrame * CFrame.new(0, -3.1, 0)).Position)
-						local boxH = math.clamp(math.abs(topScreen.Y - botScreen.Y), 16, 420)
-						local boxW = math.clamp(boxH * 0.58, 10, 260)
-						local pos = Vector2.new(rootScreen.X - boxW * 0.5, topScreen.Y)
-						local sz = Vector2.new(boxW, boxH)
-
-						pcall(function()
-							rig.BoxOutline.Position = pos
-							rig.BoxOutline.Size = sz
-							rig.BoxOutline.Visible = true
-
-							rig.BoxCore.Position = pos
-							rig.BoxCore.Size = sz
-							rig.BoxCore.Color = roleColor
-							rig.BoxCore.Visible = true
-						end)
-					else
-						pcall(function()
-							rig.BoxOutline.Visible = false
-							rig.BoxCore.Visible = false
-						end)
-					end
-				elseif rig.BoxOutline and rig.BoxCore then
-					pcall(function()
-						rig.BoxOutline.Visible = false
-						rig.BoxCore.Visible = false
-					end)
-				end
-			elseif skeletonRigs[plr] then
-				hideSkeletonRig(skeletonRigs[plr])
+			elseif Cache.CS2Boxes[player] then
+				hideCS2Box(Cache.CS2Boxes[player])
 			end
 		end
 	end
-end
 
-local function updateRoleESP(cam, localPos)
-	if not State.RoleESP then
-		clearRoleTags()
-		return
-	end
-
-	for plr, tag in pairs(roleTags) do
-		if not plr or not plr.Parent then
-			removeDrawing(tag)
-			roleTags[plr] = nil
+	if not State.CS2BoxESP then
+		for _, entry in pairs(Cache.CS2Boxes) do
+			hideCS2Box(entry)
 		end
 	end
 
-	for _, plr in ipairs(Players:GetPlayers()) do
-		if plr ~= LocalPlayer then
-			local char = plr.Character
-			local root = char and char:FindFirstChild("HumanoidRootPart")
-			local hum = char and char:FindFirstChildOfClass("Humanoid")
-
-			local tag = roleTags[plr]
-			if not tag then
-				tag = newDrawing("Text")
-				if tag then
-					pcall(function()
-						tag.Size = 15
-						tag.Center = true
-						tag.Outline = true
-						tag.Transparency = 1
-					end)
-					roleTags[plr] = tag
-				end
-			end
-
-			if tag and root and root:IsA("BasePart") and hum and hum.Health > 0 then
-				local roleName, roleColor = getPlayerRole(plr)
-				local screenPos, onScreen = cam:WorldToViewportPoint(root.Position + Vector3.new(0, 3.2, 0))
-				local dist = localPos and math.floor((localPos - root.Position).Magnitude) or 0
-
+	if State.SkeletonESP then
+		ensureSkeletonPool(activeBoneCount)
+		for idx, line in ipairs(Cache.SkeletonLines) do
+			local bData = pendingBones[idx]
+			if bData then
 				pcall(function()
-					tag.Text = string.format("[%s] %s (%dm)", roleName, plr.Name, dist)
-					tag.Color = roleColor
-					tag.Position = Vector2.new(screenPos.X, screenPos.Y)
-					tag.Visible = onScreen and screenPos.Z > 0
+					line.From = bData.From
+					line.To = bData.To
+					line.Color = bData.Color
+					line.Visible = true
 				end)
-			elseif tag then
-				pcall(function()
-					tag.Visible = false
-				end)
+			else
+				pcall(function() line.Visible = false end)
 			end
 		end
-	end
-end
-
-local function updateGunESP(cam, localPos)
-	if not State.GunESP then
-		clearGunMarker()
-		return
-	end
-
-	local gunPart = getDroppedGunPart()
-	if not gunPart then
-		if gunMarker then
-			pcall(function()
-				gunMarker.Visible = false
-			end)
-		end
-		return
-	end
-
-	if not gunMarker then
-		gunMarker = newDrawing("Text")
-		if gunMarker then
-			pcall(function()
-				gunMarker.Size = 16
-				gunMarker.Center = true
-				gunMarker.Outline = true
-				gunMarker.Color = Color3.fromRGB(255, 220, 75)
-				gunMarker.Transparency = 1
-			end)
-		end
-	end
-
-	if gunMarker then
-		local pos, onScreen = cam:WorldToViewportPoint(gunPart.Position + Vector3.new(0, 1.5, 0))
-		local dist = localPos and math.floor((localPos - gunPart.Position).Magnitude) or 0
-		pcall(function()
-			gunMarker.Text = string.format("★ DROPPED GUN [%dm]", dist)
-			gunMarker.Position = Vector2.new(pos.X, pos.Y)
-			gunMarker.Visible = onScreen and pos.Z > 0
-		end)
-	end
-end
-
-local function updateFrame()
-	if State.Unloaded or not State.Unlocked then
-		State.CurrentTarget = nil
-		State.CurrentAimPos = nil
-		clearAllVisuals()
-		return
-	end
-
-	local cam = Workspace.CurrentCamera
-	if not cam then
-		State.CurrentTarget = nil
-		State.CurrentAimPos = nil
-		clearAllVisuals()
-		return
-	end
-
-	if State.AimbotEnabled or State.SilentAimEnabled then
-		State.CurrentTarget, State.CurrentAimPos = getBestAimTarget(cam)
 	else
-		State.CurrentTarget = nil
-		State.CurrentAimPos = nil
+		hideAllSkeletonLines()
 	end
 
-	applyCameraAimbot(cam)
-
-	if not drawingOk then
-		clearAllVisuals()
-		return
-	end
-
-	local localPos = getLocalRootPos()
-	updateFOVCircle(cam)
-	updateSkeletonESP(cam)
-	updateRoleESP(cam, localPos)
-	updateGunESP(cam, localPos)
+	updateAimbotAndSilentAim(cam, now)
 end
 
 -- ==========================================
--- GUI CONSTRUCTION (NEON LOCK + MM2 PANEL)
+-- MOVEMENT (THROTTLED FOR MOBILE)
 -- ==========================================
-local gui = Instance.new("ScreenGui")
-gui.Name = "DarkMoon_MM2_Gui"
-gui.ResetOnSpawn = false
-gui.ZIndexBehavior = Enum.ZIndexBehavior.Global
-gui.DisplayOrder = 300
-gui.Parent = PlayerGui
+local function applySpeed()
+	if Cache.Hum and not State.Unloaded then
+		Cache.Hum.WalkSpeed = State.SpeedEnabled and State.WalkSpeedBoost or State.DefaultWalkSpeed
+	end
+end
 
-local lockFrame = Instance.new("Frame")
-lockFrame.Name = "LockBackdrop"
-lockFrame.Size = UDim2.fromScale(1, 1)
-lockFrame.BackgroundColor3 = Color3.fromRGB(6, 8, 15)
-lockFrame.BackgroundTransparency = 0.22
-lockFrame.BorderSizePixel = 0
-lockFrame.ZIndex = 310
-lockFrame.Parent = gui
+local function restoreCollisions()
+	for part, orig in pairs(Cache.OrigCollide) do
+		if part and part.Parent and part:IsA("BasePart") then
+			part.CanCollide = orig
+		end
+	end
+end
 
-local lockCard = Instance.new("Frame")
-lockCard.Name = "LockCard"
-lockCard.Size = UDim2.fromOffset(336, 258)
-lockCard.Position = UDim2.fromScale(0.5, 0.5)
-lockCard.AnchorPoint = Vector2.new(0.5, 0.5)
-lockCard.BackgroundColor3 = Color3.fromRGB(14, 17, 29)
-lockCard.BorderSizePixel = 0
-lockCard.ZIndex = 315
-lockCard.Parent = lockFrame
+local function stepNoclip(now)
+	if not State.NoclipEnabled or State.Unloaded then return end
+	if (now - State.LastNoclipStep) < 0.04 then return end
+	State.LastNoclipStep = now
 
-local lockCorner = Instance.new("UICorner")
-lockCorner.CornerRadius = UDim.new(0, 18)
-lockCorner.Parent = lockCard
+	for i = #Cache.Parts, 1, -1 do
+		local part = Cache.Parts[i]
+		if part and part.Parent then
+			part.CanCollide = false
+		else
+			table.remove(Cache.Parts, i)
+		end
+	end
+end
 
-local lockStroke = Instance.new("UIStroke")
-lockStroke.Color = Color3.fromRGB(120, 225, 255)
-lockStroke.Thickness = 2.2
-lockStroke.Parent = lockCard
+-- ==========================================
+-- FLOATING MOBILE HUB TOGGLE
+-- ==========================================
+local floatGui = Instance.new("ScreenGui")
+floatGui.Name = "YutaHub_MM2Float"
+floatGui.ResetOnSpawn = false
+floatGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+floatGui.DisplayOrder = 300
+floatGui.Parent = PlayerGui
 
-local neonGradient = Instance.new("UIGradient")
-neonGradient.Color = ColorSequence.new({
-	ColorSequenceKeypoint.new(0, Color3.fromRGB(150, 95, 255)),
-	ColorSequenceKeypoint.new(0.5, Color3.fromRGB(70, 235, 255)),
-	ColorSequenceKeypoint.new(1, Color3.fromRGB(150, 95, 255))
-})
-neonGradient.Parent = lockStroke
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Name = "HubToggleBtn"
+toggleBtn.Size = UDim2.fromOffset(132, 44)
+toggleBtn.Position = UDim2.new(1, -150, 0.45, 0)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(18, 20, 32)
+toggleBtn.TextColor3 = Color3.fromRGB(235, 240, 255)
+toggleBtn.Text = "MM2 HUB"
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.TextSize = 14
+toggleBtn.ZIndex = 305
+toggleBtn.Parent = floatGui
 
-local titleLbl = Instance.new("TextLabel")
-titleLbl.Size = UDim2.new(1, -24, 0, 32)
-titleLbl.Position = UDim2.fromOffset(12, 14)
-titleLbl.BackgroundTransparency = 1
-titleLbl.Text = "🔒 " .. CONFIG.HubTitle
-titleLbl.TextColor3 = Color3.fromRGB(242, 246, 255)
-titleLbl.Font = Enum.Font.GothamBold
-titleLbl.TextSize = 18
-titleLbl.ZIndex = 316
-titleLbl.Parent = lockCard
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0, 12)
+btnCorner.Parent = toggleBtn
 
-local subLbl = Instance.new("TextLabel")
-subLbl.Size = UDim2.new(1, -24, 0, 22)
-subLbl.Position = UDim2.fromOffset(12, 46)
-subLbl.BackgroundTransparency = 1
-subLbl.Text = "by " .. CONFIG.Author .. "  •  Neon Access Gate"
-subLbl.TextColor3 = Color3.fromRGB(145, 195, 235)
-subLbl.Font = Enum.Font.Gotham
-subLbl.TextSize = 12
-subLbl.ZIndex = 316
-subLbl.Parent = lockCard
+local btnStroke = Instance.new("UIStroke")
+btnStroke.Color = Color3.fromRGB(115, 130, 255)
+btnStroke.Thickness = 1.5
+btnStroke.Parent = toggleBtn
 
-local keyBox = Instance.new("TextBox")
-keyBox.Size = UDim2.new(1, -28, 0, 42)
-keyBox.Position = UDim2.fromOffset(14, 80)
-keyBox.BackgroundColor3 = Color3.fromRGB(23, 27, 44)
-keyBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-keyBox.PlaceholderText = "Enter key (e.g. YUTA2026)..."
-keyBox.PlaceholderColor3 = Color3.fromRGB(115, 128, 165)
-keyBox.Text = ""
-keyBox.ClearTextOnFocus = false
-keyBox.Font = Enum.Font.GothamMedium
-keyBox.TextSize = 14
-keyBox.ZIndex = 317
-keyBox.Parent = lockCard
+do
+	local dragging = false
+	local dragInput = nil
+	local dragStart = Vector2.zero
+	local startPos = UDim2.new()
+	local moved = false
 
-local boxCorner = Instance.new("UICorner")
-boxCorner.CornerRadius = UDim.new(0, 10)
-boxCorner.Parent = keyBox
-
-local boxStroke = Instance.new("UIStroke")
-boxStroke.Color = Color3.fromRGB(95, 125, 220)
-boxStroke.Thickness = 1.2
-boxStroke.Parent = keyBox
-
-local statusLbl = Instance.new("TextLabel")
-statusLbl.Size = UDim2.new(1, -28, 0, 20)
-statusLbl.Position = UDim2.fromOffset(14, 126)
-statusLbl.BackgroundTransparency = 1
-statusLbl.Text = ""
-statusLbl.TextColor3 = Color3.fromRGB(255, 95, 125)
-statusLbl.Font = Enum.Font.GothamBold
-statusLbl.TextSize = 12
-statusLbl.ZIndex = 317
-statusLbl.Parent = lockCard
-
-local unlockBtn = Instance.new("TextButton")
-unlockBtn.Size = UDim2.new(1, -28, 0, 42)
-unlockBtn.Position = UDim2.fromOffset(14, 152)
-unlockBtn.BackgroundColor3 = Color3.fromRGB(75, 165, 255)
-unlockBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-unlockBtn.Text = "UNLOCK HUB"
-unlockBtn.Font = Enum.Font.GothamBold
-unlockBtn.TextSize = 14
-unlockBtn.ZIndex = 317
-unlockBtn.Parent = lockCard
-
-local unlockCorner = Instance.new("UICorner")
-unlockCorner.CornerRadius = UDim.new(0, 10)
-unlockCorner.Parent = unlockBtn
-
-local copyBtn = Instance.new("TextButton")
-copyBtn.Size = UDim2.new(1, -28, 0, 34)
-copyBtn.Position = UDim2.fromOffset(14, 204)
-copyBtn.BackgroundColor3 = Color3.fromRGB(22, 26, 42)
-copyBtn.TextColor3 = Color3.fromRGB(130, 225, 255)
-copyBtn.Text = "Copy Discord Invite"
-copyBtn.Font = Enum.Font.GothamMedium
-copyBtn.TextSize = 12
-copyBtn.ZIndex = 317
-copyBtn.Parent = lockCard
-
-local copyCorner = Instance.new("UICorner")
-copyCorner.CornerRadius = UDim.new(0, 8)
-copyCorner.Parent = copyBtn
-
--- Unlocked MM2 Panel
-local mainPanel = Instance.new("Frame")
-mainPanel.Name = "MM2Panel"
-mainPanel.Size = UDim2.fromOffset(258, 546)
-mainPanel.Position = UDim2.fromOffset(24, 34)
-mainPanel.BackgroundColor3 = Color3.fromRGB(14, 17, 28)
-mainPanel.Visible = false
-mainPanel.Active = true
-mainPanel.Draggable = true
-mainPanel.ZIndex = 200
-mainPanel.Parent = gui
-
-local panelCorner = Instance.new("UICorner")
-panelCorner.CornerRadius = UDim.new(0, 14)
-panelCorner.Parent = mainPanel
-
-local panelStroke = Instance.new("UIStroke")
-panelStroke.Color = Color3.fromRGB(85, 215, 255)
-panelStroke.Thickness = 1.6
-panelStroke.Parent = mainPanel
-
-local panelTitle = Instance.new("TextLabel")
-panelTitle.Size = UDim2.new(1, -16, 0, 26)
-panelTitle.Position = UDim2.fromOffset(8, 6)
-panelTitle.BackgroundTransparency = 1
-panelTitle.Text = "🌙 " .. CONFIG.HubTitle
-panelTitle.TextColor3 = Color3.fromRGB(238, 244, 255)
-panelTitle.Font = Enum.Font.GothamBold
-panelTitle.TextSize = 14
-panelTitle.TextXAlignment = Enum.TextXAlignment.Left
-panelTitle.ZIndex = 201
-panelTitle.Parent = mainPanel
-
-panelStatusLbl = Instance.new("TextLabel")
-panelStatusLbl.Size = UDim2.new(1, -16, 0, 16)
-panelStatusLbl.Position = UDim2.fromOffset(8, 30)
-panelStatusLbl.BackgroundTransparency = 1
-panelStatusLbl.Text = "Ready"
-panelStatusLbl.TextColor3 = Color3.fromRGB(145, 215, 255)
-panelStatusLbl.Font = Enum.Font.GothamMedium
-panelStatusLbl.TextSize = 11
-panelStatusLbl.TextXAlignment = Enum.TextXAlignment.Left
-panelStatusLbl.ZIndex = 201
-panelStatusLbl.Parent = mainPanel
-
-local function makeToggleBtn(text, yPos, initialActive, onToggle)
-	local active = initialActive or false
-	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(1, -16, 0, 31)
-	btn.Position = UDim2.fromOffset(8, yPos)
-	btn.BackgroundColor3 = active and Color3.fromRGB(48, 125, 210) or Color3.fromRGB(24, 28, 44)
-	btn.TextColor3 = Color3.fromRGB(215, 224, 248)
-	btn.Text = text .. (active and ": ON" or ": OFF")
-	btn.Font = Enum.Font.GothamBold
-	btn.TextSize = 12
-	btn.ZIndex = 202
-	btn.Parent = mainPanel
-
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, 8)
-	c.Parent = btn
-
-	btn.MouseButton1Click:Connect(function()
-		if State.Unloaded then return end
-		active = not active
-		btn.Text = text .. (active and ": ON" or ": OFF")
-		btn.BackgroundColor3 = active and Color3.fromRGB(48, 125, 210) or Color3.fromRGB(24, 28, 44)
-		onToggle(active)
+	toggleBtn.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragInput = input
+			dragStart = Vector2.new(input.Position.X, input.Position.Y)
+			startPos = toggleBtn.Position
+			moved = false
+		end
 	end)
-end
 
-local function makeCycleBtn(labelPrefix, yPos, initialText, onCycle)
-	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(1, -16, 0, 31)
-	btn.Position = UDim2.fromOffset(8, yPos)
-	btn.BackgroundColor3 = Color3.fromRGB(28, 34, 54)
-	btn.TextColor3 = Color3.fromRGB(165, 225, 255)
-	btn.Text = labelPrefix .. ": " .. initialText
-	btn.Font = Enum.Font.GothamBold
-	btn.TextSize = 12
-	btn.ZIndex = 202
-	btn.Parent = mainPanel
+	toggleBtn.InputChanged:Connect(function(input)
+		if input == dragInput and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local delta = Vector2.new(input.Position.X, input.Position.Y) - dragStart
+			if delta.Magnitude > 6 then moved = true end
+			if dragging and moved then
+				toggleBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+			end
+		end
+	end)
 
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, 8)
-	c.Parent = btn
+	toggleBtn.InputEnded:Connect(function(input)
+		if input == dragInput then
+			local tap = not moved
+			dragging = false
+			dragInput = nil
+			if tap and not State.Unloaded then
+				pcall(function()
+					if Window.Toggle then
+						Window:Toggle()
+					end
+				end)
+			end
+		end
+	end)
 
-	btn.MouseButton1Click:Connect(function()
-		if State.Unloaded then return end
-		local nextText = onCycle()
-		if nextText then
-			btn.Text = labelPrefix .. ": " .. tostring(nextText)
+	UserInputService.InputEnded:Connect(function(input)
+		if input == dragInput then
+			dragging = false
+			dragInput = nil
 		end
 	end)
 end
 
-makeToggleBtn("Role ESP", 50, false, function(v)
-	State.RoleESP = v
-	if not v then
-		clearRoleTags()
+-- ==========================================
+-- CONTROLS
+-- ==========================================
+CombatTab:Button({
+	Title = "Scan Roles Now",
+	Desc = "Refresh Murderer & Sheriff detection immediately",
+	Callback = function()
+		scanRoles()
 	end
-end)
+})
 
-makeToggleBtn("Dropped Gun ESP", 86, false, function(v)
-	State.GunESP = v
-	State.LastGunScan = 0
-	if not v then
-		clearGunMarker()
+CombatTab:Button({
+	Title = "TP to Murderer",
+	Desc = "Teleport behind the detected Murderer",
+	Callback = function()
+		teleportToRole("Murderer")
 	end
-end)
+})
 
-makeToggleBtn("CS2 Skeleton ESP", 122, false, function(v)
-	State.SkeletonESP = v
-end)
-
-makeToggleBtn("Head Dot", 158, true, function(v)
-	State.HeadDotESP = v
-end)
-
-makeToggleBtn("2D Box", 194, false, function(v)
-	State.BoxESP = v
-end)
-
-makeToggleBtn("Aimbot", 230, false, function(v)
-	State.AimbotEnabled = v
-end)
-
-makeToggleBtn("Silent Aim", 266, false, function(v)
-	State.SilentAimEnabled = v
-	if v then
-		installSilentAimHooks()
+CombatTab:Button({
+	Title = "TP to Sheriff",
+	Desc = "Teleport behind the detected Sheriff",
+	Callback = function()
+		teleportToRole("Sheriff")
 	end
-end)
+})
 
-makeToggleBtn("FOV Circle", 302, true, function(v)
-	State.ShowFOV = v
-end)
+CombatTab:Toggle({
+	Title = "Murderer Knife Reach",
+	Desc = "Expands equipped tool handle size for wider close range",
+	Default = false,
+	Callback = function(v)
+		State.KnifeReachEnabled = v
+		updateKnifeReach()
+	end
+})
 
-makeCycleBtn("FOV Size", 338, tostring(State.FOVRadius), function()
-	State.FOVIndex = (State.FOVIndex % #CONFIG.FOVPresets) + 1
-	State.FOVRadius = CONFIG.FOVPresets[State.FOVIndex]
-	return tostring(State.FOVRadius)
-end)
+CombatTab:Slider({
+	Title = "Knife Reach Size",
+	Desc = "Handle size in studs when Murderer Reach is on",
+	Step = 1,
+	Value = { Min = 2, Max = 25, Default = 12 },
+	Callback = function(v)
+		State.KnifeReachSize = v
+		if State.KnifeReachEnabled then
+			updateKnifeReach()
+		end
+	end
+})
 
-makeCycleBtn("Smoothness", 374, tostring(State.AimSmoothness), function()
-	State.SmoothIndex = (State.SmoothIndex % #CONFIG.SmoothPresets) + 1
-	State.AimSmoothness = CONFIG.SmoothPresets[State.SmoothIndex]
-	return tostring(State.AimSmoothness)
-end)
+CombatTab:Button({
+	Title = "Grab Gun to Pocket",
+	Desc = "Pulls dropped gun to your pocket without moving you",
+	Callback = function()
+		pullDroppedGunToPocket()
+	end
+})
 
-local grabGunBtn = Instance.new("TextButton")
-grabGunBtn.Size = UDim2.new(1, -16, 0, 32)
-grabGunBtn.Position = UDim2.fromOffset(8, 412)
-grabGunBtn.BackgroundColor3 = Color3.fromRGB(36, 98, 76)
-grabGunBtn.TextColor3 = Color3.fromRGB(165, 255, 215)
-grabGunBtn.Text = "Grab Dropped Gun"
-grabGunBtn.Font = Enum.Font.GothamBold
-grabGunBtn.TextSize = 12
-grabGunBtn.ZIndex = 202
-grabGunBtn.Parent = mainPanel
+CombatTab:Toggle({
+	Title = "Auto Grab Gun to Pocket",
+	Desc = "Pulls dropped gun to your pocket automatically",
+	Default = false,
+	Callback = function(v)
+		State.AutoGrabGun = v
+	end
+})
 
-local grabCorner = Instance.new("UICorner")
-grabCorner.CornerRadius = UDim.new(0, 8)
-grabCorner.Parent = grabGunBtn
+AimTab:Toggle({
+	Title = "Aimbot",
+	Desc = "Smoothly aims camera toward target in FOV",
+	Default = false,
+	Callback = function(v)
+		State.AimbotEnabled = v
+	end
+})
 
-local unloadBtn = Instance.new("TextButton")
-unloadBtn.Size = UDim2.new(1, -16, 0, 32)
-unloadBtn.Position = UDim2.fromOffset(8, 504)
-unloadBtn.BackgroundColor3 = Color3.fromRGB(58, 22, 36)
-unloadBtn.TextColor3 = Color3.fromRGB(255, 145, 170)
-unloadBtn.Text = "Unload Script"
-unloadBtn.Font = Enum.Font.GothamBold
-unloadBtn.TextSize = 12
-unloadBtn.ZIndex = 202
-unloadBtn.Parent = mainPanel
+AimTab:Toggle({
+	Title = "Silent Aim",
+	Desc = "Redirects raycast aim vectors toward predicted target",
+	Default = false,
+	Callback = function(v)
+		State.SilentAimEnabled = v
+	end
+})
 
-local ulCorner = Instance.new("UICorner")
-ulCorner.CornerRadius = UDim.new(0, 8)
-ulCorner.Parent = unloadBtn
+AimTab:Toggle({
+	Title = "Murderer Only Aim",
+	Desc = "Prioritizes only the Murderer for Aimbot & Silent Aim",
+	Default = true,
+	Callback = function(v)
+		State.MurdererOnlyAim = v
+	end
+})
 
--- Floating Moon Toggle Button
-local moonBtn = Instance.new("TextButton")
-moonBtn.Name = "MoonToggle"
-moonBtn.Size = UDim2.fromOffset(54, 54)
-moonBtn.Position = UDim2.new(1, -74, 0.45, 0)
-moonBtn.BackgroundColor3 = Color3.fromRGB(16, 19, 32)
-moonBtn.TextColor3 = Color3.fromRGB(130, 230, 255)
-moonBtn.Text = "☾"
-moonBtn.Font = Enum.Font.GothamBold
-moonBtn.TextSize = 24
-moonBtn.Visible = false
-moonBtn.Active = true
-moonBtn.Draggable = true
-moonBtn.ZIndex = 240
-moonBtn.Parent = gui
+AimTab:Toggle({
+	Title = "Aim Prediction",
+	Desc = "Leads moving targets using velocity",
+	Default = true,
+	Callback = function(v)
+		State.AimPrediction = v
+	end
+})
 
-local moonCorner = Instance.new("UICorner")
-moonCorner.CornerRadius = UDim.new(1, 0)
-moonCorner.Parent = moonBtn
+AimTab:Toggle({
+	Title = "Ping Compensation",
+	Desc = "Adjusts lead time using live network ping",
+	Default = true,
+	Callback = function(v)
+		State.PingCompensation = v
+	end
+})
 
-local moonStroke = Instance.new("UIStroke")
-moonStroke.Color = Color3.fromRGB(95, 220, 255)
-moonStroke.Thickness = 2
-moonStroke.Parent = moonBtn
+AimTab:Slider({
+	Title = "Aim FOV (px)",
+	Desc = "Targeting radius around crosshair/touch",
+	Step = 5,
+	Value = { Min = 40, Max = 320, Default = 150 },
+	Callback = function(v)
+		State.AimFOV = v
+	end
+})
+
+AimTab:Slider({
+	Title = "Aimbot Smoothness",
+	Desc = "Lower = smoother, Higher = snappier",
+	Step = 0.02,
+	Value = { Min = 0.06, Max = 0.90, Default = 0.24 },
+	Callback = function(v)
+		State.AimSmoothness = v
+	end
+})
+
+VisualsTab:Toggle({
+	Title = "Role ESP",
+	Desc = "Highlight Murderer, Sheriff & Innocent with distance",
+	Default = false,
+	Callback = function(v)
+		State.RoleESP = v
+		if v then
+			State.LastRoleScan = 0
+			scanRoles()
+		else
+			clearAllRoleVisuals()
+		end
+	end
+})
+
+VisualsTab:Toggle({
+	Title = "CS2 Box ESP",
+	Desc = "2D outlined boxes colored by role",
+	Default = false,
+	Callback = function(v)
+		State.CS2BoxESP = v
+		if not v then
+			for _, entry in pairs(Cache.CS2Boxes) do hideCS2Box(entry) end
+		end
+	end
+})
+
+VisualsTab:Toggle({
+	Title = "Skeleton ESP",
+	Desc = "2D bone lines across player limbs",
+	Default = false,
+	Callback = function(v)
+		State.SkeletonESP = v
+		if not v then
+			hideAllSkeletonLines()
+		end
+	end
+})
+
+VisualsTab:Toggle({
+	Title = "Dropped Gun ESP",
+	Desc = "Highlight dropped gun/revolver on the map",
+	Default = false,
+	Callback = function(v)
+		State.GunESP = v
+		State.LastGunScan = 0
+		updateGunESP()
+	end
+})
+
+MovementTab:Toggle({
+	Title = "Speed Boost",
+	Desc = "Increase walking speed smoothly",
+	Default = false,
+	Callback = function(v)
+		State.SpeedEnabled = v
+		applySpeed()
+	end
+})
+
+MovementTab:Slider({
+	Title = "WalkSpeed",
+	Desc = "Target walking speed",
+	Step = 1,
+	Value = { Min = 16, Max = 45, Default = 24 },
+	Callback = function(v)
+		State.WalkSpeedBoost = v
+		if State.SpeedEnabled then
+			applySpeed()
+		end
+	end
+})
+
+MovementTab:Toggle({
+	Title = "Noclip",
+	Desc = "Walk through solid walls",
+	Default = false,
+	Callback = function(v)
+		State.NoclipEnabled = v
+		if not v then
+			restoreCollisions()
+		end
+	end
+})
 
 -- ==========================================
--- INTERACTIONS & LIFECYCLE
+-- LOOPS & CLEANUP
 -- ==========================================
-local function cleanupAll()
+local conns = {}
+
+if LocalPlayer.Character then
+	rebuildCharCache(LocalPlayer.Character)
+end
+
+table.insert(conns, LocalPlayer.CharacterAdded:Connect(function(char)
+	if State.Unloaded then return end
+	table.clear(Cache.OrigHandleSize)
+	rebuildCharCache(char)
+	task.wait(0.15)
+	if State.SpeedEnabled then applySpeed() end
+	if State.KnifeReachEnabled then updateKnifeReach() end
+end))
+
+table.insert(conns, Players.PlayerRemoving:Connect(function(plr)
+	Cache.PlayerRoles[plr] = nil
+	clearRoleVisualFor(plr)
+	removeCS2Box(plr)
+end))
+
+table.insert(conns, RunService.RenderStepped:Connect(function()
+	if State.Unloaded then return end
+	local now = os.clock()
+	updateRenderVisuals(Workspace.CurrentCamera, now)
+end))
+
+table.insert(conns, RunService.Heartbeat:Connect(function()
+	if State.Unloaded then return end
+	local now = os.clock()
+
+	if State.PingCompensation then
+		sampleNetworkPing(now)
+	end
+
+	if State.KnifeReachEnabled then
+		updateKnifeReach()
+	end
+
+	if State.SpeedEnabled and Cache.Hum and Cache.Hum.WalkSpeed ~= State.WalkSpeedBoost then
+		Cache.Hum.WalkSpeed = State.WalkSpeedBoost
+	end
+
+	if State.NoclipEnabled then
+		stepNoclip(now)
+	end
+
+	if State.RoleESP and (now - State.LastRoleScan) >= 0.35 then
+		State.LastRoleScan = now
+		scanRoles()
+	end
+
+	if State.GunESP and (now - State.LastGunScan) >= 0.45 then
+		State.LastGunScan = now
+		updateGunESP()
+	end
+
+	if State.AutoGrabGun and (now - State.LastGunGrab) >= 0.55 then
+		if findDroppedGunTarget() then
+			State.LastGunGrab = now
+			pullDroppedGunToPocket()
+		end
+	end
+end))
+
+local function unloadHub()
 	if State.Unloaded then return end
 	State.Unloaded = true
-	State.Unlocked = false
 	State.RoleESP = false
 	State.GunESP = false
+	State.CS2BoxESP = false
 	State.SkeletonESP = false
-	State.HeadDotESP = false
-	State.BoxESP = false
+	State.AutoGrabGun = false
 	State.AimbotEnabled = false
 	State.SilentAimEnabled = false
-	State.ShowFOV = false
-	State.CachedGunPart = nil
-	State.CurrentTarget = nil
-	State.CurrentAimPos = nil
-
-	removeSilentAimHooks()
-	clearAllVisuals()
-
-	for _, conn in ipairs(Connections) do
-		if conn and conn.Connected then
-			conn:Disconnect()
-		end
+	State.KnifeReachEnabled = false
+	State.SpeedEnabled = false
+	State.NoclipEnabled = false
+	restoreKnifeHandles()
+	restoreCollisions()
+	if Cache.Hum then
+		Cache.Hum.WalkSpeed = State.DefaultWalkSpeed
 	end
-	table.clear(Connections)
-
-	if gui then
-		gui:Destroy()
+	clearAllRoleVisuals()
+	clearGunVisuals()
+	clearAllCS2Boxes()
+	clearAllSkeletonLines()
+	disconnectAll(conns)
+	if floatGui then
+		floatGui:Destroy()
+		floatGui = nil
 	end
+	pcall(function() Window:Destroy() end)
 end
 
-local function attemptUnlock()
-	if State.Unloaded or State.Unlocked or State.Unlocking then return end
-
-	local entered = tostring(keyBox.Text or ""):gsub("^%s+", ""):gsub("%s+$", "")
-	if entered == CONFIG.AccessKey then
-		State.Unlocking = true
-		statusLbl.TextColor3 = Color3.fromRGB(105, 240, 165)
-		statusLbl.Text = "Access granted! Opening hub..."
-		boxStroke.Color = Color3.fromRGB(105, 240, 165)
-
-		local cardTween = TweenService:Create(lockCard, TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-			Size = UDim2.fromOffset(362, 276),
-			BackgroundTransparency = 0.35
-		})
-		local bgTween = TweenService:Create(lockFrame, TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-			BackgroundTransparency = 1
-		})
-
-		cardTween:Play()
-		bgTween:Play()
-
-		task.delay(0.26, function()
-			if State.Unloaded then return end
-			State.Unlocked = true
-			State.Unlocking = false
-			lockFrame.Visible = false
-			mainPanel.Visible = State.HubVisible
-			moonBtn.Visible = true
-		end)
-	else
-		statusLbl.TextColor3 = Color3.fromRGB(255, 95, 125)
-		statusLbl.Text = "Invalid key! Use: " .. CONFIG.AccessKey
-		boxStroke.Color = Color3.fromRGB(255, 85, 115)
-	end
-end
-
-table.insert(Connections, moonBtn.MouseButton1Click:Connect(function()
-	if State.Unlocked and not State.Unloaded then
-		State.HubVisible = not State.HubVisible
-		mainPanel.Visible = State.HubVisible
-	end
-end))
-
-table.insert(Connections, copyBtn.MouseButton1Click:Connect(function()
-	if State.Unloaded then return end
-	if typeof(setclipboard) == "function" then
-		local ok = pcall(setclipboard, CONFIG.DiscordLink)
-		if ok then
-			statusLbl.TextColor3 = Color3.fromRGB(120, 225, 255)
-			statusLbl.Text = "Discord link copied!"
-			return
-		end
-	end
-	statusLbl.TextColor3 = Color3.fromRGB(255, 195, 90)
-	statusLbl.Text = "Clipboard unavailable on this device"
-end))
-
-table.insert(Connections, grabGunBtn.MouseButton1Click:Connect(grabDroppedGun))
-table.insert(Connections, unlockBtn.MouseButton1Click:Connect(attemptUnlock))
-
-table.insert(Connections, keyBox.FocusLost:Connect(function(enterPressed)
-	if enterPressed then
-		attemptUnlock()
-	end
-end))
-
-table.insert(Connections, unloadBtn.MouseButton1Click:Connect(cleanupAll))
-
-table.insert(Connections, Players.PlayerRemoving:Connect(function(plr)
-	if roleTags[plr] then
-		removeDrawing(roleTags[plr])
-		roleTags[plr] = nil
-	end
-	clearSkeletonForPlayer(plr)
-end))
-
-table.insert(Connections, RunService.RenderStepped:Connect(function()
-	if State.Unloaded or not State.Unlocked then return end
-	if State.RoleESP or State.GunESP or State.SkeletonESP or State.HeadDotESP or State.BoxESP or State.AimbotEnabled or State.SilentAimEnabled then
-		updateFrame()
-	end
-end))
-
-table.insert(Connections, UserInputService.WindowFocused:Connect(function()
-	if State.Unloaded or not State.Unlocked then return end
-	State.LastGunScan = 0
-end))
+UtilityTab:Button({
+	Title = "Unload Script",
+	Desc = "Cleanly remove visuals, loops, and UI",
+	Callback = unloadHub
+})
