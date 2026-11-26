@@ -12,8 +12,8 @@ local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local SCRIPT_VERSION = "v25.0"
-local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v25.json"
+local SCRIPT_VERSION = "v26.0"
+local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v26.json"
 local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-cloud/yutahub/main/main.lua"
 
 -- ==========================================
@@ -22,9 +22,9 @@ local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-
 local CHANGELOG = {
 	Version = SCRIPT_VERSION,
 	WhatsNew = {
-		"On-Screen Instant Kick Toggle: Draggable front-screen Kick toggle button with ON/OFF state.",
-		"Upgraded Under Map v25: Void-safe depth clamping, wider 36x36 platform, & smooth height lock.",
-		"Anti Fall Damage, Join Best Server, Ultra Noclip, Auto Execute, & Auto-Save Features."
+		"TP Nearest Vault / Loot: Teleports cleanly to the closest detected vault or loot marker.",
+		"Void Safety Net & Max Fall Speed Slider: Prevents void deaths & tunes safe fall velocity.",
+		"Player Name/Distance ESP, Low-Pop Server Hop Mode, Copy JobId, & Platform Opacity Toggle."
 	},
 	WhatsFixed = {
 		"Fixed Under Map dropping too deep into void kill-zones or drifting on uneven floors.",
@@ -38,7 +38,7 @@ local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubV25",
+	Folder = "PremiumYutaHubV26",
 	Size = UDim2.fromOffset(550, 530),
 	MinSize = Vector2.new(440, 320),
 	MaxSize = Vector2.new(740, 640),
@@ -84,12 +84,14 @@ local State = {
 	NoclipPhaseBoost = true,
 	AutoWallBypass = false,
 	AntiFallDamage = false,
+	VoidSafetyNet = true,
 	AntiRagdoll = false,
 	AntiKnockback = false,
 	AntiUnusualMovement = false,
 	SnapBackOnUnusual = true,
 	UnderMap = false,
 	UnderMapLockY = true,
+	UnderMapClearPlatform = false,
 	ShowFloatingUnderBtn = true,
 	ShowFloatingBaseBtn = true,
 	ShowFloatingKickBtn = true,
@@ -97,12 +99,13 @@ local State = {
 	SpeedEnabled = false,
 	JumpEnabled = false,
 	BoxESP = false,
+	PlayerInfoESP = true,
 	LootVaultESP = false,
 	LootEspLogo = true,
+	ServerHopLowPopMode = false,
 	AutoSaveEnabled = true,
 	AutoExecuteEnabled = true,
 	InstantKickEnabled = false,
-	BestServerMode = "Balanced",
 	NoclipStepPower = 1.25,
 	BypassScanDistance = 26,
 	UnderMapOffset = 12,
@@ -112,6 +115,7 @@ local State = {
 	DefaultJumpHeight = 7.2,
 	DefaultJumpPower = 50,
 	MaxSafeFallSpeed = 38,
+	VoidRescueY = -160,
 	MaxSafeVelocity = 110,
 	MaxUnusualSpeed = 95,
 	MaxUnusualSnapDist = 35,
@@ -126,6 +130,8 @@ local State = {
 	LastRejoinAttempt = 0,
 	LastServerHopAttempt = 0,
 	LastBaseTpTime = 0,
+	LastLootTpTime = 0,
+	LastVoidRescueTime = 0,
 	LastKickAttempt = 0,
 	ServerHopBusy = false,
 	KickBusy = false,
@@ -228,6 +234,7 @@ local function buildSavePayload()
 			BypassScanDistance = State.BypassScanDistance,
 			UnderMapOffset = State.UnderMapOffset,
 			UnderMapLockY = State.UnderMapLockY,
+			UnderMapClearPlatform = State.UnderMapClearPlatform,
 			ShowFloatingUnderBtn = State.ShowFloatingUnderBtn,
 			ShowFloatingBaseBtn = State.ShowFloatingBaseBtn,
 			ShowFloatingKickBtn = State.ShowFloatingKickBtn,
@@ -239,11 +246,15 @@ local function buildSavePayload()
 			LootVaultESP = State.LootVaultESP,
 			LootEspLogo = State.LootEspLogo,
 			AntiFallDamage = State.AntiFallDamage,
+			MaxSafeFallSpeed = State.MaxSafeFallSpeed,
+			VoidSafetyNet = State.VoidSafetyNet,
 			AntiUnusualMovement = State.AntiUnusualMovement,
 			SnapBackOnUnusual = State.SnapBackOnUnusual,
 			AntiRagdoll = State.AntiRagdoll,
 			AntiKnockback = State.AntiKnockback,
-			BoxESP = State.BoxESP
+			BoxESP = State.BoxESP,
+			PlayerInfoESP = State.PlayerInfoESP,
+			ServerHopLowPopMode = State.ServerHopLowPopMode
 		}
 	}
 end
@@ -313,6 +324,7 @@ local function resetSavedFeatures()
 	State.ExtraSpeed = 16
 	State.JumpHeight = 14
 	State.JumpPower = 70
+	State.MaxSafeFallSpeed = 38
 	State.FloatingBtnWidth = 164
 
 	local defaults = {
@@ -325,6 +337,7 @@ local function resetSavedFeatures()
 		BypassScanDistance = 26,
 		UnderMapOffset = 12,
 		UnderMapLockY = true,
+		UnderMapClearPlatform = false,
 		ShowFloatingUnderBtn = true,
 		ShowFloatingBaseBtn = true,
 		ShowFloatingKickBtn = true,
@@ -336,11 +349,15 @@ local function resetSavedFeatures()
 		LootVaultESP = false,
 		LootEspLogo = true,
 		AntiFallDamage = false,
+		MaxSafeFallSpeed = 38,
+		VoidSafetyNet = true,
 		AntiUnusualMovement = false,
 		SnapBackOnUnusual = true,
 		AntiRagdoll = false,
 		AntiKnockback = false,
-		BoxESP = false
+		BoxESP = false,
+		PlayerInfoESP = true,
+		ServerHopLowPopMode = false
 	}
 
 	for key, val in pairs(defaults) do
@@ -588,7 +605,7 @@ local function isPositionClear(pos)
 end
 
 -- ==========================================
--- BUG-FREE BREAK & STEAL BASE TELEPORT SYSTEM
+-- BUG-FREE BREAK & STEAL BASE & LOOT TELEPORT SYSTEM
 -- ==========================================
 local underPlatform = Instance.new("Part")
 underPlatform.Name = "YutaHub_UnderPlatform"
@@ -602,6 +619,10 @@ underPlatform.Parent = nil
 
 local underMapToggleRef = nil
 local refreshFloatingButtonVisual = nil
+
+local function getPlatformTransparency()
+	return State.UnderMapClearPlatform and 0.92 or 0.72
+end
 
 local function syncUnderMapToggleUI(value)
 	if underMapToggleRef and underMapToggleRef.Set then
@@ -624,22 +645,20 @@ local function saveCurrentBaseSpot()
 	return true
 end
 
-local function computeSafeBaseCFrame(savedCF)
-	local basePos = savedCF.Position
-	local look = savedCF.LookVector
-	local flatLook = Vector3.new(look.X, 0, look.Z)
-	local targetPos = basePos + Vector3.new(0, 2.5, 0)
+local function computeSafeGroundCFrame(targetPos, lookVec)
+	local flatLook = lookVec and Vector3.new(lookVec.X, 0, lookVec.Z) or Vector3.zero
+	local finalPos = targetPos + Vector3.new(0, 2.5, 0)
 
-	local downHit = Workspace:Raycast(basePos + Vector3.new(0, 3.0, 0), Vector3.new(0, -10.0, 0), sharedRayParams)
+	local downHit = Workspace:Raycast(targetPos + Vector3.new(0, 3.0, 0), Vector3.new(0, -10.0, 0), sharedRayParams)
 	if downHit and isValidVector3(downHit.Position) then
-		local candidateY = math.max(basePos.Y + 1.5, downHit.Position.Y + 3.0)
-		targetPos = Vector3.new(basePos.X, candidateY, basePos.Z)
+		local candidateY = math.max(targetPos.Y + 1.5, downHit.Position.Y + 3.0)
+		finalPos = Vector3.new(targetPos.X, candidateY, targetPos.Z)
 	end
 
 	if flatLook.Magnitude > 0.001 then
-		return CFrame.new(targetPos, targetPos + flatLook.Unit)
+		return CFrame.new(finalPos, finalPos + flatLook.Unit)
 	end
-	return CFrame.new(targetPos)
+	return CFrame.new(finalPos)
 end
 
 local function applyTeleportCFrame(char, hum, root, destCF)
@@ -693,7 +712,7 @@ local function teleportToSavedBase()
 		syncUnderMapToggleUI(false)
 	end
 
-	local destCF = computeSafeBaseCFrame(State.SavedBaseCFrame)
+	local destCF = computeSafeGroundCFrame(State.SavedBaseCFrame.Position, State.SavedBaseCFrame.LookVector)
 	State.LastCleanCFrame = destCF
 	markMovementIntent(1.4)
 
@@ -907,7 +926,7 @@ local function executeHardWallBypass(forceScan)
 end
 
 -- ==========================================
--- UPGRADED UNDER MAP & RETURN SYSTEM (v25)
+-- UPGRADED UNDER MAP & RETURN SYSTEM (v26)
 -- ==========================================
 local function ensureUnderPlatform()
 	if not underPlatform or not underPlatform.Parent then
@@ -917,8 +936,10 @@ local function ensureUnderPlatform()
 		underPlatform.Anchored = true
 		underPlatform.CanCollide = true
 		underPlatform.CanTouch = false
-		underPlatform.Transparency = 0.72
+		underPlatform.Transparency = getPlatformTransparency()
 		underPlatform.Material = Enum.Material.SmoothPlastic
+	else
+		underPlatform.Transparency = getPlatformTransparency()
 	end
 end
 
@@ -1128,6 +1149,19 @@ local kickFloatBtn, kickStroke = createFloatingButton(
 )
 kickFloatBtn.Visible = State.ShowFloatingKickBtn
 
+local function resetFloatingButtonPositions()
+	local w, h = getFloatingBtnDimensions(State.FloatingBtnWidth)
+	if floatBtn and floatBtn.Parent then
+		floatBtn.Position = UDim2.new(1, -(w + 18), 0.50, 0)
+	end
+	if baseFloatBtn and baseFloatBtn.Parent then
+		baseFloatBtn.Position = UDim2.new(1, -(w + 18), 0.50, h + 10)
+	end
+	if kickFloatBtn and kickFloatBtn.Parent then
+		kickFloatBtn.Position = UDim2.new(1, -(w + 18), 0.50, (h + 10) * 2)
+	end
+end
+
 local function applyFloatingButtonSize(widthPx)
 	State.FloatingBtnWidth = widthPx
 	local w, h, textSize = getFloatingBtnDimensions(widthPx)
@@ -1251,7 +1285,7 @@ bindDraggableButton(baseFloatBtn, function()
 end)
 
 -- ==========================================
--- ANTI-FALL DAMAGE, UNUSUAL MOVEMENT, RAGDOLL & KNOCKBACK
+-- ANTI-FALL DAMAGE, VOID NET, UNUSUAL MOVEMENT, RAGDOLL & KNOCKBACK
 -- ==========================================
 local ragdollStateConn = nil
 local fallStateConn = nil
@@ -1285,6 +1319,23 @@ local function applyAntiFallDamageFrame(hum, root)
 				end)
 			end
 		end)
+	end
+end
+
+local function applyVoidSafetyNet(char, hum, root, now)
+	if not State.VoidSafetyNet or State.UnderMap or State.Unloaded or not char or not hum or not root then
+		return
+	end
+	if (now - State.LastVoidRescueTime) < 0.8 then return end
+	if not isValidVector3(root.Position) or root.Position.Y > State.VoidRescueY then return end
+
+	State.LastVoidRescueTime = now
+	local fallbackCF = State.LastCleanCFrame or State.SavedBaseCFrame
+	if fallbackCF then
+		local destCF = computeSafeGroundCFrame(fallbackCF.Position, fallbackCF.LookVector)
+		State.LastCleanCFrame = destCF
+		markMovementIntent(1.2)
+		applyTeleportCFrame(char, hum, root, destCF)
 	end
 end
 
@@ -1512,9 +1563,10 @@ local function applyJumpBoost(enabled)
 end
 
 -- ==========================================
--- BOX ESP & LOOT/VAULT ESP WITH LOGO (DRAWING API)
+-- BOX ESP, PLAYER TAGS & LOOT/VAULT ESP WITH LOGO (DRAWING API)
 -- ==========================================
 local espBoxes = {}
+local espPlayerLabels = {}
 local lootMarkers = {}
 local drawingAvailable = (typeof(Drawing) == "table" and typeof(Drawing.new) == "function")
 
@@ -1562,6 +1614,11 @@ local function hideAllBoxes()
 			pcall(function() box.Visible = false end)
 		end
 	end
+	for _, lbl in pairs(espPlayerLabels) do
+		if lbl then
+			pcall(function() lbl.Visible = false end)
+		end
+	end
 end
 
 local function clearLootMarkers()
@@ -1589,6 +1646,13 @@ local function removePlayerESP(player)
 			box:Remove()
 		end)
 		espBoxes[player] = nil
+	end
+	local lbl = espPlayerLabels[player]
+	if lbl then
+		pcall(function()
+			lbl:Remove()
+		end)
+		espPlayerLabels[player] = nil
 	end
 end
 
@@ -1699,6 +1763,56 @@ local function scanLootAndVaults()
 	end
 end
 
+local function teleportToNearestLootOrVault()
+	if State.Unloaded then return false end
+	local now = os.clock()
+	if (now - State.LastLootTpTime) < 0.35 then return false end
+
+	local char = Cached.Char
+	local hum = Cached.Hum
+	local root = Cached.Root
+	if not char or not root or not isValidVector3(root.Position) then
+		return false
+	end
+
+	if #lootMarkers == 0 then
+		scanLootAndVaults()
+	end
+
+	local bestEntry = nil
+	local bestDist = math.huge
+	for _, entry in ipairs(lootMarkers) do
+		if isValidVector3(entry.Pos) then
+			local d = (entry.Pos - root.Position).Magnitude
+			if d < bestDist then
+				bestDist = d
+				bestEntry = entry
+			end
+		end
+	end
+
+	if not bestEntry then
+		return false
+	end
+
+	State.LastLootTpTime = now
+
+	if State.UnderMap then
+		State.UnderMap = false
+		State.UnderAnchorY = nil
+		if underPlatform then
+			underPlatform.Parent = nil
+		end
+		syncUnderMapToggleUI(false)
+	end
+
+	local destCF = computeSafeGroundCFrame(bestEntry.Pos, root.CFrame.LookVector)
+	State.LastCleanCFrame = destCF
+	markMovementIntent(1.3)
+	applyTeleportCFrame(char, hum, root, destCF)
+	return true
+end
+
 local function setEntryVisible(entry, visible)
 	if entry.LogoOuter then
 		pcall(function() entry.LogoOuter.Visible = visible end)
@@ -1751,6 +1865,17 @@ local function updateESPFrame()
 						espBoxes[player] = box
 					end
 
+					local lbl = nil
+					if State.PlayerInfoESP then
+						lbl = espPlayerLabels[player]
+						if not lbl then
+							lbl = createLabel(Color3.fromRGB(255, 210, 210), 13)
+							espPlayerLabels[player] = lbl
+						end
+					elseif espPlayerLabels[player] then
+						pcall(function() espPlayerLabels[player].Visible = false end)
+					end
+
 					if box then
 						local rootPos, onScreen = activeCam:WorldToViewportPoint(root.Position)
 						if onScreen and rootPos.Z > 0 then
@@ -1765,12 +1890,29 @@ local function updateESPFrame()
 								box.Position = Vector2.new(rootPos.X - box.Size.X / 2, topPos.Y)
 								box.Visible = true
 							end)
+
+							if lbl then
+								local dist = Cached.Root and math.floor((Cached.Root.Position - root.Position).Magnitude) or 0
+								pcall(function()
+									lbl.Text = string.format("%s [%dm]", player.Name, dist)
+									lbl.Position = Vector2.new(rootPos.X, topPos.Y - 16)
+									lbl.Visible = true
+								end)
+							end
 						else
 							pcall(function() box.Visible = false end)
+							if lbl then
+								pcall(function() lbl.Visible = false end)
+							end
 						end
 					end
-				elseif espBoxes[player] then
-					pcall(function() box.Visible = false end)
+				else
+					if espBoxes[player] then
+						pcall(function() box.Visible = false end)
+					end
+					if espPlayerLabels[player] then
+						pcall(function() espPlayerLabels[player].Visible = false end)
+					end
 				end
 			end
 		end
@@ -1840,7 +1982,7 @@ local function updateESPFrame()
 end
 
 -- ==========================================
--- INSTANT KICK, REJOIN & BEST SERVER HOP SYSTEM
+-- INSTANT KICK, REJOIN & SERVER HOP SYSTEM
 -- ==========================================
 if game.JobId and game.JobId ~= "" then
 	VisitedServers[game.JobId] = true
@@ -1917,6 +2059,19 @@ bindDraggableButton(kickFloatBtn, function()
 	end
 end)
 
+local function copyCurrentJobId()
+	local jobStr = (game.JobId and game.JobId ~= "") and tostring(game.JobId) or tostring(game.PlaceId)
+	if typeof(setclipboard) == "function" then
+		pcall(function()
+			setclipboard(jobStr)
+		end)
+	elseif typeof(toclipboard) == "function" then
+		pcall(function()
+			toclipboard(jobStr)
+		end)
+	end
+end
+
 local function rejoinCurrentServer()
 	local now = os.clock()
 	if (now - State.LastRejoinAttempt) < 2.0 then
@@ -1953,6 +2108,12 @@ local function scoreServerCandidate(srv)
 	local maxPlayers = math.max(1, tonumber(srv.maxPlayers) or 12)
 	local ping = tonumber(srv.ping) or 160
 	local fps = tonumber(srv.fps) or 55
+
+	if State.ServerHopLowPopMode then
+		local lowPopScore = math.max(0, maxPlayers - playing) * 18
+		local pingBonus = math.max(0, 300 - ping) * 0.8
+		return lowPopScore + pingBonus
+	end
 
 	local pingScore = math.max(0, 300 - ping) * 2.2
 	local fpsScore = math.clamp(fps, 10, 60) * 3.0
@@ -1992,7 +2153,8 @@ local function fetchBestServers(placeId)
 			if typeof(srv) == "table" and typeof(srv.id) == "string" and srv.id ~= "" then
 				local playing = tonumber(srv.playing) or 0
 				local maxPlayers = tonumber(srv.maxPlayers) or 0
-				if srv.id ~= game.JobId and not VisitedServers[srv.id] and playing >= 1 and (maxPlayers <= 0 or playing < maxPlayers) then
+				local minPlayers = State.ServerHopLowPopMode and 0 or 1
+				if srv.id ~= game.JobId and not VisitedServers[srv.id] and playing >= minPlayers and (maxPlayers <= 0 or playing < maxPlayers) then
 					table.insert(ranked, {
 						id = srv.id,
 						score = scoreServerCandidate(srv)
@@ -2073,6 +2235,7 @@ local function unloadAll()
 
 	State.AutoWallBypass = false
 	State.AntiFallDamage = false
+	State.VoidSafetyNet = false
 	State.AntiUnusualMovement = false
 	State.AntiKnockback = false
 	State.SpeedEnabled = false
@@ -2094,6 +2257,9 @@ local function unloadAll()
 	end
 
 	for player in pairs(espBoxes) do
+		removePlayerESP(player)
+	end
+	for player in pairs(espPlayerLabels) do
 		removePlayerESP(player)
 	end
 	clearLootMarkers()
@@ -2131,6 +2297,8 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 
 	local clampedDt = math.min(dt, 0.05)
 	local now = os.clock()
+
+	applyVoidSafetyNet(char, hum, root, now)
 
 	if State.AutoWallBypass and hum.MoveDirection.Magnitude > 0.1 and (now - State.LastBypassTime) > 0.22 then
 		executeHardWallBypass(false)
@@ -2354,6 +2522,19 @@ UIRefs.UnderMapLockY = MovementTab:Toggle({
 	end
 })
 
+UIRefs.UnderMapClearPlatform = MovementTab:Toggle({
+	Title = "Stealth Platform Opacity",
+	Desc = "Makes the underground safety platform more transparent (0.92)",
+	Default = false,
+	Callback = function(value)
+		State.UnderMapClearPlatform = value
+		if underPlatform then
+			underPlatform.Transparency = getPlatformTransparency()
+		end
+		markFeatureUsed()
+	end
+})
+
 UIRefs.ShowFloatingUnderBtn = MovementTab:Toggle({
 	Title = "Floating Under Map Button",
 	Desc = "Show draggable big Under Map / Return button on screen",
@@ -2406,6 +2587,12 @@ UIRefs.FloatingBtnWidth = MovementTab:Slider({
 		applyFloatingButtonSize(value)
 		markFeatureUsed()
 	end
+})
+
+MovementTab:Button({
+	Title = "Reset Floating Button Positions",
+	Desc = "Snap all draggable floating buttons back to the right side",
+	Callback = resetFloatingButtonPositions
 })
 
 underMapToggleRef = MovementTab:Toggle({
@@ -2495,6 +2682,14 @@ HeistTab:Button({
 	end
 })
 
+HeistTab:Button({
+	Title = "Teleport to Nearest Vault / Loot",
+	Desc = "Jump cleanly to the closest detected vault or loot marker",
+	Callback = function()
+		teleportToNearestLootOrVault()
+	end
+})
+
 UIRefs.LootVaultESP = HeistTab:Toggle({
 	Title = "Loot & Vault ESP",
 	Desc = "Highlight nearby vault/loot/diamond objects & distance",
@@ -2527,6 +2722,31 @@ UIRefs.AntiFallDamage = ProtectionTab:Toggle({
 	Default = false,
 	Callback = function(value)
 		setAntiFallDamage(value)
+		markFeatureUsed()
+	end
+})
+
+UIRefs.MaxSafeFallSpeed = ProtectionTab:Slider({
+	Title = "Max Safe Fall Speed",
+	Desc = "Downward speed cap (studs/sec) when Anti Fall Damage is active",
+	Step = 2,
+	Value = {
+		Min = 20,
+		Max = 75,
+		Default = 38
+	},
+	Callback = function(value)
+		State.MaxSafeFallSpeed = value
+		markFeatureUsed()
+	end
+})
+
+UIRefs.VoidSafetyNet = ProtectionTab:Toggle({
+	Title = "Void Safety Rescue",
+	Desc = "Pulls you back to last clean spot if you fall deep into void",
+	Default = true,
+	Callback = function(value)
+		State.VoidSafetyNet = value
 		markFeatureUsed()
 	end
 })
@@ -2584,12 +2804,39 @@ UIRefs.BoxESP = VisualsTab:Toggle({
 	end
 })
 
+UIRefs.PlayerInfoESP = VisualsTab:Toggle({
+	Title = "Player Name & Distance",
+	Desc = "Show player name and stud distance above Box ESP",
+	Default = true,
+	Callback = function(value)
+		State.PlayerInfoESP = value
+		if not value then
+			for _, lbl in pairs(espPlayerLabels) do
+				if lbl then
+					pcall(function() lbl.Visible = false end)
+				end
+			end
+		end
+		markFeatureUsed()
+	end
+})
+
 UIRefs.InstantKickEnabled = UtilityTab:Toggle({
 	Title = "Instant Kick Server",
 	Desc = "Immediately disconnect/kick yourself from the current server",
 	Default = false,
 	Callback = function(value)
 		setInstantKickEnabled(value)
+	end
+})
+
+UIRefs.ServerHopLowPopMode = UtilityTab:Toggle({
+	Title = "Low-Player Server Hop Mode",
+	Desc = "Prefer quieter/low-player servers instead of best ping/FPS",
+	Default = false,
+	Callback = function(value)
+		State.ServerHopLowPopMode = value
+		markFeatureUsed()
 	end
 })
 
@@ -2622,8 +2869,14 @@ UIRefs.AutoSaveEnabled = UtilityTab:Toggle({
 
 UtilityTab:Button({
 	Title = "Server Hop (Join Best Server)",
-	Desc = "Finds & joins the lowest-ping, highest-FPS server with open slots",
+	Desc = "Finds & joins the top-ranked server based on your active mode",
 	Callback = joinBestServer
+})
+
+UtilityTab:Button({
+	Title = "Copy Current Server JobId",
+	Desc = "Copies the active server JobId to your clipboard",
+	Callback = copyCurrentJobId
 })
 
 UtilityTab:Button({
