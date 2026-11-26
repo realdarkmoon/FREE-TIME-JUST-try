@@ -8,12 +8,14 @@ local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TextChatService = game:GetService("TextChatService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local SCRIPT_VERSION = "v27.0"
-local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v27.json"
+local SCRIPT_VERSION = "v29.0"
+local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v29.json"
 local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-cloud/yutahub/main/main.lua"
 
 -- ==========================================
@@ -22,13 +24,13 @@ local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-
 local CHANGELOG = {
 	Version = SCRIPT_VERSION,
 	WhatsNew = {
-		"UPGRADE BASE Button: Renamed from TP Nearest Vault/Loot with smooth ground/clearance teleport.",
-		"Auto Claim Index Toggle: Throttled auto-claim/collect/index interaction scanner for prompts & triggers.",
-		"Optimize Mobile Lag Toggle: Lowers graphics quality, trims heavy FX, & throttles scans for mobile FPS."
+		"Honest Admin Cmds v29: Sends chat commands, checks matching game remotes safely, & manages local cage visuals.",
+		"Local Jail Cage Toggle: Show or clear local visual cages cleanly without leaving leftover parts.",
+		"UPGRADE BASE, Auto Claim Index, & Optimize Mobile Lag carried forward with error-safe execution."
 	},
 	WhatsFixed = {
+		"Clarified client vs. server limits so other-player admin actions don't mislead with fake server effects.",
 		"Fixed Under Map dropping too deep into void kill-zones or drifting on uneven floors.",
-		"Fixed fall-impact velocity spikes and FallingDown state lockups on high drops.",
 		"Fixed wall-corner snagging during Noclip and snap-backs during Teleport to Base."
 	}
 }
@@ -38,8 +40,8 @@ local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubV27",
-	Size = UDim2.fromOffset(550, 530),
+	Folder = "PremiumYutaHubV29",
+	Size = UDim2.fromOffset(550, 540),
 	MinSize = Vector2.new(440, 320),
 	MaxSize = Vector2.new(740, 640),
 	Theme = "Dark",
@@ -57,6 +59,11 @@ local MovementTab = Window:Tab({
 local HeistTab = Window:Tab({
 	Title = "Break & Steal",
 	Icon = "gem"
+})
+
+local AdminTab = Window:Tab({
+	Title = "Admin Cmds",
+	Icon = "terminal"
 })
 
 local ProtectionTab = Window:Tab({
@@ -104,6 +111,9 @@ local State = {
 	LootEspLogo = true,
 	AutoClaimIndex = false,
 	OptimizeMobileLag = false,
+	AdminTargetMode = "others",
+	AdminCustomTarget = "",
+	LocalJailVisuals = true,
 	ServerHopLowPopMode = false,
 	AutoSaveEnabled = true,
 	AutoExecuteEnabled = true,
@@ -131,6 +141,7 @@ local State = {
 	LastLootScanTime = 0,
 	LastClaimScanTime = 0,
 	LastMobileFxSweepTime = 0,
+	LastCmdTime = 0,
 	LastRejoinAttempt = 0,
 	LastServerHopAttempt = 0,
 	LastBaseTpTime = 0,
@@ -162,6 +173,7 @@ local Cached = {
 
 local UIRefs = {}
 local VisitedServers = {}
+local activeJailModels = {}
 
 local sharedRayParams = RaycastParams.new()
 sharedRayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -188,6 +200,200 @@ local function disconnectList(list)
 		end
 	end
 	table.clear(list)
+end
+
+-- ==========================================
+-- ADMIN COMMANDS SYSTEM (CHAT + SAFE REMOTE PROBE + LOCAL CAGE VISUALS)
+-- ==========================================
+local function clearJailCages()
+	for i = #activeJailModels, 1, -1 do
+		local model = activeJailModels[i]
+		if model then
+			pcall(function()
+				model:Destroy()
+			end)
+		end
+		table.remove(activeJailModels, i)
+	end
+end
+
+local function getTargetPlayers(overrideTarget)
+	local mode = (typeof(overrideTarget) == "string" and overrideTarget ~= "")
+		and overrideTarget:lower():gsub("^%s+", ""):gsub("%s+$", "")
+		or State.AdminTargetMode:lower()
+
+	local list = {}
+	if mode == "all" or mode == "/all" then
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if plr and plr.Parent then
+				table.insert(list, plr)
+			end
+		end
+		return list, "all"
+	elseif mode == "others" or mode == "other" then
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if plr and plr.Parent and plr ~= LocalPlayer then
+				table.insert(list, plr)
+			end
+		end
+		return list, "others"
+	else
+		local query = State.AdminCustomTarget:lower():gsub("^%s+", ""):gsub("%s+$", "")
+		if query ~= "" then
+			for _, plr in ipairs(Players:GetPlayers()) do
+				if plr and plr.Parent then
+					if plr.Name:lower():find(query, 1, true) or plr.DisplayName:lower():find(query, 1, true) then
+						table.insert(list, plr)
+					end
+				end
+			end
+		end
+		return list, query ~= "" and query or "others"
+	end
+end
+
+local function spawnLocalCageAroundPosition(centerPos)
+	if not State.LocalJailVisuals or not isValidVector3(centerPos) then return end
+
+	local cage = Instance.new("Model")
+	cage.Name = "YutaHub_LocalJailCage"
+	cage.Parent = Workspace
+
+	local barColor = Color3.fromRGB(55, 62, 78)
+	local barMat = Enum.Material.Metal
+	local radius = 4.2
+	local height = 8.5
+
+	local floorPart = Instance.new("Part")
+	floorPart.Name = "CageFloor"
+	floorPart.Size = Vector3.new(radius * 2 + 0.6, 0.5, radius * 2 + 0.6)
+	floorPart.Position = centerPos + Vector3.new(0, -3.2, 0)
+	floorPart.Anchored = true
+	floorPart.CanCollide = false
+	floorPart.Material = barMat
+	floorPart.Color = barColor
+	floorPart.Transparency = 0.35
+	floorPart.Parent = cage
+
+	local roofPart = Instance.new("Part")
+	roofPart.Name = "CageRoof"
+	roofPart.Size = Vector3.new(radius * 2 + 0.6, 0.5, radius * 2 + 0.6)
+	roofPart.Position = centerPos + Vector3.new(0, height - 3.2, 0)
+	roofPart.Anchored = true
+	roofPart.CanCollide = false
+	roofPart.Material = barMat
+	roofPart.Color = barColor
+	roofPart.Transparency = 0.35
+	roofPart.Parent = cage
+
+	local sides = {
+		Vector3.new(0, 0, -radius),
+		Vector3.new(0, 0, radius),
+		Vector3.new(-radius, 0, 0),
+		Vector3.new(radius, 0, 0)
+	}
+
+	for sIdx, offset in ipairs(sides) do
+		local isXSide = (sIdx <= 2)
+		for b = -3, 3 do
+			local bar = Instance.new("Part")
+			bar.Name = "CageBar"
+			bar.Size = Vector3.new(0.32, height, 0.32)
+			local spread = b * 1.15
+			local barPos = isXSide
+				and (centerPos + Vector3.new(spread, (height * 0.5) - 3.2, offset.Z))
+				or (centerPos + Vector3.new(offset.X, (height * 0.5) - 3.2, spread))
+			bar.Position = barPos
+			bar.Anchored = true
+			bar.CanCollide = false
+			bar.Material = barMat
+			bar.Color = barColor
+			bar.Transparency = 0.25
+			bar.Parent = cage
+		end
+	end
+
+	table.insert(activeJailModels, cage)
+end
+
+local function trySendChatCommandText(cmdText)
+	if typeof(cmdText) ~= "string" or cmdText == "" then return end
+
+	if TextChatService and TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+		local channels = TextChatService:FindFirstChild("TextChannels")
+		local general = channels and (channels:FindFirstChild("RBXGeneral") or channels:FindFirstChildWhichIsA("TextChannel"))
+		if general and typeof(general.SendAsync) == "function" then
+			pcall(function()
+				general:SendAsync(cmdText)
+			end)
+			return
+		end
+	end
+
+	local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+	local sayReq = chatEvents and chatEvents:FindFirstChild("SayMessageRequest")
+	if sayReq and sayReq:IsA("RemoteEvent") then
+		pcall(function()
+			sayReq:FireServer(cmdText, "All")
+		end)
+	end
+end
+
+local function tryFireMatchingCommandRemotes(cmdNameNoPrefix, targets)
+	local cleanKey = tostring(cmdNameNoPrefix or ""):lower()
+	if cleanKey == "" then return end
+
+	local fired = 0
+	for _, desc in ipairs(ReplicatedStorage:GetDescendants()) do
+		if fired >= 4 then break end
+		if desc:IsA("RemoteEvent") then
+			local n = desc.Name:lower()
+			if n:find(cleanKey, 1, true) or n:find("admin", 1, true) or n:find("command", 1, true) then
+				for _, plr in ipairs(targets) do
+					pcall(function()
+						desc:FireServer(plr, cleanKey)
+					end)
+					pcall(function()
+						desc:FireServer(cleanKey, plr)
+					end)
+					fired += 1
+					if fired >= 4 then break end
+				end
+			end
+		end
+	end
+end
+
+local function dispatchAdminCommand(rawCmd, overrideTarget)
+	if State.Unloaded then return end
+	local now = os.clock()
+	if (now - State.LastCmdTime) < 0.15 then return end
+	State.LastCmdTime = now
+
+	local cleanCmd = tostring(rawCmd or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
+	if cleanCmd == "" then return end
+	if cleanCmd:sub(1, 1) ~= ";" and cleanCmd:sub(1, 1) ~= "/" then
+		cleanCmd = ";" .. cleanCmd
+	end
+
+	local bareCmd = cleanCmd:sub(2)
+	local targets, label = getTargetPlayers(overrideTarget)
+	local formattedChat = string.format("%s %s", cleanCmd, label)
+
+	trySendChatCommandText(formattedChat)
+	tryFireMatchingCommandRemotes(bareCmd, targets)
+
+	if bareCmd == "jail" and State.LocalJailVisuals then
+		for _, plr in ipairs(targets) do
+			local char = plr.Character
+			local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+			if root and isValidVector3(root.Position) then
+				spawnLocalCageAroundPosition(root.Position)
+			end
+		end
+	elseif bareCmd == "unjail" or bareCmd == "clearjail" then
+		clearJailCages()
+	end
 end
 
 -- ==========================================
@@ -469,6 +675,8 @@ local function buildSavePayload()
 			LootEspLogo = State.LootEspLogo,
 			AutoClaimIndex = State.AutoClaimIndex,
 			OptimizeMobileLag = State.OptimizeMobileLag,
+			AdminTargetMode = State.AdminTargetMode,
+			LocalJailVisuals = State.LocalJailVisuals,
 			AntiFallDamage = State.AntiFallDamage,
 			MaxSafeFallSpeed = State.MaxSafeFallSpeed,
 			VoidSafetyNet = State.VoidSafetyNet,
@@ -574,6 +782,8 @@ local function resetSavedFeatures()
 		LootEspLogo = true,
 		AutoClaimIndex = false,
 		OptimizeMobileLag = false,
+		AdminTargetMode = "others",
+		LocalJailVisuals = true,
 		AntiFallDamage = false,
 		MaxSafeFallSpeed = 38,
 		VoidSafetyNet = true,
@@ -2460,6 +2670,7 @@ local function unloadAll()
 
 	persistSaveNow()
 	closeChangelogScreen()
+	clearJailCages()
 
 	State.AutoWallBypass = false
 	State.AntiFallDamage = false
@@ -2971,6 +3182,86 @@ UIRefs.LootEspLogo = HeistTab:Toggle({
 		markFeatureUsed()
 	end
 })
+
+UIRefs.AdminTargetMode = AdminTab:Dropdown({
+	Title = "Command Target",
+	Desc = "Server authority applies only if game supports commands; sends chat/remotes",
+	Values = { "others", "all", "custom" },
+	Default = "others",
+	Callback = function(value)
+		State.AdminTargetMode = tostring(value or "others")
+		markFeatureUsed()
+	end
+})
+
+UIRefs.LocalJailVisuals = AdminTab:Toggle({
+	Title = "Local Jail Cage Visuals",
+	Desc = "Spawn client-only cage visuals on ;jail (does not move other players)",
+	Default = true,
+	Callback = function(value)
+		State.LocalJailVisuals = value
+		if not value then
+			clearJailCages()
+		end
+		markFeatureUsed()
+	end
+})
+
+AdminTab:Input({
+	Title = "Custom Player Name (when Custom selected)",
+	Desc = "Type part of a player's name or display name",
+	Default = "",
+	Placeholder = "PlayerName...",
+	Callback = function(text)
+		State.AdminCustomTarget = tostring(text or "")
+	end
+})
+
+AdminTab:Button({
+	Title = ";jail (Others)",
+	Desc = "Send ;jail others in chat/remotes & spawn local cage if enabled",
+	Callback = function()
+		dispatchAdminCommand(";jail", "others")
+	end
+})
+
+AdminTab:Button({
+	Title = ";jail /all",
+	Desc = "Send ;jail all in chat/remotes & spawn local cages if enabled",
+	Callback = function()
+		dispatchAdminCommand(";jail", "all")
+	end
+})
+
+AdminTab:Button({
+	Title = "Clear Jail Cages (;unjail)",
+	Desc = "Remove local cage visuals & send ;unjail",
+	Callback = function()
+		dispatchAdminCommand(";unjail", State.AdminTargetMode)
+	end
+})
+
+local listCmds = {
+	";rocket",
+	";ragdoll",
+	";balloon",
+	";abduct",
+	";dizzy",
+	";control",
+	";tiny",
+	";jumpscare",
+	";morph"
+}
+
+for _, cmdName in ipairs(listCmds) do
+	AdminTab:Button({
+		Title = cmdName,
+		Desc = "Send " .. cmdName .. " via chat/matching remotes",
+		Callback = function()
+			dispatchAdminCommand(cmdName, State.AdminTargetMode)
+		end
+	})
+end
 
 UIRefs.AntiFallDamage = ProtectionTab:Toggle({
 	Title = "Anti Fall Damage",
