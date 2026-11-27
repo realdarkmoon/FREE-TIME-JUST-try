@@ -15,8 +15,8 @@ local Stats = game:GetService("Stats")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local SCRIPT_VERSION = "v34.0"
-local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v34.json"
+local SCRIPT_VERSION = "v35.0"
+local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v35.json"
 local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-cloud/yutahub/main/main.lua"
 
 -- ==========================================
@@ -25,14 +25,14 @@ local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-
 local CHANGELOG = {
 	Version = SCRIPT_VERSION,
 	WhatsNew = {
-		"Auto Collect / Loot Aura & Range Slider: Grab nearby cash, loot, and drops automatically on a throttled scan.",
-		"Escape Spot Waypoint & Panic Escape: Save a getaway spot and trigger an instant Under Map / Base escape.",
-		"Auto Unlock Doors/Safes & Carry Speed Guard: Breach locks faster and prevent heavy loot slowdown."
+		"Steal From Players Aura & Range: Scans & triggers nearby steal/loot prompts and targets around other players.",
+		"Warp to Nearest Target Button: Moves safely to the closest steal/loot prompt or player target.",
+		"Auto Instant Prompt Tap: Automatically completes nearby prompts when Instant Hold is active."
 	},
 	WhatsFixed = {
-		"Added clean save/load support and reset coverage for all new Break & Steal toggles and sliders.",
-		"Throttled loot and unlock sweeps so mobile CPU usage stays low during busy heist rooms.",
-		"Maintained 500 FPS cap support, Fullbright restoration, Under Map safety, and Noclip edge-sliding."
+		"Fixed Instant Hold (0s) so prompts stay at 0 HoldDuration and trigger reliably on mobile.",
+		"Added steal/rob/snatch/take keyword matching + proximity-to-other-players detection.",
+		"Kept all scans throttled for low CPU usage, 500 FPS cap, and full cleanup on unload."
 	}
 }
 
@@ -41,7 +41,7 @@ local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubV34",
+	Folder = "PremiumYutaHubV35",
 	Size = UDim2.fromOffset(550, 530),
 	MinSize = Vector2.new(440, 320),
 	MaxSize = Vector2.new(740, 640),
@@ -107,7 +107,9 @@ local State = {
 	FullbrightEnabled = false,
 	AutoClaimIndex = false,
 	InstantInteract = false,
+	AutoInstantPromptTap = true,
 	AutoLootAura = false,
+	StealFromPlayersAura = false,
 	AutoUnlockSafes = false,
 	AntiCarrySlowdown = false,
 	OptimizeMobileLag = true,
@@ -129,7 +131,8 @@ local State = {
 	JumpPower = 75,
 	DefaultJumpHeight = 7.2,
 	DefaultJumpPower = 50,
-	LootAuraRange = 22,
+	LootAuraRange = 24,
+	StealReach = 30,
 	MinCarrySpeed = 20,
 	MaxSafeFallSpeed = 38,
 	VoidRescueY = -160,
@@ -146,6 +149,7 @@ local State = {
 	LastRagdollSweepTime = 0,
 	LastClaimScanTime = 0,
 	LastLootScanTime = 0,
+	LastStealScanTime = 0,
 	LastUnlockScanTime = 0,
 	LastPromptSweepTime = 0,
 	LastMobileFxSweepTime = 0,
@@ -527,10 +531,11 @@ local function setFullbrightEnabled(enabled)
 end
 
 -- ==========================================
--- INSTANT PROMPT, AUTO CLAIM, LOOT AURA & AUTO UNLOCK SYSTEM
+-- INSTANT PROMPT, STEAL AURA, AUTO CLAIM & AUTO UNLOCK SYSTEM
 -- ==========================================
 local claimKeywords = { "claim", "index", "collect", "redeem", "unlock", "reward", "grab" }
-local lootKeywords = { "loot", "cash", "money", "bag", "gold", "gem", "item", "steal", "take", "pick", "collect", "grab" }
+local lootKeywords = { "loot", "cash", "money", "bag", "gold", "gem", "item", "steal", "rob", "snatch", "take", "pick", "collect", "grab" }
+local stealKeywords = { "steal", "rob", "snatch", "take", "loot", "grab", "bag", "cash", "vault", "base", "drop", "item" }
 local unlockKeywords = { "unlock", "open", "breach", "crack", "pick", "door", "safe", "vault", "gate", "hack" }
 
 local function matchesKeywordList(str, list)
@@ -568,26 +573,56 @@ local function getPromptOrDetectorPosition(obj)
 	return nil
 end
 
+local function isNearOtherPlayer(pos, maxDist)
+	if not isValidVector3(pos) then return false end
+	local limit = maxDist or 38
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer and plr.Character then
+			local pRoot = plr.Character:FindFirstChild("HumanoidRootPart")
+				or plr.Character:FindFirstChild("Torso")
+				or plr.Character:FindFirstChild("UpperTorso")
+			if pRoot and isValidVector3(pRoot.Position) and (pRoot.Position - pos).Magnitude <= limit then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+local function forceZeroHold(prompt)
+	if not prompt or not prompt:IsA("ProximityPrompt") then return end
+	if Cached.OrigPromptHolds[prompt] == nil then
+		Cached.OrigPromptHolds[prompt] = prompt.HoldDuration
+	end
+	pcall(function()
+		prompt.HoldDuration = 0
+	end)
+end
+
 local function firePromptOrDetector(desc)
 	if desc:IsA("ProximityPrompt") and desc.Enabled then
-		local ok = pcall(function()
-			fireproximityprompt(desc)
-		end)
-		if not ok then
-			pcall(function()
-				desc:InputHoldBegin()
-				task.delay(0.05, function()
-					pcall(function()
-						desc:InputHoldEnd()
-					end)
-				end)
+		forceZeroHold(desc)
+		local fired = false
+		if typeof(fireproximityprompt) == "function" then
+			fired = pcall(function()
+				fireproximityprompt(desc)
 			end)
 		end
+		pcall(function()
+			desc:InputHoldBegin()
+		end)
+		task.delay(0.03, function()
+			if desc and desc.Parent then
+				pcall(function()
+					desc:InputHoldEnd()
+				end)
+			end
+		end)
 		return true
 	elseif desc:IsA("ClickDetector") then
 		if typeof(fireclickdetector) == "function" then
 			pcall(function()
-				fireclickdetector(desc)
+				fireclickdetector(desc, 0)
 			end)
 			return true
 		end
@@ -597,19 +632,25 @@ end
 
 local function runInstantInteractPass(limitCount)
 	if not State.InstantInteract or State.Unloaded then return end
-	local maxModified = limitCount or 30
+	local root = Cached.Root
+	local rootPos = (root and isValidVector3(root.Position)) and root.Position or nil
+	local maxModified = limitCount or 36
 	local modified = 0
 
 	for _, desc in ipairs(Workspace:GetDescendants()) do
 		if modified >= maxModified then break end
-		if desc:IsA("ProximityPrompt") and desc.HoldDuration > 0 then
-			if Cached.OrigPromptHolds[desc] == nil then
-				Cached.OrigPromptHolds[desc] = desc.HoldDuration
+		if desc:IsA("ProximityPrompt") then
+			if desc.HoldDuration > 0 then
+				forceZeroHold(desc)
+				modified += 1
 			end
-			pcall(function()
-				desc.HoldDuration = 0
-			end)
-			modified += 1
+			if State.AutoInstantPromptTap and desc.Enabled and rootPos then
+				local pos = getPromptOrDetectorPosition(desc)
+				local maxDist = math.max(desc.MaxActivationDistance + 4, 16)
+				if pos and (pos - rootPos).Magnitude <= maxDist then
+					firePromptOrDetector(desc)
+				end
+			end
 		end
 	end
 end
@@ -629,7 +670,7 @@ local function setInstantInteract(enabled)
 	State.InstantInteract = enabled
 	if enabled and not State.Unloaded then
 		State.LastPromptSweepTime = os.clock()
-		runInstantInteractPass(60)
+		runInstantInteractPass(75)
 	else
 		restoreInstantInteract()
 	end
@@ -641,7 +682,7 @@ local function runAutoClaimIndexPass()
 	if not root or not isValidVector3(root.Position) then return end
 
 	local rootPos = root.Position
-	local maxReach = 24
+	local maxReach = 26
 	local triggersFired = 0
 	local maxTriggers = State.UltraMobileLag and 4 or 6
 
@@ -669,7 +710,7 @@ local function runAutoLootAuraPass()
 	if not root or not isValidVector3(root.Position) then return end
 
 	local rootPos = root.Position
-	local maxReach = math.clamp(State.LootAuraRange or 22, 10, 35)
+	local maxReach = math.clamp(State.LootAuraRange or 24, 10, 35)
 	local triggersFired = 0
 	local maxTriggers = State.UltraMobileLag and 4 or 6
 
@@ -694,13 +735,46 @@ local function runAutoLootAuraPass()
 	end
 end
 
+local function runStealFromPlayersAuraPass()
+	if not State.StealFromPlayersAura or State.Unloaded then return end
+	local root = Cached.Root
+	if not root or not isValidVector3(root.Position) then return end
+
+	local rootPos = root.Position
+	local maxReach = math.clamp(State.StealReach or 30, 15, 45)
+	local triggersFired = 0
+	local maxTriggers = State.UltraMobileLag and 5 or 8
+
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if triggersFired >= maxTriggers then break end
+		if desc:IsA("ProximityPrompt") or desc:IsA("ClickDetector") then
+			local pos = getPromptOrDetectorPosition(desc)
+			if pos and (pos - rootPos).Magnitude <= maxReach then
+				local parentName = desc.Parent and desc.Parent.Name or ""
+				local actionText = desc:IsA("ProximityPrompt") and desc.ActionText or ""
+				local objectText = desc:IsA("ProximityPrompt") and desc.ObjectText or ""
+				local keywordMatch = matchesKeywordList(actionText, stealKeywords)
+					or matchesKeywordList(objectText, stealKeywords)
+					or matchesKeywordList(desc.Name, stealKeywords)
+					or matchesKeywordList(parentName, stealKeywords)
+				local nearPlayer = isNearOtherPlayer(pos, 42)
+				if keywordMatch or nearPlayer then
+					if firePromptOrDetector(desc) then
+						triggersFired += 1
+					end
+				end
+			end
+		end
+	end
+end
+
 local function runAutoUnlockSafesPass()
 	if not State.AutoUnlockSafes or State.Unloaded then return end
 	local root = Cached.Root
 	if not root or not isValidVector3(root.Position) then return end
 
 	local rootPos = root.Position
-	local maxReach = 22
+	local maxReach = 24
 	local triggersFired = 0
 	local maxTriggers = State.UltraMobileLag and 3 or 5
 
@@ -789,8 +863,11 @@ local function buildSavePayload()
 			JumpHeight = State.JumpHeight,
 			AutoClaimIndex = State.AutoClaimIndex,
 			InstantInteract = State.InstantInteract,
+			AutoInstantPromptTap = State.AutoInstantPromptTap,
 			AutoLootAura = State.AutoLootAura,
 			LootAuraRange = State.LootAuraRange,
+			StealFromPlayersAura = State.StealFromPlayersAura,
+			StealReach = State.StealReach,
 			AutoUnlockSafes = State.AutoUnlockSafes,
 			AntiCarrySlowdown = State.AntiCarrySlowdown,
 			MinCarrySpeed = State.MinCarrySpeed,
@@ -881,7 +958,8 @@ local function resetSavedFeatures()
 	State.ExtraSpeed = 16
 	State.JumpHeight = 14
 	State.JumpPower = 70
-	State.LootAuraRange = 22
+	State.LootAuraRange = 24
+	State.StealReach = 30
 	State.MinCarrySpeed = 20
 	State.MaxSafeFallSpeed = 38
 	State.TargetFps = 120
@@ -909,8 +987,11 @@ local function resetSavedFeatures()
 		JumpHeight = 14,
 		AutoClaimIndex = false,
 		InstantInteract = false,
+		AutoInstantPromptTap = true,
 		AutoLootAura = false,
-		LootAuraRange = 22,
+		LootAuraRange = 24,
+		StealFromPlayersAura = false,
+		StealReach = 30,
 		AutoUnlockSafes = false,
 		AntiCarrySlowdown = false,
 		MinCarrySpeed = 20,
@@ -1180,7 +1261,7 @@ local function isPositionClear(pos)
 end
 
 -- ==========================================
--- UNDER MAP & BASE / ESCAPE TELEPORT SYSTEM
+-- UNDER MAP & BASE / ESCAPE / TARGET TELEPORT SYSTEM
 -- ==========================================
 local underPlatform = Instance.new("Part")
 underPlatform.Name = "YutaHub_UnderPlatform"
@@ -1322,6 +1403,83 @@ end
 
 local function teleportToSavedEscape()
 	return teleportToSavedCFrame(State.SavedEscapeCFrame, "LastEscapeTpTime")
+end
+
+local function warpToNearestStealTarget()
+	if State.Unloaded then return false end
+	local char = Cached.Char
+	local hum = Cached.Hum
+	local root = Cached.Root
+	if not char or not root or not isValidVector3(root.Position) then return false end
+
+	local rootPos = root.Position
+	local bestPos = nil
+	local bestDist = math.huge
+	local bestPrompt = nil
+
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if desc:IsA("ProximityPrompt") and desc.Enabled then
+			local pos = getPromptOrDetectorPosition(desc)
+			if pos then
+				local parentName = desc.Parent and desc.Parent.Name or ""
+				local match = matchesKeywordList(desc.ActionText, stealKeywords)
+					or matchesKeywordList(desc.ObjectText, stealKeywords)
+					or matchesKeywordList(desc.Name, stealKeywords)
+					or matchesKeywordList(parentName, stealKeywords)
+					or isNearOtherPlayer(pos, 32)
+				if match then
+					local d = (pos - rootPos).Magnitude
+					if d > 2.5 and d < bestDist then
+						bestDist = d
+						bestPos = pos
+						bestPrompt = desc
+					end
+				end
+			end
+		end
+	end
+
+	if not bestPos then
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if plr ~= LocalPlayer and plr.Character then
+				local pRoot = plr.Character:FindFirstChild("HumanoidRootPart")
+					or plr.Character:FindFirstChild("Torso")
+					or plr.Character:FindFirstChild("UpperTorso")
+				if pRoot and isValidVector3(pRoot.Position) then
+					local d = (pRoot.Position - rootPos).Magnitude
+					if d > 3.0 and d < bestDist then
+						bestDist = d
+						bestPos = pRoot.Position - (pRoot.CFrame.LookVector * 3.5)
+					end
+				end
+			end
+		end
+	end
+
+	if not bestPos then return false end
+
+	if State.UnderMap then
+		State.UnderMap = false
+		State.UnderAnchorY = nil
+		if underPlatform then
+			underPlatform.Parent = nil
+		end
+		syncUnderMapToggleUI(false)
+	end
+
+	local destCF = computeSafeGroundCFrame(bestPos, (bestPos - rootPos))
+	markMovementIntent(1.2)
+	applyTeleportCFrame(char, hum, root, destCF)
+
+	if bestPrompt then
+		task.delay(0.08, function()
+			if not State.Unloaded and bestPrompt and bestPrompt.Parent then
+				firePromptOrDetector(bestPrompt)
+			end
+		end)
+	end
+
+	return true
 end
 
 -- ==========================================
@@ -2642,7 +2800,9 @@ local function unloadAll()
 	State.FullbrightEnabled = false
 	State.AutoClaimIndex = false
 	State.InstantInteract = false
+	State.AutoInstantPromptTap = false
 	State.AutoLootAura = false
+	State.StealFromPlayersAura = false
 	State.AutoUnlockSafes = false
 	State.AntiCarrySlowdown = false
 	State.OptimizeMobileLag = false
@@ -2736,9 +2896,9 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 		applyTargetFpsCap(false)
 	end
 
-	if State.InstantInteract and (now - State.LastPromptSweepTime) >= (State.UltraMobileLag and 1.2 or 0.75) then
+	if State.InstantInteract and (now - State.LastPromptSweepTime) >= (State.UltraMobileLag and 0.45 or 0.25) then
 		State.LastPromptSweepTime = now
-		runInstantInteractPass(State.UltraMobileLag and 20 or 32)
+		runInstantInteractPass(State.UltraMobileLag and 28 or 48)
 	end
 
 	if State.OptimizeMobileLag and (now - State.LastMobileFxSweepTime) >= (State.UltraMobileLag and 10.0 or 7.0) then
@@ -2763,9 +2923,14 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 		runAutoClaimIndexPass()
 	end
 
-	if State.AutoLootAura and (now - State.LastLootScanTime) >= (State.UltraMobileLag and 0.7 or 0.45) then
+	if State.AutoLootAura and (now - State.LastLootScanTime) >= (State.UltraMobileLag and 0.65 or 0.4) then
 		State.LastLootScanTime = now
 		runAutoLootAuraPass()
+	end
+
+	if State.StealFromPlayersAura and (now - State.LastStealScanTime) >= (State.UltraMobileLag and 0.55 or 0.35) then
+		State.LastStealScanTime = now
+		runStealFromPlayersAuraPass()
 	end
 
 	if State.AutoUnlockSafes and (now - State.LastUnlockScanTime) >= (State.UltraMobileLag and 0.85 or 0.55) then
@@ -3202,6 +3367,14 @@ HeistTab:Button({
 })
 
 HeistTab:Button({
+	Title = "Warp to Nearest Target / Loot",
+	Desc = "Teleport safely to nearest steal/loot prompt or player target",
+	Callback = function()
+		warpToNearestStealTarget()
+	end
+})
+
+HeistTab:Button({
 	Title = "Panic Escape (Under / Base)",
 	Desc = "Drop to Under Map immediately, or warp to Escape/Base if already under",
 	Callback = function()
@@ -3217,6 +3390,58 @@ HeistTab:Button({
 			saveCurrentBaseSpot()
 		end
 		teleportToSavedBase()
+	end
+})
+
+UIRefs.InstantInteract = HeistTab:Toggle({
+	Title = "Instant Hold (0s ProximityPrompt)",
+	Desc = "Forces HoldDuration = 0 on prompts so hold timers finish instantly",
+	Default = false,
+	Callback = function(value)
+		setInstantInteract(value)
+		markFeatureUsed()
+	end
+})
+
+UIRefs.AutoInstantPromptTap = HeistTab:Toggle({
+	Title = "Auto Tap When In Range",
+	Desc = "Automatically triggers nearby prompts when Instant Hold is ON",
+	Default = true,
+	Callback = function(value)
+		State.AutoInstantPromptTap = value
+		if value and State.InstantInteract then
+			runInstantInteractPass(50)
+		end
+		markFeatureUsed()
+	end
+})
+
+UIRefs.StealFromPlayersAura = HeistTab:Toggle({
+	Title = "Steal From Players / Bases Aura",
+	Desc = "Triggers nearby steal/take/loot prompts & targets around other players",
+	Default = false,
+	Callback = function(value)
+		State.StealFromPlayersAura = value
+		if value then
+			State.LastStealScanTime = 0
+			runStealFromPlayersAuraPass()
+		end
+		markFeatureUsed()
+	end
+})
+
+UIRefs.StealReach = HeistTab:Slider({
+	Title = "Steal Aura Reach",
+	Desc = "Steal scan radius in studs (15–45)",
+	Step = 1,
+	Value = {
+		Min = 15,
+		Max = 45,
+		Default = 30
+	},
+	Callback = function(value)
+		State.StealReach = value
+		markFeatureUsed()
 	end
 })
 
@@ -3241,7 +3466,7 @@ UIRefs.LootAuraRange = HeistTab:Slider({
 	Value = {
 		Min = 10,
 		Max = 35,
-		Default = 22
+		Default = 24
 	},
 	Callback = function(value)
 		State.LootAuraRange = value
@@ -3284,16 +3509,6 @@ UIRefs.MinCarrySpeed = HeistTab:Slider({
 	},
 	Callback = function(value)
 		State.MinCarrySpeed = value
-		markFeatureUsed()
-	end
-})
-
-UIRefs.InstantInteract = HeistTab:Toggle({
-	Title = "Instant ProximityPrompt (0s Hold)",
-	Desc = "Sets HoldDuration = 0 on prompts for instant tap interactions",
-	Default = false,
-	Callback = function(value)
-		setInstantInteract(value)
 		markFeatureUsed()
 	end
 })
@@ -3654,7 +3869,7 @@ do
 		applyFullbrightLighting()
 	end
 	if State.InstantInteract then
-		runInstantInteractPass(60)
+		runInstantInteractPass(75)
 	end
 	applyTargetFpsCap(true)
 
