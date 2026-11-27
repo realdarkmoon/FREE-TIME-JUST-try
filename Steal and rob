@@ -9,12 +9,14 @@ local Lighting = game:GetService("Lighting")
 local UserInputService = game:GetService("UserInputService")
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
+local GuiService = game:GetService("GuiService")
+local Stats = game:GetService("Stats")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local SCRIPT_VERSION = "v33.0"
-local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v33.json"
+local SCRIPT_VERSION = "v34.0"
+local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v34.json"
 local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-cloud/yutahub/main/main.lua"
 
 -- ==========================================
@@ -23,14 +25,14 @@ local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-
 local CHANGELOG = {
 	Version = SCRIPT_VERSION,
 	WhatsNew = {
-		"Ultra Noclip & Wall Bypass v2: Multi-layer barrier scanner + sub-step thick-wall tunneling.",
-		"Surface-Normal Edge Glide: Smoothly projects movement along angled walls so corners never snag.",
-		"Up to 500 FPS Cap & CPU Optimizer: Low-overhead pacing and Potato Map mode for mobile."
+		"Auto Collect / Loot Aura & Range Slider: Grab nearby cash, loot, and drops automatically on a throttled scan.",
+		"Escape Spot Waypoint & Panic Escape: Save a getaway spot and trigger an instant Under Map / Base escape.",
+		"Auto Unlock Doors/Safes & Carry Speed Guard: Breach locks faster and prevent heavy loot slowdown."
 	},
 	WhatsFixed = {
-		"Fixed thick-wall and double-layer barrier phasing without falling through floors.",
-		"Fixed corner snagging and seat/touch triggers while noclipping.",
-		"Kept mobile CPU and frame pacing lightweight with zero runtime errors."
+		"Added clean save/load support and reset coverage for all new Break & Steal toggles and sliders.",
+		"Throttled loot and unlock sweeps so mobile CPU usage stays low during busy heist rooms.",
+		"Maintained 500 FPS cap support, Fullbright restoration, Under Map safety, and Noclip edge-sliding."
 	}
 }
 
@@ -39,7 +41,7 @@ local Window = WindUI:CreateWindow({
 	Title = "PREMIUM YUTAHUB",
 	Icon = "moon",
 	Author = "biyxznd",
-	Folder = "PremiumYutaHubV33",
+	Folder = "PremiumYutaHubV34",
 	Size = UDim2.fromOffset(550, 530),
 	MinSize = Vector2.new(440, 320),
 	MaxSize = Vector2.new(740, 640),
@@ -96,29 +98,39 @@ local State = {
 	ShowFloatingUnderBtn = true,
 	ShowFloatingBaseBtn = true,
 	ShowFloatingKickBtn = true,
+	ShowStatsPill = true,
 	FloatingBtnWidth = 164,
 	SpeedEnabled = false,
 	JumpEnabled = false,
 	BoxESP = false,
 	PlayerInfoESP = true,
+	FullbrightEnabled = false,
 	AutoClaimIndex = false,
+	InstantInteract = false,
+	AutoLootAura = false,
+	AutoUnlockSafes = false,
+	AntiCarrySlowdown = false,
 	OptimizeMobileLag = true,
 	UltraMobileLag = true,
 	PotatoMapMode = false,
+	AntiAfkEnabled = true,
+	AutoReconnectEnabled = true,
 	FpsCapEnabled = true,
 	TargetFps = 120,
 	ServerHopLowPopMode = false,
 	AutoSaveEnabled = true,
 	AutoExecuteEnabled = true,
 	InstantKickEnabled = false,
-	NoclipStepPower = 1.45,
-	BypassScanDistance = 32,
+	NoclipStepPower = 1.25,
+	BypassScanDistance = 26,
 	UnderMapOffset = 12,
 	ExtraSpeed = 16,
 	JumpHeight = 14,
 	JumpPower = 75,
 	DefaultJumpHeight = 7.2,
 	DefaultJumpPower = 50,
+	LootAuraRange = 22,
+	MinCarrySpeed = 20,
 	MaxSafeFallSpeed = 38,
 	VoidRescueY = -160,
 	MaxSafeVelocity = 110,
@@ -126,12 +138,16 @@ local State = {
 	MaxUnusualSnapDist = 35,
 	SavedCFrame = nil,
 	SavedBaseCFrame = nil,
+	SavedEscapeCFrame = nil,
 	UnderAnchorY = nil,
 	LastCleanCFrame = nil,
 	LastBypassTime = 0,
 	LastWallProbeTime = 0,
 	LastRagdollSweepTime = 0,
 	LastClaimScanTime = 0,
+	LastLootScanTime = 0,
+	LastUnlockScanTime = 0,
+	LastPromptSweepTime = 0,
 	LastMobileFxSweepTime = 0,
 	LastPotatoSweepTime = 0,
 	LastFpsApplyTime = 0,
@@ -139,6 +155,7 @@ local State = {
 	LastRejoinAttempt = 0,
 	LastServerHopAttempt = 0,
 	LastBaseTpTime = 0,
+	LastEscapeTpTime = 0,
 	LastVoidRescueTime = 0,
 	LastKickAttempt = 0,
 	ServerHopBusy = false,
@@ -158,6 +175,7 @@ local Cached = {
 	Parts = {},
 	Seats = {},
 	OrigProps = {},
+	OrigPromptHolds = {},
 	MobileOrigFX = {},
 	MobileOrigQuality = nil,
 	MobileOrigWaterWave = nil,
@@ -165,7 +183,8 @@ local Cached = {
 	PotatoOrigParts = {},
 	PotatoOrigShadows = nil,
 	PotatoOrigSpecScale = nil,
-	PotatoOrigDiffScale = nil
+	PotatoOrigDiffScale = nil,
+	FullbrightOrig = nil
 }
 
 local UIRefs = {}
@@ -400,12 +419,13 @@ local function restorePotatoMapMode()
 	end
 	table.clear(Cached.PotatoOrigParts)
 
-	if Cached.PotatoOrigShadows ~= nil then
+	if Cached.PotatoOrigShadows ~= nil and not State.FullbrightEnabled then
 		pcall(function()
 			Lighting.GlobalShadows = Cached.PotatoOrigShadows
 		end)
-		Cached.PotatoOrigShadows = nil
 	end
+	Cached.PotatoOrigShadows = nil
+
 	if Cached.PotatoOrigSpecScale ~= nil then
 		pcall(function()
 			Lighting.EnvironmentSpecularScale = Cached.PotatoOrigSpecScale
@@ -454,19 +474,78 @@ local function setPotatoMapMode(enabled)
 end
 
 -- ==========================================
--- AUTO CLAIM INDEX SYSTEM
+-- FULLBRIGHT SYSTEM
+-- ==========================================
+local function restoreFullbright()
+	if typeof(Cached.FullbrightOrig) == "table" then
+		local orig = Cached.FullbrightOrig
+		pcall(function()
+			Lighting.Brightness = orig.Brightness
+			Lighting.ClockTime = orig.ClockTime
+			Lighting.FogEnd = orig.FogEnd
+			Lighting.Ambient = orig.Ambient
+			Lighting.OutdoorAmbient = orig.OutdoorAmbient
+			if not State.PotatoMapMode then
+				Lighting.GlobalShadows = orig.GlobalShadows
+			end
+		end)
+	end
+	Cached.FullbrightOrig = nil
+end
+
+local function applyFullbrightLighting()
+	if not State.FullbrightEnabled or State.Unloaded then return end
+	if Cached.FullbrightOrig == nil then
+		pcall(function()
+			Cached.FullbrightOrig = {
+				Brightness = Lighting.Brightness,
+				ClockTime = Lighting.ClockTime,
+				FogEnd = Lighting.FogEnd,
+				Ambient = Lighting.Ambient,
+				OutdoorAmbient = Lighting.OutdoorAmbient,
+				GlobalShadows = Lighting.GlobalShadows
+			}
+		end)
+	end
+	pcall(function()
+		Lighting.Brightness = 2
+		Lighting.ClockTime = 14
+		Lighting.FogEnd = 100000
+		Lighting.GlobalShadows = false
+		Lighting.Ambient = Color3.fromRGB(190, 190, 190)
+		Lighting.OutdoorAmbient = Color3.fromRGB(190, 190, 190)
+	end)
+end
+
+local function setFullbrightEnabled(enabled)
+	State.FullbrightEnabled = enabled
+	if enabled and not State.Unloaded then
+		applyFullbrightLighting()
+	else
+		restoreFullbright()
+	end
+end
+
+-- ==========================================
+-- INSTANT PROMPT, AUTO CLAIM, LOOT AURA & AUTO UNLOCK SYSTEM
 -- ==========================================
 local claimKeywords = { "claim", "index", "collect", "redeem", "unlock", "reward", "grab" }
+local lootKeywords = { "loot", "cash", "money", "bag", "gold", "gem", "item", "steal", "take", "pick", "collect", "grab" }
+local unlockKeywords = { "unlock", "open", "breach", "crack", "pick", "door", "safe", "vault", "gate", "hack" }
 
-local function matchesClaimKeyword(str)
+local function matchesKeywordList(str, list)
 	if typeof(str) ~= "string" or str == "" then return false end
 	local lower = str:lower()
-	for _, kw in ipairs(claimKeywords) do
+	for _, kw in ipairs(list) do
 		if lower:find(kw, 1, true) then
 			return true
 		end
 	end
 	return false
+end
+
+local function matchesClaimKeyword(str)
+	return matchesKeywordList(str, claimKeywords)
 end
 
 local function getPromptOrDetectorPosition(obj)
@@ -489,6 +568,73 @@ local function getPromptOrDetectorPosition(obj)
 	return nil
 end
 
+local function firePromptOrDetector(desc)
+	if desc:IsA("ProximityPrompt") and desc.Enabled then
+		local ok = pcall(function()
+			fireproximityprompt(desc)
+		end)
+		if not ok then
+			pcall(function()
+				desc:InputHoldBegin()
+				task.delay(0.05, function()
+					pcall(function()
+						desc:InputHoldEnd()
+					end)
+				end)
+			end)
+		end
+		return true
+	elseif desc:IsA("ClickDetector") then
+		if typeof(fireclickdetector) == "function" then
+			pcall(function()
+				fireclickdetector(desc)
+			end)
+			return true
+		end
+	end
+	return false
+end
+
+local function runInstantInteractPass(limitCount)
+	if not State.InstantInteract or State.Unloaded then return end
+	local maxModified = limitCount or 30
+	local modified = 0
+
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if modified >= maxModified then break end
+		if desc:IsA("ProximityPrompt") and desc.HoldDuration > 0 then
+			if Cached.OrigPromptHolds[desc] == nil then
+				Cached.OrigPromptHolds[desc] = desc.HoldDuration
+			end
+			pcall(function()
+				desc.HoldDuration = 0
+			end)
+			modified += 1
+		end
+	end
+end
+
+local function restoreInstantInteract()
+	for prompt, origHold in pairs(Cached.OrigPromptHolds) do
+		if prompt and prompt.Parent and prompt:IsA("ProximityPrompt") then
+			pcall(function()
+				prompt.HoldDuration = origHold
+			end)
+		end
+	end
+	table.clear(Cached.OrigPromptHolds)
+end
+
+local function setInstantInteract(enabled)
+	State.InstantInteract = enabled
+	if enabled and not State.Unloaded then
+		State.LastPromptSweepTime = os.clock()
+		runInstantInteractPass(60)
+	else
+		restoreInstantInteract()
+	end
+end
+
 local function runAutoClaimIndexPass()
 	if not State.AutoClaimIndex or State.Unloaded then return end
 	local root = Cached.Root
@@ -501,36 +647,76 @@ local function runAutoClaimIndexPass()
 
 	for _, desc in ipairs(Workspace:GetDescendants()) do
 		if triggersFired >= maxTriggers then break end
-		if desc:IsA("ProximityPrompt") and desc.Enabled then
+		if desc:IsA("ProximityPrompt") or desc:IsA("ClickDetector") then
 			local pos = getPromptOrDetectorPosition(desc)
 			if pos and (pos - rootPos).Magnitude <= maxReach then
 				local parentName = desc.Parent and desc.Parent.Name or ""
-				if matchesClaimKeyword(desc.ActionText) or matchesClaimKeyword(desc.ObjectText) or matchesClaimKeyword(desc.Name) or matchesClaimKeyword(parentName) then
-					local ok = pcall(function()
-						fireproximityprompt(desc)
-					end)
-					if not ok then
-						pcall(function()
-							desc:InputHoldBegin()
-							task.delay(0.05, function()
-								pcall(function()
-									desc:InputHoldEnd()
-								end)
-							end)
-						end)
+				local actionText = desc:IsA("ProximityPrompt") and desc.ActionText or ""
+				local objectText = desc:IsA("ProximityPrompt") and desc.ObjectText or ""
+				if matchesClaimKeyword(actionText) or matchesClaimKeyword(objectText) or matchesClaimKeyword(desc.Name) or matchesClaimKeyword(parentName) then
+					if firePromptOrDetector(desc) then
+						triggersFired += 1
 					end
-					triggersFired += 1
 				end
 			end
-		elseif desc:IsA("ClickDetector") then
+		end
+	end
+end
+
+local function runAutoLootAuraPass()
+	if not State.AutoLootAura or State.Unloaded then return end
+	local root = Cached.Root
+	if not root or not isValidVector3(root.Position) then return end
+
+	local rootPos = root.Position
+	local maxReach = math.clamp(State.LootAuraRange or 22, 10, 35)
+	local triggersFired = 0
+	local maxTriggers = State.UltraMobileLag and 4 or 6
+
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if triggersFired >= maxTriggers then break end
+		if desc:IsA("ProximityPrompt") or desc:IsA("ClickDetector") then
 			local pos = getPromptOrDetectorPosition(desc)
 			if pos and (pos - rootPos).Magnitude <= maxReach then
 				local parentName = desc.Parent and desc.Parent.Name or ""
-				if matchesClaimKeyword(desc.Name) or matchesClaimKeyword(parentName) then
-					if typeof(fireclickdetector) == "function" then
-						pcall(function()
-							fireclickdetector(desc)
-						end)
+				local actionText = desc:IsA("ProximityPrompt") and desc.ActionText or ""
+				local objectText = desc:IsA("ProximityPrompt") and desc.ObjectText or ""
+				if matchesKeywordList(actionText, lootKeywords)
+					or matchesKeywordList(objectText, lootKeywords)
+					or matchesKeywordList(desc.Name, lootKeywords)
+					or matchesKeywordList(parentName, lootKeywords) then
+					if firePromptOrDetector(desc) then
+						triggersFired += 1
+					end
+				end
+			end
+		end
+	end
+end
+
+local function runAutoUnlockSafesPass()
+	if not State.AutoUnlockSafes or State.Unloaded then return end
+	local root = Cached.Root
+	if not root or not isValidVector3(root.Position) then return end
+
+	local rootPos = root.Position
+	local maxReach = 22
+	local triggersFired = 0
+	local maxTriggers = State.UltraMobileLag and 3 or 5
+
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if triggersFired >= maxTriggers then break end
+		if desc:IsA("ProximityPrompt") or desc:IsA("ClickDetector") then
+			local pos = getPromptOrDetectorPosition(desc)
+			if pos and (pos - rootPos).Magnitude <= maxReach then
+				local parentName = desc.Parent and desc.Parent.Name or ""
+				local actionText = desc:IsA("ProximityPrompt") and desc.ActionText or ""
+				local objectText = desc:IsA("ProximityPrompt") and desc.ObjectText or ""
+				if matchesKeywordList(actionText, unlockKeywords)
+					or matchesKeywordList(objectText, unlockKeywords)
+					or matchesKeywordList(desc.Name, unlockKeywords)
+					or matchesKeywordList(parentName, unlockKeywords) then
+					if firePromptOrDetector(desc) then
 						triggersFired += 1
 					end
 				end
@@ -595,15 +781,24 @@ local function buildSavePayload()
 			ShowFloatingUnderBtn = State.ShowFloatingUnderBtn,
 			ShowFloatingBaseBtn = State.ShowFloatingBaseBtn,
 			ShowFloatingKickBtn = State.ShowFloatingKickBtn,
+			ShowStatsPill = State.ShowStatsPill,
 			FloatingBtnWidth = State.FloatingBtnWidth,
 			SpeedEnabled = State.SpeedEnabled,
 			ExtraSpeed = State.ExtraSpeed,
 			JumpEnabled = State.JumpEnabled,
 			JumpHeight = State.JumpHeight,
 			AutoClaimIndex = State.AutoClaimIndex,
+			InstantInteract = State.InstantInteract,
+			AutoLootAura = State.AutoLootAura,
+			LootAuraRange = State.LootAuraRange,
+			AutoUnlockSafes = State.AutoUnlockSafes,
+			AntiCarrySlowdown = State.AntiCarrySlowdown,
+			MinCarrySpeed = State.MinCarrySpeed,
 			OptimizeMobileLag = State.OptimizeMobileLag,
 			UltraMobileLag = State.UltraMobileLag,
 			PotatoMapMode = State.PotatoMapMode,
+			AntiAfkEnabled = State.AntiAfkEnabled,
+			AutoReconnectEnabled = State.AutoReconnectEnabled,
 			FpsCapEnabled = State.FpsCapEnabled,
 			TargetFps = State.TargetFps,
 			AntiFallDamage = State.AntiFallDamage,
@@ -615,6 +810,7 @@ local function buildSavePayload()
 			AntiKnockback = State.AntiKnockback,
 			BoxESP = State.BoxESP,
 			PlayerInfoESP = State.PlayerInfoESP,
+			FullbrightEnabled = State.FullbrightEnabled,
 			ServerHopLowPopMode = State.ServerHopLowPopMode
 		}
 	}
@@ -679,12 +875,14 @@ end
 
 local function resetSavedFeatures()
 	State.LoadingSaved = true
-	State.NoclipStepPower = 1.45
-	State.BypassScanDistance = 32
+	State.NoclipStepPower = 1.25
+	State.BypassScanDistance = 26
 	State.UnderMapOffset = 12
 	State.ExtraSpeed = 16
 	State.JumpHeight = 14
 	State.JumpPower = 70
+	State.LootAuraRange = 22
+	State.MinCarrySpeed = 20
 	State.MaxSafeFallSpeed = 38
 	State.TargetFps = 120
 	State.FloatingBtnWidth = 164
@@ -694,24 +892,33 @@ local function resetSavedFeatures()
 		NoclipBetaUltra = true,
 		WallMicroStep = true,
 		NoclipPhaseBoost = true,
-		NoclipStepPower = 1.45,
+		NoclipStepPower = 1.25,
 		AutoWallBypass = false,
-		BypassScanDistance = 32,
+		BypassScanDistance = 26,
 		UnderMapOffset = 12,
 		UnderMapLockY = true,
 		UnderMapClearPlatform = false,
 		ShowFloatingUnderBtn = true,
 		ShowFloatingBaseBtn = true,
 		ShowFloatingKickBtn = true,
+		ShowStatsPill = true,
 		FloatingBtnWidth = 164,
 		SpeedEnabled = false,
 		ExtraSpeed = 16,
 		JumpEnabled = false,
 		JumpHeight = 14,
 		AutoClaimIndex = false,
+		InstantInteract = false,
+		AutoLootAura = false,
+		LootAuraRange = 22,
+		AutoUnlockSafes = false,
+		AntiCarrySlowdown = false,
+		MinCarrySpeed = 20,
 		OptimizeMobileLag = true,
 		UltraMobileLag = true,
 		PotatoMapMode = false,
+		AntiAfkEnabled = true,
+		AutoReconnectEnabled = true,
 		FpsCapEnabled = true,
 		TargetFps = 120,
 		AntiFallDamage = false,
@@ -723,6 +930,7 @@ local function resetSavedFeatures()
 		AntiKnockback = false,
 		BoxESP = false,
 		PlayerInfoESP = true,
+		FullbrightEnabled = false,
 		ServerHopLowPopMode = false
 	}
 
@@ -962,7 +1170,7 @@ local function getMoveDirectionFlat()
 end
 
 local function isPositionClear(pos)
-	local parts = Workspace:GetPartBoundsInRadius(pos, 1.45, sharedOverlapParams)
+	local parts = Workspace:GetPartBoundsInRadius(pos, 1.55, sharedOverlapParams)
 	for _, part in ipairs(parts) do
 		if part:IsA("BasePart") and part.CanCollide and part.Transparency < 0.98 then
 			return false
@@ -972,7 +1180,7 @@ local function isPositionClear(pos)
 end
 
 -- ==========================================
--- UNDER MAP & BASE TELEPORT SYSTEM
+-- UNDER MAP & BASE / ESCAPE TELEPORT SYSTEM
 -- ==========================================
 local underPlatform = Instance.new("Part")
 underPlatform.Name = "YutaHub_UnderPlatform"
@@ -1008,6 +1216,14 @@ local function saveCurrentBaseSpot()
 	local root = Cached.Root
 	if not root or not isValidVector3(root.Position) then return false end
 	State.SavedBaseCFrame = root.CFrame
+	State.LastCleanCFrame = root.CFrame
+	return true
+end
+
+local function saveCurrentEscapeSpot()
+	local root = Cached.Root
+	if not root or not isValidVector3(root.Position) then return false end
+	State.SavedEscapeCFrame = root.CFrame
 	State.LastCleanCFrame = root.CFrame
 	return true
 end
@@ -1054,21 +1270,22 @@ local function applyTeleportCFrame(char, hum, root, destCF)
 	end
 end
 
-local function teleportToSavedBase()
+local function teleportToSavedCFrame(targetCFrame, debounceField)
 	if State.Unloaded then return false end
 	local now = os.clock()
-	if (now - State.LastBaseTpTime) < 0.25 then
+	local lastTime = State[debounceField] or 0
+	if (now - lastTime) < 0.25 then
 		return false
 	end
 
 	local char = Cached.Char
 	local hum = Cached.Hum
 	local root = Cached.Root
-	if not char or not root or not State.SavedBaseCFrame then
+	if not char or not root or not targetCFrame then
 		return false
 	end
 
-	State.LastBaseTpTime = now
+	State[debounceField] = now
 
 	if State.UnderMap then
 		State.UnderMap = false
@@ -1079,7 +1296,7 @@ local function teleportToSavedBase()
 		syncUnderMapToggleUI(false)
 	end
 
-	local destCF = computeSafeGroundCFrame(State.SavedBaseCFrame.Position, State.SavedBaseCFrame.LookVector)
+	local destCF = computeSafeGroundCFrame(targetCFrame.Position, targetCFrame.LookVector)
 	State.LastCleanCFrame = destCF
 	markMovementIntent(1.4)
 
@@ -1099,24 +1316,29 @@ local function teleportToSavedBase()
 	return true
 end
 
+local function teleportToSavedBase()
+	return teleportToSavedCFrame(State.SavedBaseCFrame, "LastBaseTpTime")
+end
+
+local function teleportToSavedEscape()
+	return teleportToSavedCFrame(State.SavedEscapeCFrame, "LastEscapeTpTime")
+end
+
 -- ==========================================
--- ULTRA-POWERFUL NOCLIP & MULTI-LAYER WALL BYPASS ENGINE
+-- UPGRADED ULTRA-POWERFUL NOCLIP & HARD WALL BYPASS
 -- ==========================================
 local noclipConnections = {}
 local charDescendantConn = nil
 
-local function probeWallAhead(origin, dir, distance)
+local function hasWallAhead(origin, dir, distance)
 	local offsets = { -1.35, 0.0, 1.35 }
-	local closestHit = nil
 	for _, yOff in ipairs(offsets) do
 		local ray = Workspace:Raycast(origin + Vector3.new(0, yOff, 0), dir * distance, sharedRayParams)
 		if ray and ray.Instance and ray.Instance:IsA("BasePart") and ray.Instance.CanCollide then
-			if not closestHit or ray.Distance < closestHit.Distance then
-				closestHit = ray
-			end
+			return true
 		end
 	end
-	return closestHit
+	return false
 end
 
 local function isCharacterInsideSolid(origin)
@@ -1129,32 +1351,17 @@ local function isCharacterInsideSolid(origin)
 	return false
 end
 
-local function getBetaSlideVector(rootPos, flatDir, stepDist, hitNormal)
+local function getBetaSlideVector(rootPos, flatDir, stepDist)
 	local testPos = rootPos + (flatDir * stepDist)
 	if isPositionClear(testPos) then
 		return flatDir
 	end
 
 	if State.NoclipBetaUltra then
-		if hitNormal and isValidVector3(hitNormal) then
-			local flatNormal = Vector3.new(hitNormal.X, 0, hitNormal.Z)
-			if flatNormal.Magnitude > 0.001 then
-				flatNormal = flatNormal.Unit
-				local slideAlong = flatDir - (flatNormal * flatDir:Dot(flatNormal))
-				if slideAlong.Magnitude > 0.15 then
-					local unitSlide = slideAlong.Unit
-					if isPositionClear(rootPos + (unitSlide * stepDist)) then
-						return unitSlide
-					end
-				end
-			end
-		end
-
 		local angles = {
-			math.rad(18), math.rad(-18),
-			math.rad(36), math.rad(-36),
-			math.rad(55), math.rad(-55),
-			math.rad(75), math.rad(-75)
+			math.rad(20), math.rad(-20),
+			math.rad(40), math.rad(-40),
+			math.rad(65), math.rad(-65)
 		}
 		for _, angle in ipairs(angles) do
 			local rotated = (CFrame.Angles(0, angle, 0) * flatDir)
@@ -1199,37 +1406,30 @@ local function applyStrongNoclipFrame()
 		end
 	end
 
-	if State.WallMicroStep and hum and root and hum.MoveDirection.Magnitude > 0.05 then
+	if State.WallMicroStep and hum and root and hum.MoveDirection.Magnitude > 0.06 then
 		local now = os.clock()
-		local probeInterval = State.UltraMobileLag and 0.028 or (State.NoclipBetaUltra and 0.016 or 0.022)
+		local probeInterval = State.UltraMobileLag and 0.036 or (State.NoclipBetaUltra and 0.02 or 0.025)
 		if (now - State.LastWallProbeTime) >= probeInterval then
 			State.LastWallProbeTime = now
 			local flatDir = getMoveDirectionFlat()
-			local checkDist = State.NoclipBetaUltra and 3.4 or 2.6
-			local wallHit = probeWallAhead(root.Position, flatDir, checkDist)
+			local checkDist = State.NoclipBetaUltra and 3.1 or 2.5
+			local wallDetected = hasWallAhead(root.Position, flatDir, checkDist)
 			local insideWall = State.NoclipPhaseBoost and isCharacterInsideSolid(root.Position)
 
-			if wallHit or insideWall then
-				local stepScale = insideWall and (State.NoclipStepPower * 1.35) or State.NoclipStepPower
-				local pushDir = insideWall and flatDir or getBetaSlideVector(root.Position, flatDir, stepScale, wallHit and wallHit.Normal or nil)
-				markMovementIntent(0.4)
+			if wallDetected or insideWall then
+				local stepScale = insideWall and (State.NoclipStepPower * 1.25) or State.NoclipStepPower
+				local pushDir = insideWall and flatDir or getBetaSlideVector(root.Position, flatDir, stepScale)
+				markMovementIntent(0.35)
 
-				-- Sub-step tunneling prevents snagging on thick or multi-layer walls
-				local subSteps = insideWall and 2 or 1
-				local subDist = stepScale / subSteps
-				local nextCF = root.CFrame
-				for _ = 1, subSteps do
-					nextCF = nextCF + (pushDir * subDist)
-				end
-
-				root.CFrame = nextCF
+				local destCF = root.CFrame + (pushDir * stepScale)
+				root.CFrame = destCF
 				if not State.UnderMap then
-					State.LastCleanCFrame = nextCF
+					State.LastCleanCFrame = destCF
 				end
 
 				local v = root.AssemblyLinearVelocity
 				if isValidVector3(v) then
-					local boostXY = State.NoclipBetaUltra and 24 or 19
+					local boostXY = State.NoclipBetaUltra and 22 or 18
 					root.AssemblyLinearVelocity = Vector3.new(pushDir.X * boostXY, math.max(v.Y, 0), pushDir.Z * boostXY)
 				end
 			end
@@ -1281,21 +1481,19 @@ local function executeHardWallBypass(forceScan)
 	if not char or not root then return false end
 
 	local flatDir = getMoveDirectionFlat()
-	local aheadHit = probeWallAhead(root.Position, flatDir, 4.5)
-	if not forceScan and not aheadHit and not isCharacterInsideSolid(root.Position) then
+	if not forceScan and not hasWallAhead(root.Position, flatDir, 4.2) then
 		return false
 	end
 
-	local maxDist = math.max(6, State.BypassScanDistance)
+	local maxDist = math.max(5, State.BypassScanDistance)
 	local chosenPos = nil
-	local startDist = aheadHit and math.max(2.0, aheadHit.Distance + 1.5) or 2.0
 
-	for dist = startDist, maxDist, 1.5 do
+	for dist = 2, maxDist do
 		local probePos = root.Position + (flatDir * dist)
-		if isPositionClear(probePos) and not probeWallAhead(probePos, flatDir, 0.9) then
-			local floorHit = Workspace:Raycast(probePos + Vector3.new(0, 2.5, 0), Vector3.new(0, -12, 0), sharedRayParams)
-			if floorHit and isValidVector3(floorHit.Position) then
-				local groundedPos = Vector3.new(probePos.X, math.max(probePos.Y, floorHit.Position.Y + 3.0), probePos.Z)
+		if not hasWallAhead(probePos, flatDir, 1.0) and isPositionClear(probePos) then
+			local floorHit = Workspace:Raycast(probePos + Vector3.new(0, 2, 0), Vector3.new(0, -10, 0), sharedRayParams)
+			if floorHit then
+				local groundedPos = Vector3.new(probePos.X, floorHit.Position.Y + 3.0, probePos.Z)
 				if isPositionClear(groundedPos) then
 					chosenPos = groundedPos
 					break
@@ -1308,10 +1506,10 @@ local function executeHardWallBypass(forceScan)
 	end
 
 	if not chosenPos then
-		chosenPos = root.Position + (flatDir * math.min(maxDist, 16))
+		chosenPos = root.Position + (flatDir * math.min(maxDist, 14))
 	end
 
-	markMovementIntent(0.65)
+	markMovementIntent(0.55)
 	local curY = isValidVector3(root.AssemblyLinearVelocity) and math.max(root.AssemblyLinearVelocity.Y, 0) or 0
 	root.AssemblyLinearVelocity = Vector3.new(0, curY, 0)
 	root.AssemblyAngularVelocity = Vector3.zero
@@ -1472,8 +1670,24 @@ local function setUnderMap(enabled)
 	end
 end
 
+local function triggerPanicEscape()
+	if State.Unloaded then return false end
+	if not State.UnderMap then
+		setUnderMap(true)
+		syncUnderMapToggleUI(true)
+		return true
+	end
+	if State.SavedEscapeCFrame then
+		return teleportToSavedEscape()
+	end
+	if State.SavedBaseCFrame then
+		return teleportToSavedBase()
+	end
+	return false
+end
+
 -- ==========================================
--- FRONT BIG FLOATING MOBILE BUTTONS (UNDER MAP, TP BASE & KICK)
+-- FRONT BIG FLOATING MOBILE BUTTONS & LIVE FPS/PING PILL
 -- ==========================================
 local floatGui = Instance.new("ScreenGui")
 floatGui.Name = "YutaHub_FloatingUnderGui"
@@ -1545,6 +1759,31 @@ local kickFloatBtn, kickStroke = createFloatingButton(
 )
 kickFloatBtn.Visible = State.ShowFloatingKickBtn
 
+local statsPill = Instance.new("TextButton")
+statsPill.Name = "StatsPillButton"
+statsPill.Size = UDim2.fromOffset(154, 34)
+statsPill.Position = UDim2.new(0.5, -77, 0, 10)
+statsPill.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
+statsPill.BackgroundTransparency = 0.12
+statsPill.TextColor3 = Color3.fromRGB(225, 236, 255)
+statsPill.Text = "FPS: --  |  -- ms"
+statsPill.Font = Enum.Font.GothamBold
+statsPill.TextSize = 13
+statsPill.AutoButtonColor = false
+statsPill.Active = true
+statsPill.ZIndex = 255
+statsPill.Visible = State.ShowStatsPill
+statsPill.Parent = floatGui
+
+local statsCorner = Instance.new("UICorner")
+statsCorner.CornerRadius = UDim.new(1, 0)
+statsCorner.Parent = statsPill
+
+local statsStroke = Instance.new("UIStroke")
+statsStroke.Color = Color3.fromRGB(105, 125, 255)
+statsStroke.Thickness = 1.4
+statsStroke.Parent = statsPill
+
 local function resetFloatingButtonPositions()
 	local w, h = getFloatingBtnDimensions(State.FloatingBtnWidth)
 	if floatBtn and floatBtn.Parent then
@@ -1555,6 +1794,9 @@ local function resetFloatingButtonPositions()
 	end
 	if kickFloatBtn and kickFloatBtn.Parent then
 		kickFloatBtn.Position = UDim2.new(1, -(w + 18), 0.50, (h + 10) * 2)
+	end
+	if statsPill and statsPill.Parent then
+		statsPill.Position = UDim2.new(0.5, -77, 0, 10)
 	end
 end
 
@@ -1606,6 +1848,9 @@ refreshFloatingButtonVisual = function()
 			kickStroke.Color = Color3.fromRGB(255, 85, 115)
 		end
 	end
+	if statsPill and statsPill.Parent then
+		statsPill.Visible = State.ShowStatsPill and (not State.Unloaded)
+	end
 end
 
 local function bindDraggableButton(btn, onTap)
@@ -1647,7 +1892,7 @@ local function bindDraggableButton(btn, onTap)
 			local wasTap = not movedEnough
 			dragging = false
 			dragInput = nil
-			if wasTap and not State.Unloaded then
+			if wasTap and not State.Unloaded and onTap then
 				onTap()
 			end
 		end
@@ -1660,6 +1905,8 @@ local function bindDraggableButton(btn, onTap)
 		end
 	end)
 end
+
+bindDraggableButton(statsPill, nil)
 
 bindDraggableButton(floatBtn, function()
 	if State.UnderMap then
@@ -2358,9 +2605,21 @@ local function joinBestServer()
 end
 
 -- ==========================================
--- LIFECYCLE & LOOPS
+-- LIFECYCLE, ANTI-AFK, AUTO-RECONNECT & LOOPS
 -- ==========================================
 local lifecycleConnections = {}
+local frameCounter = 0
+local lastStatsUpdateClock = os.clock()
+
+local function getPingMsSafe()
+	local ok, pingVal = pcall(function()
+		return math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
+	end)
+	if ok and typeof(pingVal) == "number" then
+		return math.max(0, pingVal)
+	end
+	return nil
+end
 
 if LocalPlayer.Character then
 	rebuildCharacterCache(LocalPlayer.Character)
@@ -2380,11 +2639,20 @@ local function unloadAll()
 	State.AntiKnockback = false
 	State.SpeedEnabled = false
 	State.BoxESP = false
+	State.FullbrightEnabled = false
 	State.AutoClaimIndex = false
+	State.InstantInteract = false
+	State.AutoLootAura = false
+	State.AutoUnlockSafes = false
+	State.AntiCarrySlowdown = false
 	State.OptimizeMobileLag = false
 	State.UltraMobileLag = false
 	State.PotatoMapMode = false
+	State.AntiAfkEnabled = false
+	State.AutoReconnectEnabled = false
 
+	restoreFullbright()
+	restoreInstantInteract()
 	restorePotatoMapMode()
 	restoreMobileLagOptimization()
 
@@ -2433,6 +2701,26 @@ local function unloadAll()
 	end)
 end
 
+table.insert(lifecycleConnections, LocalPlayer.Idled:Connect(function()
+	if State.Unloaded or not State.AntiAfkEnabled then return end
+	pcall(function()
+		local vu = game:GetService("VirtualUser")
+		vu:CaptureController()
+		vu:ClickButton2(Vector2.new())
+	end)
+end))
+
+table.insert(lifecycleConnections, GuiService.ErrorMessageChanged:Connect(function(errMsg)
+	if State.Unloaded or not State.AutoReconnectEnabled then return end
+	if typeof(errMsg) == "string" and errMsg ~= "" then
+		task.delay(1.5, function()
+			if not State.Unloaded and State.AutoReconnectEnabled then
+				rejoinCurrentServer()
+			end
+		end)
+	end
+end))
+
 table.insert(lifecycleConnections, LocalPlayer.OnTeleport:Connect(function()
 	if not State.Unloaded then
 		persistSaveNow()
@@ -2442,21 +2730,15 @@ end))
 
 table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 	if State.Unloaded then return end
-	local char = Cached.Char
-	local hum = Cached.Hum
-	local root = Cached.Root
-	if not char or not hum or not root or hum.Health <= 0 then return end
-
-	local clampedDt = math.min(dt, 0.05)
 	local now = os.clock()
 
 	if State.FpsCapEnabled and (now - State.LastFpsApplyTime) >= 2.0 then
 		applyTargetFpsCap(false)
 	end
 
-	if State.AutoClaimIndex and (now - State.LastClaimScanTime) >= (State.UltraMobileLag and 1.0 or 0.6) then
-		State.LastClaimScanTime = now
-		runAutoClaimIndexPass()
+	if State.InstantInteract and (now - State.LastPromptSweepTime) >= (State.UltraMobileLag and 1.2 or 0.75) then
+		State.LastPromptSweepTime = now
+		runInstantInteractPass(State.UltraMobileLag and 20 or 32)
 	end
 
 	if State.OptimizeMobileLag and (now - State.LastMobileFxSweepTime) >= (State.UltraMobileLag and 10.0 or 7.0) then
@@ -2469,9 +2751,35 @@ table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(dt)
 		applyPotatoMapPass(28)
 	end
 
+	local char = Cached.Char
+	local hum = Cached.Hum
+	local root = Cached.Root
+	if not char or not hum or not root or hum.Health <= 0 then return end
+
+	local clampedDt = math.min(dt, 0.05)
+
+	if State.AutoClaimIndex and (now - State.LastClaimScanTime) >= (State.UltraMobileLag and 1.0 or 0.6) then
+		State.LastClaimScanTime = now
+		runAutoClaimIndexPass()
+	end
+
+	if State.AutoLootAura and (now - State.LastLootScanTime) >= (State.UltraMobileLag and 0.7 or 0.45) then
+		State.LastLootScanTime = now
+		runAutoLootAuraPass()
+	end
+
+	if State.AutoUnlockSafes and (now - State.LastUnlockScanTime) >= (State.UltraMobileLag and 0.85 or 0.55) then
+		State.LastUnlockScanTime = now
+		runAutoUnlockSafesPass()
+	end
+
+	if State.AntiCarrySlowdown and hum.WalkSpeed < State.MinCarrySpeed then
+		hum.WalkSpeed = State.MinCarrySpeed
+	end
+
 	applyVoidSafetyNet(char, hum, root, now)
 
-	if State.AutoWallBypass and hum.MoveDirection.Magnitude > 0.1 and (now - State.LastBypassTime) > 0.22 then
+	if State.AutoWallBypass and hum.MoveDirection.Magnitude > 0.1 and (now - State.LastBypassTime) > 0.24 then
 		executeHardWallBypass(false)
 	end
 
@@ -2531,6 +2839,20 @@ end))
 
 table.insert(lifecycleConnections, RunService.RenderStepped:Connect(function()
 	if State.Unloaded then return end
+
+	if State.ShowStatsPill and statsPill and statsPill.Parent then
+		frameCounter += 1
+		local now = os.clock()
+		local elapsed = now - lastStatsUpdateClock
+		if elapsed >= 0.5 then
+			local fps = math.floor((frameCounter / elapsed) + 0.5)
+			frameCounter = 0
+			lastStatsUpdateClock = now
+			local ping = getPingMsSafe()
+			statsPill.Text = ping and string.format("FPS: %d  |  %d ms", fps, ping) or string.format("FPS: %d", fps)
+		end
+	end
+
 	if State.BoxESP then
 		updateESPFrame()
 	end
@@ -2589,7 +2911,7 @@ end))
 -- ==========================================
 UIRefs.Noclip = MovementTab:Toggle({
 	Title = "Noclip (Ultra)",
-	Desc = "CanCollide/CanTouch/CanQuery lock + seat disable + sub-step phase",
+	Desc = "Multi-loop CanCollide/CanTouch/CanQuery lock + seat disable",
 	Default = false,
 	Callback = function(value)
 		setNoclip(value)
@@ -2599,7 +2921,7 @@ UIRefs.Noclip = MovementTab:Toggle({
 
 UIRefs.NoclipBetaUltra = MovementTab:Toggle({
 	Title = "Noclip Ultra Edge-Slide",
-	Desc = "Surface-normal projection + 8-angle slide vectors so corners never snag",
+	Desc = "6-angle slide vectors + 3-height wall check so corners never snag",
 	Default = true,
 	Callback = function(value)
 		State.NoclipBetaUltra = value
@@ -2618,8 +2940,8 @@ UIRefs.WallMicroStep = MovementTab:Toggle({
 })
 
 UIRefs.NoclipPhaseBoost = MovementTab:Toggle({
-	Title = "Thick-Wall Sub-Step Tunnel",
-	Desc = "2-step penetration drive when moving inside thick or double walls",
+	Title = "Thick-Wall Phase Boost",
+	Desc = "Extra penetration drive when moving inside thick solid parts",
 	Default = true,
 	Callback = function(value)
 		State.NoclipPhaseBoost = value
@@ -2633,8 +2955,8 @@ UIRefs.NoclipStepPower = MovementTab:Slider({
 	Step = 0.05,
 	Value = {
 		Min = 0.2,
-		Max = 3.2,
-		Default = 1.45
+		Max = 2.8,
+		Default = 1.25
 	},
 	Callback = function(value)
 		State.NoclipStepPower = value
@@ -2657,9 +2979,9 @@ UIRefs.BypassScanDistance = MovementTab:Slider({
 	Desc = "Max studs scanned ahead to find clear ground past a wall",
 	Step = 1,
 	Value = {
-		Min = 6,
-		Max = 50,
-		Default = 32
+		Min = 5,
+		Max = 45,
+		Default = 26
 	},
 	Callback = function(value)
 		State.BypassScanDistance = value
@@ -2772,7 +3094,7 @@ UIRefs.FloatingBtnWidth = MovementTab:Slider({
 
 MovementTab:Button({
 	Title = "Reset Floating Button Positions",
-	Desc = "Snap all draggable floating buttons back to the right side",
+	Desc = "Snap all draggable floating buttons & stats pill back to default spots",
 	Callback = resetFloatingButtonPositions
 })
 
@@ -2864,6 +3186,30 @@ HeistTab:Button({
 })
 
 HeistTab:Button({
+	Title = "Save Escape Spot",
+	Desc = "Save a getaway / safe waypoint for fast escapes",
+	Callback = function()
+		saveCurrentEscapeSpot()
+	end
+})
+
+HeistTab:Button({
+	Title = "Teleport to Escape",
+	Desc = "Warp straight to your saved escape/getaway spot",
+	Callback = function()
+		teleportToSavedEscape()
+	end
+})
+
+HeistTab:Button({
+	Title = "Panic Escape (Under / Base)",
+	Desc = "Drop to Under Map immediately, or warp to Escape/Base if already under",
+	Callback = function()
+		triggerPanicEscape()
+	end
+})
+
+HeistTab:Button({
 	Title = "UPGRADE BASE",
 	Desc = "Teleport cleanly to your saved base/upgrade spot without snap-backs",
 	Callback = function()
@@ -2871,6 +3217,84 @@ HeistTab:Button({
 			saveCurrentBaseSpot()
 		end
 		teleportToSavedBase()
+	end
+})
+
+UIRefs.AutoLootAura = HeistTab:Toggle({
+	Title = "Auto Collect / Loot Aura",
+	Desc = "Automatically grabs nearby loot, cash, & drops within range",
+	Default = false,
+	Callback = function(value)
+		State.AutoLootAura = value
+		if value then
+			State.LastLootScanTime = 0
+			runAutoLootAuraPass()
+		end
+		markFeatureUsed()
+	end
+})
+
+UIRefs.LootAuraRange = HeistTab:Slider({
+	Title = "Loot Aura Radius",
+	Desc = "Pickup scan distance in studs (10–35)",
+	Step = 1,
+	Value = {
+		Min = 10,
+		Max = 35,
+		Default = 22
+	},
+	Callback = function(value)
+		State.LootAuraRange = value
+		markFeatureUsed()
+	end
+})
+
+UIRefs.AutoUnlockSafes = HeistTab:Toggle({
+	Title = "Auto Unlock Doors & Safes",
+	Desc = "Triggers nearby unlock, open, breach, & safe prompts/detectors",
+	Default = false,
+	Callback = function(value)
+		State.AutoUnlockSafes = value
+		if value then
+			State.LastUnlockScanTime = 0
+			runAutoUnlockSafesPass()
+		end
+		markFeatureUsed()
+	end
+})
+
+UIRefs.AntiCarrySlowdown = HeistTab:Toggle({
+	Title = "Carry Speed Guard",
+	Desc = "Prevents WalkSpeed drops while carrying loot or heavy items",
+	Default = false,
+	Callback = function(value)
+		State.AntiCarrySlowdown = value
+		markFeatureUsed()
+	end
+})
+
+UIRefs.MinCarrySpeed = HeistTab:Slider({
+	Title = "Minimum Carry WalkSpeed",
+	Desc = "Floor WalkSpeed (12–45) kept active while carrying items",
+	Step = 1,
+	Value = {
+		Min = 12,
+		Max = 45,
+		Default = 20
+	},
+	Callback = function(value)
+		State.MinCarrySpeed = value
+		markFeatureUsed()
+	end
+})
+
+UIRefs.InstantInteract = HeistTab:Toggle({
+	Title = "Instant ProximityPrompt (0s Hold)",
+	Desc = "Sets HoldDuration = 0 on prompts for instant tap interactions",
+	Default = false,
+	Callback = function(value)
+		setInstantInteract(value)
+		markFeatureUsed()
 	end
 })
 
@@ -2966,6 +3390,16 @@ UIRefs.AntiKnockback = ProtectionTab:Toggle({
 	end
 })
 
+UIRefs.FullbrightEnabled = VisualsTab:Toggle({
+	Title = "Fullbright & No Fog",
+	Desc = "Removes dark shadows and thick fog for clear visibility",
+	Default = false,
+	Callback = function(value)
+		setFullbrightEnabled(value)
+		markFeatureUsed()
+	end
+})
+
 UIRefs.BoxESP = VisualsTab:Toggle({
 	Title = "Box ESP",
 	Desc = "2D boxes around other players",
@@ -2991,6 +3425,19 @@ UIRefs.PlayerInfoESP = VisualsTab:Toggle({
 					pcall(function() lbl.Visible = false end)
 				end
 			end
+		end
+		markFeatureUsed()
+	end
+})
+
+UIRefs.ShowStatsPill = UtilityTab:Toggle({
+	Title = "Live FPS & Ping Pill",
+	Desc = "Shows draggable live FPS & Ping (ms) badge at top of screen",
+	Default = true,
+	Callback = function(value)
+		State.ShowStatsPill = value
+		if refreshFloatingButtonVisual then
+			refreshFloatingButtonVisual()
 		end
 		markFeatureUsed()
 	end
@@ -3052,6 +3499,26 @@ UIRefs.PotatoMapMode = UtilityTab:Toggle({
 	Default = false,
 	Callback = function(value)
 		setPotatoMapMode(value)
+		markFeatureUsed()
+	end
+})
+
+UIRefs.AntiAfkEnabled = UtilityTab:Toggle({
+	Title = "Anti-AFK (Zero CPU)",
+	Desc = "Prevents getting kicked for idling",
+	Default = true,
+	Callback = function(value)
+		State.AntiAfkEnabled = value
+		markFeatureUsed()
+	end
+})
+
+UIRefs.AutoReconnectEnabled = UtilityTab:Toggle({
+	Title = "Auto Reconnect on Disconnect",
+	Desc = "Automatically rejoins if your connection drops",
+	Default = true,
+	Callback = function(value)
+		State.AutoReconnectEnabled = value
 		markFeatureUsed()
 	end
 })
@@ -3182,6 +3649,12 @@ do
 	end
 	if State.PotatoMapMode then
 		setPotatoMapMode(true)
+	end
+	if State.FullbrightEnabled then
+		applyFullbrightLighting()
+	end
+	if State.InstantInteract then
+		runInstantInteractPass(60)
 	end
 	applyTargetFpsCap(true)
 
