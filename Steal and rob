@@ -21,6 +21,40 @@ local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v35.json"
 local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-cloud/yutahub/main/main.lua"
 
 -- ==========================================
+-- CUSTOM GITHUB RAW BACKGROUND LOADER
+-- ==========================================
+-- Replace YOUR_IMAGE_NAME.png with your actual .png or .jpg filename in realdarkmoon/DarkMoon-b
+local CUSTOM_BG_URL = "https://raw.githubusercontent.com/realdarkmoon/DarkMoon-b/main/YOUR_IMAGE_NAME.png"
+local CUSTOM_BG_FILE = "YutaHub_CustomBG.png"
+local CUSTOM_BG_TRANSPARENCY = 0.35
+
+local function resolveCustomBackground(url, fileName)
+	if typeof(getcustomasset) ~= "function" or typeof(writefile) ~= "function" then
+		return nil
+	end
+	if typeof(url) ~= "string" or url == "" or url:find("YOUR_IMAGE_NAME", 1, true) then
+		return nil
+	end
+	local okGet, imgData = pcall(function()
+		return game:HttpGet(url)
+	end)
+	if not okGet or typeof(imgData) ~= "string" or #imgData < 32 then
+		return nil
+	end
+	local okWrite = pcall(writefile, fileName, imgData)
+	if not okWrite then
+		return nil
+	end
+	local okAsset, assetUri = pcall(getcustomasset, fileName)
+	if okAsset and typeof(assetUri) == "string" and assetUri ~= "" then
+		return assetUri
+	end
+	return nil
+end
+
+local CustomBgAsset = resolveCustomBackground(CUSTOM_BG_URL, CUSTOM_BG_FILE)
+
+-- ==========================================
 -- CHANGELOG DATA (WHAT'S NEW / WHAT'S FIXED)
 -- ==========================================
 local CHANGELOG = {
@@ -48,6 +82,8 @@ local Window = WindUI:CreateWindow({
 	MaxSize = Vector2.new(740, 640),
 	Theme = "Dark",
 	Transparent = true,
+	Background = CustomBgAsset,
+	BackgroundImageTransparency = CUSTOM_BG_TRANSPARENCY,
 	Resizable = true,
 	ToggleKey = Enum.KeyCode.RightShift
 })
