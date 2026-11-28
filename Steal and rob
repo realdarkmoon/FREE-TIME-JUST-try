@@ -18,13 +18,13 @@ local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 local SCRIPT_VERSION = "v35.0"
 local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v35.json"
-local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-cloud/yutahub/main/main.lua"
+local SCRIPT_SOURCE_URL = "loadstring(game:HttpGet("https://raw.githubusercontent.com/realdarkmoon/DarkMoon-b/refs/heads/main/README.md"))()"
 
 -- ==========================================
 -- CUSTOM GITHUB RAW BACKGROUND LOADER
 -- ==========================================
 -- Replace YOUR_IMAGE_NAME.png with your actual .png or .jpg filename in realdarkmoon/DarkMoon-b
-local CUSTOM_BG_URL = "https://raw.githubusercontent.com/realdarkmoon/DarkMoon-b/main/YOUR_IMAGE_NAME.png"
+local CUSTOM_BG_URL = "loadstring(game:HttpGet("https://raw.githubusercontent.com/realdarkmoon/DarkMoon-b/refs/heads/main/README.md"))()"
 local CUSTOM_BG_FILE = "YutaHub_CustomBG.png"
 local CUSTOM_BG_TRANSPARENCY = 0.35
 
