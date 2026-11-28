@@ -16,43 +16,9 @@ local VirtualUser = game:GetService("VirtualUser")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local SCRIPT_VERSION = "v35.0"
+local SCRIPT_VERSION = "v35.1"
 local SAVE_FILE_NAME = "PremiumYutaHub_AutoSave_v35.json"
-local SCRIPT_SOURCE_URL = "loadstring(game:HttpGet("https://raw.githubusercontent.com/realdarkmoon/DarkMoon-b/refs/heads/main/README.md"))()"
-
--- ==========================================
--- CUSTOM GITHUB RAW BACKGROUND LOADER
--- ==========================================
--- Replace YOUR_IMAGE_NAME.png with your actual .png or .jpg filename in realdarkmoon/DarkMoon-b
-local CUSTOM_BG_URL = "loadstring(game:HttpGet("https://raw.githubusercontent.com/realdarkmoon/DarkMoon-b/refs/heads/main/README.md"))()"
-local CUSTOM_BG_FILE = "YutaHub_CustomBG.png"
-local CUSTOM_BG_TRANSPARENCY = 0.35
-
-local function resolveCustomBackground(url, fileName)
-	if typeof(getcustomasset) ~= "function" or typeof(writefile) ~= "function" then
-		return nil
-	end
-	if typeof(url) ~= "string" or url == "" or url:find("YOUR_IMAGE_NAME", 1, true) then
-		return nil
-	end
-	local okGet, imgData = pcall(function()
-		return game:HttpGet(url)
-	end)
-	if not okGet or typeof(imgData) ~= "string" or #imgData < 32 then
-		return nil
-	end
-	local okWrite = pcall(writefile, fileName, imgData)
-	if not okWrite then
-		return nil
-	end
-	local okAsset, assetUri = pcall(getcustomasset, fileName)
-	if okAsset and typeof(assetUri) == "string" and assetUri ~= "" then
-		return assetUri
-	end
-	return nil
-end
-
-local CustomBgAsset = resolveCustomBackground(CUSTOM_BG_URL, CUSTOM_BG_FILE)
+local SCRIPT_SOURCE_URL = "https://raw.githubusercontent.com/darkmoonofficial40-cloud/yutahub/main/main.lua"
 
 -- ==========================================
 -- CHANGELOG DATA (WHAT'S NEW / WHAT'S FIXED)
@@ -62,10 +28,10 @@ local CHANGELOG = {
 	WhatsNew = {
 		"Unified Incremental World Scanner: Replaces multiple full-map descendant sweeps with small batched steps to cut mobile CPU spikes.",
 		"Lean Hot-Loop Execution: Removes heavy per-frame overhead in Heartbeat and RenderStepped for smoother mobile frame times.",
-		"500 FPS Cap + Instant Break & Steal Tools: Full suite retained with zero Air Platform overhead."
+		"500 FPS Cap + Break & Steal Guards: Smooth movement intent pacing, loot/unlock/claim triggers, and carry speed guard."
 	},
 	WhatsFixed = {
-		"Fixed mobile frame pacing and stutter caused by overlapping world scans and hot-loop wrappers.",
+		"Removed duplicate Under Map / floating button declarations so toggle sync and platform cleanup never conflict.",
 		"Fixed state restoration on toggle-off and Unload for Fullbright, Potato Map, Mobile FX, and Instant Interact.",
 		"Kept Under Map void safety, Escape/Base waypoints, and Noclip edge-sliding clean and bug-free."
 	}
@@ -82,8 +48,6 @@ local Window = WindUI:CreateWindow({
 	MaxSize = Vector2.new(740, 640),
 	Theme = "Dark",
 	Transparent = true,
-	Background = CustomBgAsset,
-	BackgroundImageTransparency = CUSTOM_BG_TRANSPARENCY,
 	Resizable = true,
 	ToggleKey = Enum.KeyCode.RightShift
 })
@@ -220,7 +184,8 @@ local Cached = {
 	WorldDescendants = {},
 	WorldScanIndex = 1,
 	WorldCacheDirty = true,
-	LastWorldCacheRefresh = 0
+	LastWorldCacheRefresh = 0,
+	RecentPromptTriggers = {}
 }
 
 local UIRefs = {}
@@ -527,13 +492,23 @@ local function getPromptOrDetectorPosition(obj)
 	return nil
 end
 
-local function triggerPromptOrDetector(desc)
+local function triggerPromptOrDetector(desc, now)
+	local clockNow = now or os.clock()
+	local lastFired = Cached.RecentPromptTriggers[desc]
+	if lastFired and (clockNow - lastFired) < 0.28 then
+		return false
+	end
+	Cached.RecentPromptTriggers[desc] = clockNow
+
 	if desc:IsA("ProximityPrompt") and desc.Enabled then
-		local ok = pcall(fireproximityprompt, desc)
-		if not ok then
+		local fired = false
+		if typeof(fireproximityprompt) == "function" then
+			fired = pcall(fireproximityprompt, desc)
+		end
+		if not fired then
 			pcall(function()
 				desc:InputHoldBegin()
-				task.delay(0.05, function()
+				task.delay(0.04, function()
 					if desc and desc.Parent then
 						pcall(function()
 							desc:InputHoldEnd()
@@ -545,7 +520,7 @@ local function triggerPromptOrDetector(desc)
 		return true
 	elseif desc:IsA("ClickDetector") then
 		if typeof(fireclickdetector) == "function" then
-			pcall(fireclickdetector, desc)
+			pcall(fireclickdetector, desc, 0)
 			return true
 		end
 	end
@@ -611,7 +586,7 @@ local function runUnifiedWorldScanStep(now)
 		idx = 1
 	end
 
-	for step = 1, batchSize do
+	for _ = 1, batchSize do
 		local desc = list[idx]
 		idx += 1
 		if idx > total then
@@ -641,7 +616,7 @@ local function runUnifiedWorldScanStep(now)
 							or matchesKeywordList(desc.Name, claimKeywords)
 							or matchesKeywordList(parentName, claimKeywords)
 						) then
-							if triggerPromptOrDetector(desc) then
+							if triggerPromptOrDetector(desc, now) then
 								triggersFired += 1
 							end
 						elseif State.AutoLootAura and dist <= lootMaxDist and (
@@ -650,7 +625,7 @@ local function runUnifiedWorldScanStep(now)
 							or matchesKeywordList(desc.Name, lootKeywords)
 							or matchesKeywordList(parentName, lootKeywords)
 						) then
-							if triggerPromptOrDetector(desc) then
+							if triggerPromptOrDetector(desc, now) then
 								triggersFired += 1
 							end
 						elseif State.AutoUnlockSafes and dist <= 22 and (
@@ -659,7 +634,7 @@ local function runUnifiedWorldScanStep(now)
 							or matchesKeywordList(desc.Name, unlockKeywords)
 							or matchesKeywordList(parentName, unlockKeywords)
 						) then
-							if triggerPromptOrDetector(desc) then
+							if triggerPromptOrDetector(desc, now) then
 								triggersFired += 1
 							end
 						end
@@ -674,21 +649,21 @@ local function runUnifiedWorldScanStep(now)
 						matchesKeywordList(desc.Name, claimKeywords)
 						or matchesKeywordList(parentName, claimKeywords)
 					) then
-						if triggerPromptOrDetector(desc) then
+						if triggerPromptOrDetector(desc, now) then
 							triggersFired += 1
 						end
 					elseif State.AutoLootAura and dist <= lootMaxDist and (
 						matchesKeywordList(desc.Name, lootKeywords)
 						or matchesKeywordList(parentName, lootKeywords)
 					) then
-						if triggerPromptOrDetector(desc) then
+						if triggerPromptOrDetector(desc, now) then
 							triggersFired += 1
 						end
 					elseif State.AutoUnlockSafes and dist <= 22 and (
 						matchesKeywordList(desc.Name, unlockKeywords)
 						or matchesKeywordList(parentName, unlockKeywords)
 					) then
-						if triggerPromptOrDetector(desc) then
+						if triggerPromptOrDetector(desc, now) then
 							triggersFired += 1
 						end
 					end
@@ -1172,7 +1147,7 @@ local function isPositionClear(pos)
 end
 
 -- ==========================================
--- UNDER MAP & BASE / ESCAPE TELEPORT SYSTEM
+-- SHARED UNDER MAP & WAYPOINT REFERENCES
 -- ==========================================
 local underPlatform = Instance.new("Part")
 underPlatform.Name = "YutaHub_UnderPlatform"
@@ -1202,22 +1177,6 @@ local function syncUnderMapToggleUI(value)
 	if refreshFloatingButtonVisual then
 		refreshFloatingButtonVisual()
 	end
-end
-
-local function saveCurrentBaseSpot()
-	local root = Cached.Root
-	if not root or not isValidVector3(root.Position) then return false end
-	State.SavedBaseCFrame = root.CFrame
-	State.LastCleanCFrame = root.CFrame
-	return true
-end
-
-local function saveCurrentEscapeSpot()
-	local root = Cached.Root
-	if not root or not isValidVector3(root.Position) then return false end
-	State.SavedEscapeCFrame = root.CFrame
-	State.LastCleanCFrame = root.CFrame
-	return true
 end
 
 local function computeSafeGroundCFrame(targetPos, lookVec)
@@ -1301,6 +1260,22 @@ local function teleportToSavedCFrame(targetCFrame, debounceField)
 		end
 	end)
 
+	return true
+end
+
+local function saveCurrentBaseSpot()
+	local root = Cached.Root
+	if not root or not isValidVector3(root.Position) then return false end
+	State.SavedBaseCFrame = root.CFrame
+	State.LastCleanCFrame = root.CFrame
+	return true
+end
+
+local function saveCurrentEscapeSpot()
+	local root = Cached.Root
+	if not root or not isValidVector3(root.Position) then return false end
+	State.SavedEscapeCFrame = root.CFrame
+	State.LastCleanCFrame = root.CFrame
 	return true
 end
 
@@ -1499,36 +1474,6 @@ end
 -- ==========================================
 -- UNDER MAP & RETURN SYSTEM
 -- ==========================================
-local underPlatform = Instance.new("Part")
-underPlatform.Name = "YutaHub_UnderPlatform"
-underPlatform.Size = Vector3.new(36, 1, 36)
-underPlatform.Anchored = true
-underPlatform.CanCollide = true
-underPlatform.CanTouch = false
-underPlatform.Transparency = 0.72
-underPlatform.Material = Enum.Material.SmoothPlastic
-underPlatform.Parent = nil
-
-local underMapToggleRef = nil
-local refreshFloatingButtonVisual = nil
-
-local function getPlatformTransparency()
-	return State.UnderMapClearPlatform and 0.92 or 0.72
-end
-
-local function syncUnderMapToggleUI(value)
-	if underMapToggleRef and underMapToggleRef.Set then
-		State.SyncingToggle = true
-		pcall(function()
-			underMapToggleRef:Set(value)
-		end)
-		State.SyncingToggle = false
-	end
-	if refreshFloatingButtonVisual then
-		refreshFloatingButtonVisual()
-	end
-end
-
 local function computeSafeUnderY(rootPos)
 	local desiredY = rootPos.Y - math.clamp(State.UnderMapOffset, 5, 40)
 	local downRay = Workspace:Raycast(rootPos, Vector3.new(0, -(State.UnderMapOffset + 12), 0), sharedRayParams)
@@ -1570,9 +1515,11 @@ local function updateUnderMapLoop(root)
 		end
 	end
 
-	underPlatform.Transparency = getPlatformTransparency()
-	underPlatform.Parent = Workspace
-	underPlatform.CFrame = CFrame.new(root.Position.X, targetY - 3.5, root.Position.Z)
+	if underPlatform then
+		underPlatform.Transparency = getPlatformTransparency()
+		underPlatform.Parent = Workspace
+		underPlatform.CFrame = CFrame.new(root.Position.X, targetY - 3.5, root.Position.Z)
+	end
 end
 
 local function returnFromUnderMap()
@@ -1641,9 +1588,11 @@ local function setUnderMap(enabled)
 		State.UnderAnchorY = safeY
 		local targetPos = Vector3.new(root.Position.X, safeY, root.Position.Z)
 
-		underPlatform.Transparency = getPlatformTransparency()
-		underPlatform.Parent = Workspace
-		underPlatform.CFrame = CFrame.new(targetPos.X, safeY - 3.5, targetPos.Z)
+		if underPlatform then
+			underPlatform.Transparency = getPlatformTransparency()
+			underPlatform.Parent = Workspace
+			underPlatform.CFrame = CFrame.new(targetPos.X, safeY - 3.5, targetPos.Z)
+		end
 
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
@@ -2630,6 +2579,7 @@ local function unloadAll()
 	restorePotatoMapMode()
 	restoreMobileLagOptimization()
 	table.clear(Cached.WorldDescendants)
+	table.clear(Cached.RecentPromptTriggers)
 
 	local capFn = getSetFpsCapFn()
 	if capFn then
